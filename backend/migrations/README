@@ -1,0 +1,7 @@
+# database migrations
+
+Create and apply schema migrations with Alembic. Migrations run against the
+PostgreSQL service named `postgres` on the Compose network; do not run them
+against random local databases.
+
+See `docs/development/migrations.md` for the exact workflow.
