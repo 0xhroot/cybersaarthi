@@ -24,10 +24,11 @@ class Database:
 
     def engine(self) -> AsyncEngine:
         if self._engine is None:
-            self._engine = create_async_engine(
-                self._settings.postgres_dsn,
-                pool_pre_ping=True,
-            )
+            # NB: psycopg (async) performs its own connection-validity checks;
+            # ``pool_pre_ping`` attempts a ping outside the greenlet context and
+            # intermittently raises ``MissingGreenlet`` when a pooled connection
+            # is reused, so it must be left disabled for this driver.
+            self._engine = create_async_engine(self._settings.postgres_dsn)
         return self._engine
 
     def session_factory(self) -> async_sessionmaker[AsyncSession]:

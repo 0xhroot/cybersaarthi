@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 EXEC := $(COMPOSE) exec -T backend
 
-.PHONY: help up down down-v build logs ps test test-unit lint format format-check typecheck \
+.PHONY: help up down down-v build logs ps seed test test-unit lint format format-check typecheck \
         migrate migration shell
 
 help: ## list available make targets
@@ -24,6 +24,9 @@ logs: ## follow logs for all services
 
 ps: ## show service status
 	$(COMPOSE) ps
+
+seed: ## seed the deterministic demo case (idempotent)
+	$(EXEC) python -m scripts.seed_demo
 
 test: ## run the full test suite (unit, api, integration) in the backend container
 	$(EXEC) pytest

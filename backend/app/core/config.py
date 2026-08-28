@@ -48,6 +48,21 @@ class Settings(BaseSettings):
     S3_BUCKET: str = "cybersaarthi"
     S3_REGION: str = "us-east-1"
 
+    # Evidence ingestion
+    EVIDENCE_MAX_SIZE_BYTES: int = 5 * 1024 * 1024
+    SPA_MODEL: str = "en_core_web_sm"
+
+    # Entity resolution thresholds (0-100)
+    RESOLUTION_AUTO_THRESHOLD: float = 92.0
+    RESOLUTION_REVIEW_THRESHOLD: float = 78.0
+
+    # Graph sync
+    GRAPH_CHUNK_SIZE: int = 250
+
+    # Resolution safety cap: how many existing entities per blocking key to
+    # compare against. Guards against accidental O(N^2) behaviour.
+    MAX_CANDIDATE_TARGETS_PER_KEY: int = 25
+
     # Security
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     SECRET_KEY: str = "change-me"
