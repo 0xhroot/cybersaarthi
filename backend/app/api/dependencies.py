@@ -8,9 +8,11 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.findings import AnalyticsService
 from app.core.config import get_settings
 from app.db.postgres import get_db_session
 from app.models import Case
+from app.repositories.analytics_repository import AnalyticsDataRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.evidence_repository import EvidenceRepository
 from app.repositories.relationship_repository import RelationshipRepository
@@ -73,6 +75,23 @@ async def get_ingestion_service(
         graph_sync=GraphSyncService(request.app.state.graph_store, settings),
         settings=settings,
     )
+
+
+async def get_analytics_service(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> AnalyticsService:
+    return AnalyticsService(
+        data_repo=AnalyticsDataRepository(session),
+        graph_store=request.app.state.graph_store,
+        settings=get_settings(),
+    )
+
+
+async def get_analytics_data_repository(
+    session: AsyncSession = Depends(get_db_session),
+) -> AnalyticsDataRepository:
+    return AnalyticsDataRepository(session)
 
 
 async def get_entity_query_service(

@@ -59,6 +59,19 @@ class Settings(BaseSettings):
     # Graph sync
     GRAPH_CHUNK_SIZE: int = 250
 
+    # Analytics pipeline. Thresholds live here (not scattered through services)
+    # so every analytical decision is configurable in one place.
+    ANALYTICS_GRAPH_NODE_CAP: int = 2000  # full exact algorithms below this size
+    ANALYTICS_PATH_MAX_HOPS: int = 4  # bounded multi-hop traversal (default)
+    ANALYTICS_PATH_RESULT_LIMIT: int = 10
+    ANALYTICS_COMMUNITY_QUALITY: float = 0.0  # greedy modularity stop threshold
+    ANALYTICS_MAX_HYPOTHESES: int = 25
+    ANALYTICS_PATTERN_SHARED_IDENTIFIER_MIN: int = 3  # entities sharing one identifier
+    ANALYTICS_PATTERN_CONCENTRATION_MIN: int = 5  # fan-out to flag concentration
+    ANALYTICS_PATTERN_BRIDGE_MIN_COMMUNITIES: int = 2
+    ANALYTICS_PATTERN_ANOMALY_TAIL: float = 0.95  # degree >= this percentile is anomalous
+    ANALYTICS_PATTERN_RAPID_SPREAD_SECONDS: int = 3600  # min timestamp spread for a growth signal
+
     # Resolution safety cap: how many existing entities per blocking key to
     # compare against. Guards against accidental O(N^2) behaviour.
     MAX_CANDIDATE_TARGETS_PER_KEY: int = 25

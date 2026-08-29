@@ -1,14 +1,27 @@
-"""Deterministic demo seed for Phase 2.
+"""Deterministic demo seed.
 
-Creates a single demo case and ingests three synthetic evidence files
-(CSV, JSON, TXT). Run from inside the backend container:
+Creates a single demo case and ingests synthetic evidence (CSV, JSON, TXT)
+designed to exercise both the Phase 2 knowledge-graph pipeline and the Phase 3
+investigation-intelligence engine:
+
+* a central/hub entity with high influence,
+* multiple communities of persons/organisations,
+* a bridge entity connecting communities (cut vertex),
+* shared identifiers (one phone/vehicle used by several people),
+* a relationship-concentration hub,
+* closed loops (person triangles),
+* repeated evidence backing one relationship,
+* missing links the analytics turn into hypotheses,
+* multi-hop traversable paths (Neo4j).
+
+Run from inside the backend container:
 
     python -m scripts.seed_demo
 
-The data is entirely fabricated (syntactic demo values only - no real
-persons, numbers or organisations). Re-running is safe and idempotent:
-existing evidence for the case is skipped and only missing graph
-projections are re-synced.
+The data is entirely fabricated (syntactic demo values only - no real persons,
+numbers or organisations). Re-running is safe and idempotent: existing evidence
+for the case is skipped (SHA-256) and only missing graph projections are
+re-synced.
 """
 
 # ruff: noqa: E501 -- demo data lines are intentionally long
@@ -24,7 +37,7 @@ from app.core.config import Settings, get_settings
 from app.db.neo4j import GraphStore
 from app.db.postgres import Database
 from app.db.storage import Storage
-from app.models import Case, Entity, EvidenceFile
+from app.models import Case, Entity, EvidenceFile, Relationship
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.evidence_repository import EvidenceRepository
 from app.repositories.relationship_repository import RelationshipRepository
@@ -85,10 +98,69 @@ TXT_DATA = (
     "Kavita Rao reported event CyberCon 2025 held at Kavita Enterprises in Mumbai.\n"
 )
 
+# Phase 3 enrichment: structured contact records that build a hub, a shared
+# identifier (one phone used by three people across cities) and repeated
+# evidence for Kavita's existing phone relationship.
+CONTACTS_JSON: list[dict[str, object]] = [
+    {
+        "name": "Vikram Jamwal",
+        "phone": "+91 80000 10001",
+        "city": "Mumbai",
+        "organization": "TechSecure Pvt Ltd",
+    },
+    {
+        "name": "Mukesh Rane",
+        "phone": "8000010002",
+        "city": "Mumbai",
+        "organization": "TechSecure Pvt Ltd",
+    },
+    {"name": "Sonal Kulkarni", "phone": "+91 80000 10003", "city": "Mumbai"},
+    {
+        "name": "Priya Nair",
+        "phone": "+91 80000 10004",
+        "city": "Bengaluru",
+        "organization": "SecureMart Ltd",
+    },
+    {"name": "Devraj Pillai", "phone": "8000010005", "city": "Bengaluru"},
+    {
+        "name": "Vishal Gaur",
+        "phone": "+91 80000 10006",
+        "city": "Delhi",
+        "organization": "TechSecure Pvt Ltd",
+    },
+    {"name": "Rohit Desai", "phone": "+91 80000 10077", "city": "Mumbai"},
+    {"name": "Sameer Bhat", "phone": "8000010077", "city": "Bengaluru"},
+    {"name": "Farhan Shaikh", "phone": "+91-80000-10077", "city": "Noida"},
+    {"name": "Kavita Rao", "phone": "9811122233", "city": "Mumbai"},
+    {"name": "Kavita Rao", "phone": "+91 98111 22233", "city": "Mumbai"},
+]
+
+# Phase 3 enrichment: free-text surveillance log that creates the person hub
+# cluster, closed loops (triangles), additional bridge/identifier connections
+# and multi-hop chains. Names are fabricated and NER-only (person -> person
+# relationships are co-occurrence inside each sentence window).
+SURVEILLANCE_TXT = (
+    "Surveillance log: Vikram Jamwal met Mukesh Rane at Marine Drive in Mumbai.\n"
+    "\n"
+    "Surveillance log: Mukesh Rane met Vikram Jamwal again near Gateway of India in Mumbai.\n"
+    "\n"
+    "Surveillance log: Rajesh Kumar met Mukesh Rane on Tuesday evening in Mumbai.\n"
+    "\n"
+    "Surveillance log: Rajesh Kumar, Vikram Jamwal and Sonal Kulkarni were seen together outside TechSecure in Mumbai.\n"
+    "\n"
+    "Surveillance log: Priya Nair visited SecureMart in Bengaluru and dialled number 8000010077.\n"
+    "\n"
+    "Surveillance log: Mr Sameer Bhat called 8000010077 from Bengaluru about the delivery to Noida.\n"
+    "\n"
+    "Surveillance log: Farhan Shaikh registered vehicle DL01EF9012 in Noida for the Bengaluru delivery group.\n"
+)
+
 EVIDENCE_PLAN: tuple[tuple[str, str, str | list[dict[str, object]]], ...] = (
     ("csv", "demo_call_records.csv", CSV_DATA),
     ("json", "demo_transactions.json", JSON_DATA),
     ("txt", "demo_statements.txt", TXT_DATA),
+    ("json", "demo_contacts.json", CONTACTS_JSON),
+    ("txt", "demo_surveillance.txt", SURVEILLANCE_TXT),
 )
 
 
@@ -202,7 +274,17 @@ class Seeder:
         entity_count = await session.scalar(
             select(func.count()).where(Entity.case_id == str(case.id))
         )
-        print(f"Seeded case {DEMO_CASE_NUMBER} ({case.id}) with {int(entity_count or 0)} entities")
+        relationship_count = await session.scalar(
+            select(func.count()).where(Relationship.case_id == str(case.id))
+        )
+        print(
+            f"Seeded case {DEMO_CASE_NUMBER} ({case.id}) with "
+            f"{int(entity_count or 0)} entities / {int(relationship_count or 0)} relationships"
+        )
+        print(
+            "Run the analytics pipeline: POST /api/v1/cases/<id>/analytics/run"
+            " or GET /api/v1/cases/<id>/analytics/summary"
+        )
 
 
 def main() -> None:
