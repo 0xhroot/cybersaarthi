@@ -68,6 +68,8 @@ services:
     restart: unless-stopped
     environment:
       NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-cybersaarthi}
+      # Allow short dev passwords (NEO4J_* maps to dbms.security.auth_minimum_password_length).
+      NEO4J_dbms_security_auth__minimum__password__length: "1"
     ports:
       - "7474:7474"
       - "7687:7687"

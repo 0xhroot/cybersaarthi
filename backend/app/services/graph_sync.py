@@ -112,13 +112,15 @@ class GraphSyncService:
                         f"""
                         MATCH (a:Entity {{id: $source}})
                         MATCH (b:Entity {{id: $target}})
-                        MERGE (a)-[r:{edge["type"]} {{id: $id}}]->(b)
+                        MERGE (a)-[r:{edge["type"]}]->(b)
                         ON CREATE SET
+                            r.id = $id,
                             r.case_id = $case_id,
                             r.confidence = $confidence,
                             r.explanation = $explanation,
                             r.created_at = $created_at
                         ON MATCH SET
+                            r.id = $id,
                             r.case_id = $case_id,
                             r.confidence = $confidence,
                             r.explanation = $explanation,
@@ -127,6 +129,35 @@ class GraphSyncService:
                         edge,
                     )
         return len(payload)
+
+    async def prune_duplicate_edges(self, case_id: uuid.UUID, canonical_edge_ids: list[str]) -> int:
+        """Collapse the Neo4j projection to one canonical edge per node pair.
+
+        Edge identity is ``(source, target, type)``: PostgreSQL guarantees one
+        canonical relationship row per logical edge (unique constraint), and
+        ``sync_edges`` merges on those endpoints, but legacy projections (or
+        anything writing before the constraint existed) may carry several edges
+        for the same logical relationship. This keeps exactly one — preferring
+        edges whose ``id`` is a canonical relationship id — and deletes the rest.
+        """
+        async with self.driver().session() as session:
+            result = await session.run(
+                """
+                MATCH (a:Entity {case_id: $cid})-[r]->(b:Entity {case_id: $cid})
+                WITH a, b, type(r) AS t, collect(r) AS rs
+                WHERE size(rs) > 1
+                UNWIND rs AS edge
+                WITH a, b, t, edge
+                ORDER BY CASE WHEN edge.id IN $ids THEN 0 ELSE 1 END, edge.id
+                WITH a, b, t, collect(edge) AS ordered
+                UNWIND ordered[1..] AS edge
+                DETACH DELETE edge
+                RETURN count(*) AS removed
+                """,
+                {"cid": str(case_id), "ids": canonical_edge_ids},
+            )
+            record = await result.single()
+            return int(record["removed"]) if record else 0
 
     async def sync_case(
         self,
@@ -137,6 +168,13 @@ class GraphSyncService:
     ) -> tuple[int, int]:
         nodes = await self.sync_nodes(entities, case_id)
         edges = await self.sync_edges(relationships, case_id)
+        removed = await self.prune_duplicate_edges(case_id, [str(rel.id) for rel in relationships])
+        if removed:
+            logger.info(
+                "pruned %d duplicate graph edges",
+                removed,
+                extra={"case_id": str(case_id)},
+            )
         logger.info(
             "graph sync complete",
             extra={"case_id": str(case_id), "nodes": nodes, "edges": edges},

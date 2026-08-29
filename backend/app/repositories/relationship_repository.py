@@ -27,6 +27,15 @@ class RelationshipRepository:
         context: dict[str, object] | None,
         explanation: str | None,
     ) -> Relationship | None:
+        """Create one canonical relationship row per logical edge.
+
+        ``(case_id, source_entity_id, target_entity_id, relationship_type)``
+        uniquely identifies a logical relationship regardless of which record or
+        evidence mechanism discovered it (``source_record_id`` is deliberately
+        outside the unique key). Returns ``None`` when the canonical row already
+        exists — callers then attach their evidence to that row instead of
+        creating a duplicate graph edge.
+        """
         statement = (
             pg_insert(Relationship)
             .values(
@@ -40,7 +49,7 @@ class RelationshipRepository:
                 explanation=explanation,
             )
             .on_conflict_do_nothing(
-                constraint="uq_relationships_case_src_dst_type_record",
+                constraint="uq_relationships_case_src_dst_type",
             )
             .returning(Relationship.id)
         )
@@ -49,6 +58,25 @@ class RelationshipRepository:
         if relationship_id is None:
             return None
         return await self._session.get(Relationship, relationship_id)
+
+    async def get_relationship(
+        self,
+        *,
+        case_id: uuid.UUID,
+        source_entity_id: uuid.UUID,
+        target_entity_id: uuid.UUID,
+        relationship_type: str,
+    ) -> Relationship | None:
+        """Fetch the canonical relationship row for a logical edge, if any."""
+        result = await self._session.execute(
+            select(Relationship).where(
+                Relationship.case_id == str(case_id),
+                Relationship.source_entity_id == str(source_entity_id),
+                Relationship.target_entity_id == str(target_entity_id),
+                Relationship.relationship_type == relationship_type,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def create_relationship_evidence(
         self,
@@ -78,6 +106,15 @@ class RelationshipRepository:
             .where(Relationship.case_id == str(case_id))
             .order_by(Relationship.created_at)
             .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def list_evidence(self, relationship_id: uuid.UUID) -> list[RelationshipEvidence]:
+        """Provenance rows recorded against one canonical relationship."""
+        result = await self._session.execute(
+            select(RelationshipEvidence)
+            .where(RelationshipEvidence.relationship_id == str(relationship_id))
+            .order_by(RelationshipEvidence.created_at)
         )
         return list(result.scalars())
 

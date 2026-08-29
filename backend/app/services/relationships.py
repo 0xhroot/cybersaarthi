@@ -99,6 +99,23 @@ def _pair_for(
     return None
 
 
+def _canonical_endpoints(
+    source_key: tuple[str, str], target_key: tuple[str, str]
+) -> tuple[tuple[str, str], tuple[str, str]]:
+    """Deterministic logical orientation for an extracted relationship.
+
+    Same-type pairs (person+person, phone+phone, account+account,
+    organization+organization) are undirected, so ``(a, b)`` and ``(b, a)``
+    are the same logical relationship. Sorting by canonical value collapses
+    them no matter how the mentions appear in a record or sentence, which is
+    what lets persistence deduplicate across evidence mechanisms. Cross-type
+    pairs keep the rule-defined direction (e.g. person -> phone :CALLED).
+    """
+    if source_key[0] == target_key[0] and source_key > target_key:
+        return target_key, source_key
+    return source_key, target_key
+
+
 def extract_relationships(
     mentions: list[Mention],
     resolved: dict[tuple[str, str], Any],
@@ -126,16 +143,8 @@ def extract_relationships(
                     source_key, target_key, rule = pair
                     if source_key == target_key:
                         continue
-                    # Same-type pairs are undirected: (a, b) and (b, a) collapse.
-                    if type_a == type_b:
-                        ordered_key = sorted((source_key, target_key))
-                        used_key: tuple[tuple[str, str], tuple[str, str], str] = (
-                            ordered_key[0],
-                            ordered_key[1],
-                            rule,
-                        )
-                    else:
-                        used_key = (source_key, target_key, rule)
+                    source_key, target_key = _canonical_endpoints(source_key, target_key)
+                    used_key = (source_key, target_key, rule)
                     if used_key in used:
                         continue
                     used.add(used_key)
@@ -171,16 +180,8 @@ def extract_relationships(
                 source_key, target_key, rule = pair
                 if source_key == target_key:
                     continue
-                # Same-type pairs are undirected: (a, b) and (b, a) collapse.
-                if source_key[0] == target_key[0]:
-                    ordered_key = sorted((source_key, target_key))
-                    pair_key: tuple[tuple[str, str], tuple[str, str], str] = (
-                        ordered_key[0],
-                        ordered_key[1],
-                        rule,
-                    )
-                else:
-                    pair_key = (source_key, target_key, rule)
+                source_key, target_key = _canonical_endpoints(source_key, target_key)
+                pair_key = (source_key, target_key, rule)
                 if pair_key in used_pairs:
                     continue
                 used_pairs.add(pair_key)

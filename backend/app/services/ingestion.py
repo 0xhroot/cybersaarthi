@@ -170,12 +170,26 @@ class IngestionService:
                 )
                 if row is not None:
                     persisted_rel += 1
-                    await self._relationship_repository.create_relationship_evidence(
-                        relationship_id=row.id,
-                        source_record_id=source_record.id,
-                        evidence_type=rel.evidence_type,
-                        snippet=rel.snippet,
+                else:
+                    # The logical relationship already exists for this case
+                    # (e.g. discovered earlier through another record or evidence
+                    # mechanism, or re-ingested idempotently). Attach this
+                    # discovery's provenance to the canonical row instead of
+                    # creating a duplicate graph edge.
+                    row = await self._relationship_repository.get_relationship(
+                        case_id=case_id,
+                        source_entity_id=source_id,
+                        target_entity_id=target_id,
+                        relationship_type=rel.relationship_type,
                     )
+                if row is None:
+                    continue
+                await self._relationship_repository.create_relationship_evidence(
+                    relationship_id=row.id,
+                    source_record_id=source_record.id,
+                    evidence_type=rel.evidence_type,
+                    snippet=rel.snippet,
+                )
             await self._evidence_repository.update_source_record(
                 source_record.id,
                 relationships_data=[

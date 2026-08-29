@@ -107,20 +107,20 @@ async def test_entity_graph_and_review_endpoints(http_client, phase2_case) -> No
 
     response = await http_client.get(f"{prefix}/cases/{case_id}/relationships")
     assert response.status_code == 200
-    assert response.json()["total"] == 14
+    assert response.json()["total"] == 9
 
     response = await http_client.get(f"{prefix}/cases/{case_id}/graph")
     assert response.status_code == 200, response.text
     graph = response.json()
     assert graph["case_id"] == str(case_id)
     assert len(graph["nodes"]) == 6
-    assert len(graph["edges"]) == 14
+    assert len(graph["edges"]) == 9
 
     response = await http_client.get(f"{prefix}/cases/{case_id}/graph/stats")
     assert response.status_code == 200
     stats = response.json()
     assert stats["node_count"] == 6
-    assert stats["edge_count"] == 14
+    assert stats["edge_count"] == 9
     assert stats["synced"] is True
 
     graph_node_id = graph["nodes"][0]["id"]

@@ -39,8 +39,7 @@ class Relationship(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "source_entity_id",
             "target_entity_id",
             "relationship_type",
-            "source_record_id",
-            name="uq_relationships_case_src_dst_type_record",
+            name="uq_relationships_case_src_dst_type",
         ),
     )
 

@@ -92,3 +92,51 @@ def test_account_pairs_become_transfers() -> None:
     accounts = [_mention("account", f"2200440011{i:02d}") for i in range(2)]
     rels = extract_relationships(accounts, _resolved(accounts), is_structured=True, text="")
     assert [rel.relationship_type.value for rel in rels] == ["transferred_to"]
+
+
+def test_same_type_structured_pair_orientation_is_canonical() -> None:
+    accounts = [_mention("account", "220044001122"), _mention("account", "1100220011")]
+    rels = extract_relationships(accounts, _resolved(accounts), is_structured=True, text="")
+    assert len(rels) == 1
+    assert rels[0].relationship_type.value == "transferred_to"
+    assert rels[0].source_key == ("account", "1100220011")
+    assert rels[0].target_key == ("account", "220044001122")
+
+
+def test_same_type_co_occurrence_pair_orientation_is_canonical() -> None:
+    text = "Account 220044001122 transferred to account 1100220011 today."
+    mentions = [
+        _mention("account", "220044001122", start=8, end=20),
+        _mention("account", "1100220011", start=36, end=46),
+    ]
+    rels = extract_relationships(mentions, _resolved(mentions), is_structured=False, text=text)
+    assert len(rels) == 1
+    assert rels[0].source_key == ("account", "1100220011")
+    assert rels[0].target_key == ("account", "220044001122")
+
+
+def test_same_type_reversed_pairs_collapse_to_same_orientation() -> None:
+    forward = [
+        _mention("account", "220044001122"),
+        _mention("account", "1100220011"),
+    ]
+    backward = [
+        _mention("account", "1100220011"),
+        _mention("account", "220044001122"),
+    ]
+    a = extract_relationships(forward, _resolved(forward), is_structured=True, text="")
+    b = extract_relationships(backward, _resolved(backward), is_structured=True, text="")
+    assert len(a) == len(b) == 1
+    assert (a[0].source_key, a[0].target_key) == (b[0].source_key, b[0].target_key)
+
+
+def test_cross_type_pair_keeps_rule_direction() -> None:
+    phone = _mention("phone", "919876543210")
+    person = _mention("person", "rajesh kumar")
+    rels = extract_relationships(
+        [phone, person], _resolved([phone, person]), is_structured=True, text=""
+    )
+    assert len(rels) == 1
+    assert rels[0].relationship_type.value == "called"
+    assert rels[0].source_key == ("person", "rajesh kumar")
+    assert rels[0].target_key == ("phone", "919876543210")
