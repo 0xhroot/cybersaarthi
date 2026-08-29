@@ -64,7 +64,9 @@ def generate_hypotheses(
     if max_hypotheses <= 0:
         return []
 
-    actors = [node for node in graph.nodes if _meta(node, entities).entity_type in ACTOR_TYPES]
+    actors = sorted(
+        node for node in graph.nodes if _meta(node, entities).entity_type in ACTOR_TYPES
+    )
     if len(actors) < 2:
         return []
 
@@ -101,14 +103,14 @@ def generate_hypotheses(
 
     hypotheses: list[HypothesisDraft] = []
     for (a, b), neighbors in sorted(shared.items(), key=lambda item: (item[0][0], item[0][1])):
-        type_counter = Counter(_meta(n, entities).entity_type for n in neighbors)
+        type_counter = Counter(_meta(n, entities).entity_type for n in sorted(neighbors))
         same_community = community_membership.get(a) == community_membership.get(b)
 
         shared_score = len(neighbors) / max_shared
 
         supporting_rels: list[str] = []
         relation_type_votes = Counter[str]()
-        for node in neighbors:
+        for node in sorted(neighbors):
             for endpoint in (a, b):
                 pair = _undirected_key(endpoint, node)
                 supporting_rels.extend(rel_by_undirected.get(pair, ()))

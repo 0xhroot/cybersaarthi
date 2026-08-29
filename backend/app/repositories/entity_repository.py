@@ -141,6 +141,23 @@ class EntityRepository:
         )
         return list(result.scalars())
 
+    async def get_aliases_bulk(
+        self,
+        entity_ids: list[uuid.UUID],
+    ) -> dict[str, list[EntityAlias]]:
+        """Aliases for many entities in one query, grouped by entity id."""
+        if not entity_ids:
+            return {}
+        result = await self._session.execute(
+            select(EntityAlias)
+            .where(EntityAlias.entity_id.in_([str(entity_id) for entity_id in entity_ids]))
+            .order_by(EntityAlias.alias_value)
+        )
+        grouped: dict[str, list[EntityAlias]] = {}
+        for alias in result.scalars():
+            grouped.setdefault(str(alias.entity_id), []).append(alias)
+        return grouped
+
     # Candidates -----------------------------------------------------------
     async def create_candidate(
         self,

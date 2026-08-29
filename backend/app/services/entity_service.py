@@ -101,10 +101,11 @@ class EntityQueryService:
             if str(rel.source_entity_id) in entity_ids and str(rel.target_entity_id) in entity_ids
         ]
 
-        alias_map: dict[str, list[str]] = {str(entity.id): [] for entity in entities}
-        for entity in entities:
-            aliases = await self._entities.get_aliases(entity.id)
-            alias_map[str(entity.id)] = [alias.alias_value for alias in aliases]
+        alias_map: dict[str, list[str]] = {entity_id: [] for entity_id in entity_ids}
+        for entity_id, aliases in (
+            await self._entities.get_aliases_bulk([entity.id for entity in entities])
+        ).items():
+            alias_map[entity_id] = [alias.alias_value for alias in aliases]
 
         nodes = [
             {

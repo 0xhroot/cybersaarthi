@@ -31,6 +31,8 @@ METRIC_NAMES = (
 class MetricResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "metric_results"
     __table_args__ = (
+        Index("ix_metric_results_case_id", "case_id"),
+        Index("ix_metric_results_run_id", "run_id"),
         Index("ix_metric_results_case_metric", "case_id", "metric_name"),
         Index("ix_metric_results_case_entity", "case_id", "entity_id"),
     )

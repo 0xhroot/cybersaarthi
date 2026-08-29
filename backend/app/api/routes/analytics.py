@@ -160,6 +160,8 @@ async def get_analytics_summary(
         findings_by_severity={str(k): int(v) for k, v in summary["findings_by_severity"].items()},
         findings_by_type={str(k): int(v) for k, v in summary["findings_by_type"].items()},
         finding_count=int(summary["finding_count"]),
+        exact_graph=bool(summary.get("exact_graph", context.exact_graph)),
+        approximation_notice=summary.get("approximation_notice"),
         generated_at=datetime.now(UTC),
     )
 

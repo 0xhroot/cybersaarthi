@@ -28,6 +28,9 @@ data/postgres/
 data/neo4j/
 data/redis/
 
+# Generated exploration dumps
+phase3_api_complete_dump.txt
+
 # IDE
 .idea/
 .vscode/

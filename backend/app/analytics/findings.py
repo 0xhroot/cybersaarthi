@@ -55,6 +55,7 @@ class AnalyticsContext:
     entities: dict[str, EntityMeta] = field(default_factory=dict)
     entity_ids: list[str] = field(default_factory=list)
     graph: Graph | None = None
+    exact_graph: bool = True
     centrality_records: list[dict[str, Any]] = field(default_factory=list)
     metric_maps: dict[str, dict[str, float]] = field(default_factory=dict)
     bridge_scores: dict[str, float] = field(default_factory=dict)
@@ -125,6 +126,7 @@ class AnalyticsService:
             )
         context.graph = build_graph(set(entity_types), rel_rows)
         graph = context.graph
+        context.exact_graph = len(graph.nodes) <= self._settings.ANALYTICS_GRAPH_NODE_CAP
 
         context.edge_relationships = defaultdict(list)
         context.relationship_by_id = {}
@@ -661,6 +663,16 @@ class AnalyticsService:
             "findings_by_severity": dict(severity_counts),
             "findings_by_type": dict(type_counts),
             "finding_count": len(context.findings),
+            "exact_graph": context.exact_graph,
+            "approximation_notice": (
+                None
+                if context.exact_graph
+                else (
+                    "Case graph exceeds the exact-analytics node cap "
+                    f"({self._settings.ANALYTICS_GRAPH_NODE_CAP}); centrality and "
+                    "community scores are sampling-based approximations."
+                )
+            ),
         }
 
     # -- persistence -------------------------------------------------------

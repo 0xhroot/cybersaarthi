@@ -51,18 +51,26 @@ async def list_findings(
     finding_type: str | None = Query(None),
     status: str | None = Query(None),
     severity: str | None = Query(None),
+    run_id: uuid.UUID | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_db_session),
     repository: AnalyticsDataRepository = Depends(get_analytics_data_repository),
 ) -> FindingListResponse:
-    """Findings for a case, newest first. Filter by type/status/severity."""
+    """Findings for a case, newest first. Filter by type/status/severity.
+
+    Findings are snapshotted per analytics run: each ``POST /analytics/run``
+    persists the findings it produced under its ``run_id``. Without a ``run_id``
+    the full history across runs is returned; pass ``run_id`` to view exactly
+    one run's snapshot.
+    """
     await get_case_or_404(case_id, session)
     items, total = await repository.list_findings(
         case_id,
         finding_type=finding_type,
         status=status,
         severity=severity,
+        run_id=run_id,
         limit=limit,
         offset=offset,
     )
@@ -77,12 +85,17 @@ async def list_findings(
 @router.get("/{case_id}/findings/stats", response_model=FindingStatsOut)
 async def get_findings_stats(
     case_id: uuid.UUID,
+    run_id: uuid.UUID | None = Query(None),
     session: AsyncSession = Depends(get_db_session),
     repository: AnalyticsDataRepository = Depends(get_analytics_data_repository),
 ) -> FindingStatsOut:
-    """Counts of findings grouped by type, severity and status."""
+    """Counts of findings grouped by type, severity and status.
+
+    Like the findings list, stats cover the whole case history unless a specific
+    ``run_id`` snapshot is requested.
+    """
     await get_case_or_404(case_id, session)
-    stats = await repository.findings_stats(case_id)
+    stats = await repository.findings_stats(case_id, run_id=run_id)
     return FindingStatsOut(**stats)
 
 

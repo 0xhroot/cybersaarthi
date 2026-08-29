@@ -244,6 +244,124 @@ def test_generate_hypotheses_for_shared_neighbours() -> None:
     assert all(len(d.affected_entities) >= 2 for d in drafts)
 
 
+def test_generate_hypotheses_never_mutates_graph() -> None:
+    """Missing-link hypotheses are projections; they must not add edges."""
+    settings = get_settings()
+    entities = {
+        "a": _meta("a", "Alice"),
+        "b": _meta("b", "Bob"),
+        "c1": _meta("c1", "c1"),
+        "c2": _meta("c2", "c2"),
+    }
+    graph = build_graph(
+        set(entities),
+        [("a", "c1", "called"), ("a", "c2", "called"), ("b", "c1", "called")],
+    )
+    edges_before = len(graph.edges)
+    directed_before = len(graph.directed)
+
+    generate_hypotheses(
+        graph,
+        entities,
+        settings,
+        edge_relationships={
+            (min(s, t), max(s, t)): [rid]
+            for s, t, rid in [("a", "c1", "r1"), ("a", "c2", "r2"), ("b", "c1", "r3")]
+        },
+    )
+
+    assert len(graph.edges) == edges_before
+    assert len(graph.directed) == directed_before
+
+
+def test_hypothesis_candidate_relation_type_is_canonical() -> None:
+    from app.models import RELATIONSHIP_TYPES
+
+    settings = get_settings()
+    entities = {
+        "a": _meta("a", "Alice"),
+        "b": _meta("b", "Bob"),
+        "c1": _meta("c1", "c1"),
+        "c2": _meta("c2", "c2"),
+    }
+    graph = build_graph(
+        set(entities),
+        [("a", "c1", "called"), ("a", "c2", "called"), ("b", "c1", "called")],
+    )
+    drafts = generate_hypotheses(
+        graph,
+        entities,
+        settings,
+        edge_relationships={
+            (min(s, t), max(s, t)): [rid]
+            for s, t, rid in [("a", "c1", "r1"), ("a", "c2", "r2"), ("b", "c1", "r3")]
+        },
+    )
+    assert drafts
+    for draft in drafts:
+        assert draft.candidate_relation_type in {*RELATIONSHIP_TYPES, None}
+
+
+def test_hypotheses_reproduce_across_hash_seeds() -> None:
+    """Hypothesis selection must not depend on PYTHONHASHSEED.
+
+    Guard against set-iteration-order leaking into the bounded candidate list:
+    the star fixture produces many hypotheses with *identical* scores, so the
+    sort key is not a total order and the ``[:max_hypotheses]`` cutoff is only
+    deterministic if actor/neighbour iteration is canonical.
+    """
+    import os
+    import subprocess
+    import sys
+
+    probe = r"""
+import json, sys
+sys.path.insert(0, ".")
+from app.analytics.graph import build_graph
+from app.analytics.hypotheses import generate_hypotheses
+from app.analytics.patterns import EntityMeta
+from app.core.config import get_settings
+
+def meta(entity_id: str, kind: str = "person") -> EntityMeta:
+    return EntityMeta(entity_id, kind, entity_id, confidence=0.9)
+
+ids = [f"p{i}" for i in range(1, 9)] + ["hub"]
+entities = {i: meta(i, "person") for i in ids}
+graph = build_graph(
+    set(entities),
+    [(speak, "hub", "called") for speak in ids if speak != "hub"],
+)
+drafts = generate_hypotheses(graph, entities, get_settings(), {})
+snapshot = sorted(
+    [
+        str(draft.score),
+        draft.severity,
+        tuple(draft.affected_entities),
+        draft.candidate_relation_type,
+    ]
+    for draft in drafts
+)
+print(json.dumps(snapshot))
+"""
+
+    def snapshot(seed: str) -> str:
+        env = dict(os.environ)
+        env["PYTHONHASHSEED"] = seed
+        env["ANALYTICS_MAX_HYPOTHESES"] = "5"
+        proc = subprocess.run(  # noqa: S603 - fixed constant probe, no untrusted input
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=".",
+        )
+        assert proc.returncode == 0, proc.stderr
+        return proc.stdout.strip().splitlines()[-1]
+
+    outputs = {snapshot(seed) for seed in ("1", "2", "3", "7")}
+    assert len(outputs) == 1, "hypotheses differ across PYTHONHASHSEED values"
+
+
 def test_network_dna_profile_and_tiers() -> None:
     result = build_network_profile(
         entity_id="e1",

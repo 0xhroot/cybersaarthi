@@ -290,6 +290,7 @@ class AnalyticsDataRepository:
         finding_type: str | None = None,
         status: str | None = None,
         severity: str | None = None,
+        run_id: uuid.UUID | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[Finding], int]:
@@ -300,6 +301,8 @@ class AnalyticsDataRepository:
             filters.append(Finding.status == status)
         if severity:
             filters.append(Finding.severity == severity)
+        if run_id:
+            filters.append(Finding.run_id == str(run_id))
         base = select(Finding).where(*filters)
         total = await self._session.scalar(select(func.count()).select_from(base.subquery()))
         result = await self._session.execute(
@@ -330,14 +333,21 @@ class AnalyticsDataRepository:
         await self._session.flush()
         return finding
 
-    async def findings_stats(self, case_id: uuid.UUID) -> dict[str, dict[str, int]]:
+    async def findings_stats(
+        self,
+        case_id: uuid.UUID,
+        run_id: uuid.UUID | None = None,
+    ) -> dict[str, dict[str, int]]:
+        filters = [Finding.case_id == str(case_id)]
+        if run_id:
+            filters.append(Finding.run_id == str(run_id))
         rows = await self._session.execute(
             select(
                 Finding.finding_type,
                 Finding.severity,
                 Finding.status,
                 Finding.id,
-            ).where(Finding.case_id == str(case_id))
+            ).where(*filters)
         )
         stats: dict[str, dict[str, int]] = {
             "by_type": {},

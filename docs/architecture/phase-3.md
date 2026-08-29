@@ -159,6 +159,45 @@ only:
 | `ANALYTICS_PATTERN_ANOMALY_TAIL` | 0.95 | degree percentile tail |
 | `ANALYTICS_PATTERN_RAPID_SPREAD_SECONDS` | 3600 | minimal timestamp spread |
 
+### Approximate vs exact results (honest reporting)
+
+All algorithms above the graph load cap are exact over the loaded graph. When a
+case exceeds `ANALYTICS_GRAPH_NODE_CAP` (default 2000) the loader falls back to a
+sampled subgraph, making results approximate. This is **always reported**: the
+summary carries `exact_graph: true/false` and a human-readable
+`approximation_notice`; the digest reports `entity_counts.exact`; Network DNA and
+strength results carry a per-entity `exact` flag. Consumers are required to
+surface the notice whenever an approximation is in effect. Predictable
+consequence (also documented in README): fewer than 2000 nodes ⇒ `exact_graph`
+is always true on the demo data.
+
+## Findings persistence semantics (decision)
+
+**Findings are intentional, append-only run snapshots (audit history).**
+
+Each `POST /analytics/run` computes the full deterministic pipeline and persists
+one `AnalyticsRun` with its own snapshot of findings, metrics, communities and
+profiles — every row is linked to that run via `run_id`. Repeated runs therefore
+accumulate findings rows; this is deliberate so that any past run can be
+reconstructed. Consequences for consumers:
+
+- `GET /cases/{id}/findings` and `GET /cases/{id}/findings/stats` return the
+  **union across all runs** (newest first). This is intentional — it is the
+  reviewable history, not just the last snapshot.
+- Every finding payload carries `run_id` and `created_at`, so current and
+  historical findings can always be distinguished by the client. To view a
+  single run's snapshot, pass `?run_id=<id>` (findings and findings/stats).
+- Status review is **per snapshot**: a finding from an older run can be
+  `REVIEWED`/`DISMISSED`/`CONFIRMED` independently of newer runs. Analysts
+  should default to filtering on the latest `completed` run (see
+  `GET /analytics/runs`) for the "current" picture.
+- Within a single run the pipeline emits each logical finding at most once
+  (detectors deduplicate; the assembled list is capped at 200 findings), so no
+  run accumulates duplicate snapshots by itself.
+- Growth is linear in (runs × findings-per-run). That is acceptable for case
+  work today; operational lifecycle/pruning of old runs is future work, not a
+  Phase-3 defect.
+
 ## Findings lifecycle
 
 Findings are created with `status=NEW` and an initially computed severity from
@@ -166,6 +205,27 @@ the producing detector. `CONFIRMED` is **never auto-assigned** — only an
 investigator may set it via `PATCH /findings/{id}/status`. Status transitions
 are single-field updates (`NEW / REVIEWED / DISMISSED / CONFIRMED`) and the
 audit trail of who/when is preserved through existing case-level controls.
+
+## Hypotheses are candidates, never facts
+
+`app/analytics/hypotheses.py` and `GET /analytics/hypotheses` only ever propose
+missing-link candidates for entity pairs with **no direct relationship**:
+
+- A hypothesis reports candidate endpoints, a `candidate_relation_type`
+  suggested by the relationship types on the existing shared-neighbour edges,
+  the score, confidence, the exact shared signals (shared neighbours,
+  community membership, supporting relationships) and the supporting
+  relationships' evidence IDs.
+- Hypotheses are **never written back** to the graph or the evidence layer —
+  generating one creates/metastasizes no edge in PostgreSQL or Neo4j (covered
+  by `test_hypotheses_are_candidates_not_facts` and
+  `test_generate_hypotheses_never_mutates_graph`).
+- Persisted hypothesis findings carry an explanation whose `limitations` state
+  that a candidate edge is not evidence and never creates a graph edge.
+- The API distinguishes observed edges (the graph) from inferred candidates
+  (hypotheses) structurally: hypotheses are only listed under
+  `/analytics/hypotheses` and `finding_type == "hypothesis"`, and the summary's
+  `relationship_count` never counts them.
 
 ## Modules
 
@@ -231,6 +291,55 @@ e.g. `Arjun Mehta ↔ Rajesh Kumar <- works_for (1.00)` and
   Network DNA, strength formula (exact weights).
 - API: `tests/api/test_analytics_api.py` — full lifecycle over ephemeral cases
   (summary, run persistence, findings status, paths, statistics, 404s, and
-  cross-case isolation).
-- Gates in the backend container are all green: `pytest` (143 passed), `ruff
-  check`, `ruff format --check`, `mypy app`.
+  cross-case isolation); includes regression coverage for the audit follow-ups:
+  run-snapshot semantics via `run_id`, hypotheses-never-mutate, paths
+  validation + OpenAPI contract, and exact-graph defaults.
+- Cross-process determinism regression:
+  `test_hypotheses_reproduce_across_hash_seeds` — runs the hypothesis generator
+  in subprocesses under several `PYTHONHASHSEED` values and asserts identical
+  candidate lists. This guards the two `sorted()` calls in
+  `app/analytics/hypotheses.py` that keep set-iteration order out of the
+  bounded candidate list.
+- Gates in the backend container are all green: `pytest` (150 passed), `ruff
+  check`, `ruff format --check`, `mypy app`, `alembic check` (no drift).
+
+## Deferred items (intentionally out of scope)
+
+Recorded so readers do not mistake them for defects:
+
+- **Authentication / RBAC.** Phase-3 (and Phases 1–2) expose no authentication.
+  `User`, `Role`, `UserRole` models, bcrypt helpers and the user
+  service/repository scaffolding exist but **no auth endpoints or middleware
+  are wired**. Every endpoint is currently unauthenticated. The intended
+  injection point is `app/api/dependencies.py` (auth dependency + role gate).
+- **Background ingestion.** `POST /ingest` executes the pipeline synchronously
+  inside the request. Jobs are persisted and safe to retry, but there is no
+  worker/queue (Celery/RQ) yet — that is a later-phase operational concern.
+- **Frontend and deployment manifests.** `frontend/`, `infra/`, `ml/`, `data/`
+  are empty placeholders by design.
+
+## Phase 3 final verification
+
+Clean-room check: `docker compose down -v` → fresh build → start → migrations →
+`make seed` → `POST /analytics/run` on the demo case → full gate run.
+
+- **Migrations:** single head `a4b9c7e16d20`; `alembic current` = `alembic
+  heads`; `alembic check` reports no drift ("No new upgrade operations
+  detected"); a downgrade to base followed by `upgrade head` was performed on
+  the clean-room stack and reproduced the same head with no drift.
+- **Tests:** `pytest` 150 passed (unit 121, api 17, integration 12) in the
+  backend container.
+- **Static gates:** `ruff check` clean, `ruff format --check` clean (116
+  files), `mypy app` clean (83 source files).
+- **Docker:** all five services healthy after cold start; ready endpoint `200`.
+- **Determinism:** the seeded case summary (45 entities / 86 relationships /
+  4 communities / 55 findings / priority tiers LOW 29 · MEDIUM 15 · HIGH 1)
+  reproduced identically across repeated requests and across backend restarts;
+  a cross-process `PYTHONHASHSEED` regression test covers the fixed
+  hypothesis-ordering.
+- **Demo analytics:** deterministic output for DEMO-2026-001 (45 entities /
+  86 relationships / 4 communities / 55 findings / top profiles and paths as
+  listed above) reproduced after the down -v cycle and after the migration
+  round-trip.
+- **Final commit:** `chore: finalize phase 3 audit and consistency cleanup`
+  (single commit; hash in repo log).

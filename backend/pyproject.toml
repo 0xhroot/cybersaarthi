@@ -1,7 +1,7 @@
 [project]
 name = "cybersaarthi-backend"
 version = "0.1.0"
-description = "CyberSaarthi backend - AI-powered criminal network analysis (Phase 1: foundation)"
+description = "CyberSaarthi backend - deterministic criminal-network analysis (evidence pipeline + analytics)"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [

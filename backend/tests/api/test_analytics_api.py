@@ -13,7 +13,8 @@ import uuid
 import pytest
 from app.core.config import get_settings
 from app.db.postgres import Database
-from app.models import Case
+from app.main import app
+from app.models import RELATIONSHIP_TYPES, Case
 from sqlalchemy import delete
 
 CSV_BYTES = (
@@ -195,6 +196,184 @@ async def test_analytics_read_endpoints(http_client, phase3_case) -> None:
     entity_analysis = response.json()
     assert "priority_tier" in entity_analysis
     assert "centrality" in entity_analysis
+
+
+async def test_findings_snapshot_semantics_across_runs(http_client, phase3_case) -> None:
+    """Each analytics run persists its own finding snapshot under its run_id.
+
+    Findings accumulate intentionally (audit history); a run_id filter isolates
+    exactly one run's snapshot so current and historical findings remain
+    distinguishable.
+    """
+    case_id, _ = phase3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _ingested_case(http_client, case_id)
+
+    response = await http_client.post(f"{prefix}/cases/{case_id}/analytics/run")
+    assert response.status_code == 201, response.text
+    first_run_id = response.json()["id"]
+    first_total = (await http_client.get(f"{prefix}/cases/{case_id}/findings")).json()["total"]
+    assert first_total >= 1
+
+    response = await http_client.post(f"{prefix}/cases/{case_id}/analytics/run")
+    assert response.status_code == 201, response.text
+    second_run_id = response.json()["id"]
+
+    all_findings = await http_client.get(f"{prefix}/cases/{case_id}/findings")
+    assert all_findings.status_code == 200, all_findings.text
+    history = all_findings.json()
+    assert history["total"] >= first_total
+    assert {item["run_id"] for item in history["items"]} <= {first_run_id, second_run_id}
+
+    scoped = await http_client.get(f"{prefix}/cases/{case_id}/findings?run_id={first_run_id}")
+    assert scoped.status_code == 200, scoped.text
+    first_snapshot = scoped.json()
+    assert first_snapshot["total"] >= 1
+    assert all(item["run_id"] == first_run_id for item in first_snapshot["items"])
+
+    scoped_stats = await http_client.get(
+        f"{prefix}/cases/{case_id}/findings/stats?run_id={first_run_id}"
+    )
+    assert scoped_stats.status_code == 200, scoped_stats.text
+    assert scoped_stats.json()["by_status"].get("NEW", 0) == first_snapshot["total"]
+
+
+async def test_hypotheses_are_candidates_not_facts(http_client, phase3_case) -> None:
+    """A missing-link hypothesis must never create a graph relationship.
+
+    The engine reports the candidate edge (with signals, supported relationships
+    and evidence) but the persisted relationship set is unchanged by an
+    analytics run.
+    """
+    case_id, _ = phase3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _ingested_case(http_client, case_id)
+
+    before = await http_client.get(f"{prefix}/cases/{case_id}/analytics/summary")
+    assert before.status_code == 200, before.text
+    relationship_count_before = before.json()["relationship_count"]
+
+    response = await http_client.post(f"{prefix}/cases/{case_id}/analytics/run")
+    assert response.status_code == 201, response.text
+
+    after = await http_client.get(f"{prefix}/cases/{case_id}/analytics/summary")
+    assert after.status_code == 200, after.text
+    assert after.json()["relationship_count"] == relationship_count_before
+
+    response = await http_client.get(f"{prefix}/cases/{case_id}/analytics/hypotheses?limit=25")
+    assert response.status_code == 200, response.text
+    hypotheses = response.json()
+
+    findings = (await http_client.get(f"{prefix}/cases/{case_id}/findings")).json()["items"]
+    hypothesis_findings = [
+        finding for finding in findings if finding["finding_type"] == "hypothesis"
+    ]
+    assert hypothesis_findings, "expected at least one hypothesis finding"
+
+    for hypothesis in hypotheses:
+        assert hypothesis["candidate_relation_type"] in {*RELATIONSHIP_TYPES, None}
+        assert hypothesis["affected_entities"]
+        assert hypothesis["signals"], "hypothesis must explain its signals"
+        assert "shared_neighbors" in {signal["name"] for signal in hypothesis["signals"]}
+
+    sample = hypothesis_findings[0]
+    limitation = "".join(sample["explanation"].get("limitations") or [])
+    assert "never creates a graph edge" in limitation
+    assert all(key in sample["explanation"] for key in ("approach", "signals", "evidence"))
+
+
+async def test_paths_validation_and_openapi_contract(http_client, phase3_case) -> None:
+    case_id, database = phase3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _ingested_case(http_client, case_id)
+
+    entities = (await http_client.get(f"{prefix}/cases/{case_id}/entities")).json()["items"]
+    persons = [e for e in entities if e["entity_type"] == "person"]
+    assert len(persons) >= 2
+    source, target = persons[0]["id"], persons[1]["id"]
+
+    # Required query parameters: omitted source_id/target_id -> 422.
+    response = await http_client.get(f"{prefix}/cases/{case_id}/analytics/paths")
+    assert response.status_code == 422
+
+    # Same source and target are rejected with a clear 422.
+    response = await http_client.get(
+        f"{prefix}/cases/{case_id}/analytics/paths?source_id={source}&target_id={source}"
+    )
+    assert response.status_code == 422
+
+    # Hop bounds are enforced against MAX_HOPS_LIMIT.
+    response = await http_client.get(
+        f"{prefix}/cases/{case_id}/analytics/paths?source_id={source}&target_id={target}&max_hops=9"
+    )
+    assert response.status_code == 422
+    response = await http_client.get(
+        f"{prefix}/cases/{case_id}/analytics/paths?source_id={source}&target_id={target}&max_hops=1"
+    )
+    assert response.status_code == 422
+    response = await http_client.get(
+        f"{prefix}/cases/{case_id}/analytics/paths/entity/{source}?max_hops=9"
+    )
+    assert response.status_code == 422
+
+    # Nonexistent / foreign entities yield an empty path set, never an error.
+    missing = str(uuid.uuid4())
+    response = await http_client.get(
+        f"{prefix}/cases/{case_id}/analytics/paths?source_id={missing}&target_id={target}"
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["paths_count"] == 0
+    response = await http_client.get(f"{prefix}/cases/{case_id}/analytics/paths/entity/{missing}")
+    assert response.status_code == 200, response.text
+    assert response.json()["paths_count"] == 0
+
+    # OpenAPI marks source_id/target_id as required parameters.
+    spec = app.openapi()
+    path_spec = spec["paths"][f"{prefix}/cases/{{case_id}}/analytics/paths"]["get"]
+    required = {param["name"] for param in path_spec["parameters"] if param.get("required")}
+    assert {"source_id", "target_id"} <= required
+
+    # Case isolation: a case with no data returns empty findings and paths.
+    other = Case(
+        id=uuid.uuid4(),
+        case_number=f"ANL-{uuid.uuid4().hex[:8]}",
+        title="phase-3 path isolation case",
+    )
+    factory = database.session_factory()
+    async with factory() as session:
+        session.add(other)
+        await session.commit()
+    other_id = other.id
+    try:
+        response = await http_client.get(
+            f"{prefix}/cases/{other_id}/analytics/paths/entity/{source}"
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["paths_count"] == 0
+    finally:
+        async with factory() as session:
+            await session.execute(delete(Case).where(Case.id == other_id))
+            await session.commit()
+
+
+async def test_analytics_summary_exact_flag_defaults(http_client, phase3_case) -> None:
+    """Small cases run exact analytics; the summary surfaces no approximation
+    notice and the centrality payloads report exact=True."""
+    case_id, _ = phase3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _ingested_case(http_client, case_id)
+
+    response = await http_client.get(f"{prefix}/cases/{case_id}/analytics/summary")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["exact_graph"] is True
+    assert payload["approximation_notice"] is None
+
+    response = await http_client.get(
+        f"{prefix}/cases/{case_id}/analytics/centrality?metric=degree&limit=5"
+    )
+    assert response.status_code == 200, response.text
+    assert all(entry["exact"] is True for entry in response.json())
 
 
 async def test_analytics_not_found_and_isolation(http_client, phase3_case) -> None:

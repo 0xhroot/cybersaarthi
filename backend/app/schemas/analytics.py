@@ -154,6 +154,8 @@ class AnalyticsSummary(BaseModel):
     findings_by_severity: dict[str, int] = {}
     findings_by_type: dict[str, int] = {}
     finding_count: int
+    exact_graph: bool = True
+    approximation_notice: str | None = None
     generated_at: datetime
 
 

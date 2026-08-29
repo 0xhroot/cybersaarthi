@@ -1,0 +1,270 @@
+{
+  "audit": {
+    "title": "CyberSaarthi — Project Complete Audit",
+    "date": "2026-08-29T00:00:00",
+    "repo_root": "/home/xhroot/Documents/ai/cybersaarthi",
+    "git": {
+      "baseline_commit": "e59caa7",
+      "baseline_commit_message": "feat(analytics): add investigation intelligence engine",
+      "commits": [
+        { "hash": "54193a2", "message": "feat: CyberSaarthi Phase 1 foundation" },
+        { "hash": "fdaa4ac", "message": "feat: implement phase 2 data intelligence pipeline" },
+        { "hash": "669951d", "message": "fix(ingestion): collapse duplicate logical graph edges across evidence mechanisms" },
+        { "hash": "e59caa7", "message": "feat(analytics): add investigation intelligence engine" }
+      ],
+      "untracked": ["scripts/phase3_api_dump.sh", "phase3_api_complete_dump.txt"]
+    },
+    "version": "0.1.0",
+    "language": "Python",
+    "language_version": "3.12",
+    "framework": "FastAPI",
+    "migration_tool": "alembic",
+    "language_orm": "SQLAlchemy 2.0 async + psycopg3",
+    "architecture": "modular monolith",
+    "design_principles": [
+      "no-fake-ai (deterministic scoring, no fabricated confidence)",
+      "postgresql-is-source-of-truth",
+      "neo4j-bounded-projection-only (allShortestPaths, max 8 hops)",
+      "explainable-findings-with-evidence-lineage",
+      "idempotent-multi-store-writes (SHA-256 dedupe, MERGE projection)"
+    ]
+  },
+  "stack": {
+    "services": {
+      "backend": { "image": "cybersaarthi-backend", "port": 8000, "healthcheck": "GET /api/v1/health", "status": "healthy" },
+      "postgres": { "image": "postgres:16-alpine", "port": 5432, "status": "healthy" },
+      "neo4j": { "image": "neo4j:5-community", "port": "7474/7687", "status": "healthy" },
+      "redis": { "image": "redis:7-alpine", "port": 6379, "status": "healthy" },
+      "minio": { "image": "minio/minio:latest", "port": "9000/9001", "status": "healthy" },
+      "minio-init": { "image": "minio/mc:latest", "task": "create bucket" }
+    },
+    "python_dependencies": {
+      "runtime": {
+        "fastapi": "0.141.1",
+        "sqlalchemy[asyncio]": "2.0.52",
+        "alembic": "1.19.1",
+        "psycopg[binary]": "3.3.4",
+        "neo4j": "6.3.0",
+        "redis": "8.1.0",
+        "boto3": "1.43.82",
+        "bcrypt": "5.0.0",
+        "spacy": "3.8.16",
+        "en_core_web_sm": "pinned",
+        "rapidfuzz": "3.14.5",
+        "charset-normalizer": "3.5.1",
+        "python-multipart": "0.0.32"
+      },
+      "dev": { "pytest": "9.1.1", "pytest-asyncio": "1.4.0", "httpx": "0.28.1", "ruff": "0.16.5", "mypy": "2.3.1" }
+    }
+  },
+  "api": {
+    "prefix": "/api/v1",
+    "authentication": "none (no auth endpoints exist; see findings)",
+    "routes": {
+      "health": ["GET /health", "GET /ready"],
+      "evidence": [
+        "POST /cases/{case_id}/evidence",
+        "GET /cases/{case_id}/evidence",
+        "POST /cases/{case_id}/ingest",
+        "GET /cases/{case_id}/ingest-jobs",
+        "POST /cases/{case_id}/ingest/{job_id}/retry-graph-sync"
+      ],
+      "entities": [
+        "GET /cases/{case_id}/entities",
+        "GET /cases/{case_id}/entities/{entity_id}",
+        "GET /cases/{case_id}/relationships",
+        "GET /cases/{case_id}/resolution/review"
+      ],
+      "graph": [
+        "GET /cases/{case_id}/graph",
+        "GET /cases/{case_id}/graph/entity/{entity_id}",
+        "GET /cases/{case_id}/graph/stats"
+      ],
+      "analytics": [
+        "GET /cases/{case_id}/analytics/summary",
+        "GET /cases/{case_id}/analytics/centrality",
+        "GET /cases/{case_id}/analytics/communities",
+        "GET /cases/{case_id}/analytics/entities/{entity_id}/analytics",
+        "GET /cases/{case_id}/analytics/network-dna",
+        "GET /cases/{case_id}/analytics/priorities",
+        "GET /cases/{case_id}/analytics/strength",
+        "GET /cases/{case_id}/analytics/paths/entity/{entity_id}",
+        "GET /cases/{case_id}/analytics/paths",
+        "GET /cases/{case_id}/analytics/patterns",
+        "GET /cases/{case_id}/analytics/hypotheses",
+        "POST /cases/{case_id}/analytics/run",
+        "GET /cases/{case_id}/analytics/runs",
+        "GET /cases/{case_id}/analytics/runs/{run_id}"
+      ],
+      "findings": [
+        "GET /cases/{case_id}/findings",
+        "GET /cases/{case_id}/findings/stats",
+        "GET /cases/{case_id}/findings/{finding_id}",
+        "PATCH /cases/{case_id}/findings/{finding_id}/status"
+      ]
+    }
+  },
+  "domain": {
+    "entity_types": ["person", "phone", "vehicle", "organization", "account", "location", "document", "event"],
+    "relationship_types": ["called", "owns", "works_for", "associated_with", "located_at", "visited", "transferred_to"],
+    "finding_types": ["pattern", "anomaly", "hypothesis", "network_insight", "relationship_insight"],
+    "finding_severities": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+    "finding_statuses": ["NEW", "REVIEWED", "DISMISSED", "CONFIRMED"],
+    "run_statuses": ["pending", "running", "completed", "failed"],
+    "metric_names": [
+      "degree_centrality", "in_degree_centrality", "out_degree_centrality", "betweenness_centrality",
+      "closeness_centrality", "pagerank", "community_count", "bridge_score", "spanning_score", "relationship_strength"
+    ],
+    "network_profile_tiers": ["FOCAL", "SIGNIFICANT", "MONITORED", "PERIPHERAL"],
+    "case_statuses": ["open", "in_progress", "closed", "archived"]
+  },
+  "analytics": {
+    "network_dna": {
+      "dimensions": {
+        "prominence": 0.20, "influence": 0.15, "bridging": 0.20, "reach": 0.10,
+        "anchorage": 0.10, "activity": 0.10, "evidence_depth": 0.10, "community_span": 0.05
+      },
+      "tiers": { "FOCAL": 0.70, "SIGNIFICANT": 0.45, "MONITORED": 0.25 }
+    },
+    "priority": {
+      "formula": "0.25-prominence + 0.15-influence + 0.20-bridging + 0.10-reach + 0.15-pattern + 0.15-hypothesis",
+      "tiers": { "CRITICAL": 0.75, "HIGH": 0.55, "MEDIUM": 0.35 }
+    },
+    "relationship_strength": {
+      "formula": "0.30-coverage + 0.15-type_diversity + 0.20-record_coverage + 0.20-file_independence + 0.15-resolution_confidence"
+    },
+    "entity_resolution": {
+      "algorithm": "blocking-key + RapidFuzz",
+      "fuzzy_weight": 0.85,
+      "context_weight": 0.15,
+      "auto_match_threshold": 92.0,
+      "review_threshold": 78.0
+    },
+    "pattern_detectors": [
+      "shared-identifiers", "bridge-entities", "circular-structures", "rapid-expansion", "relationship-concentration"
+    ],
+    "graph_algorithms": [
+      "articulation-points", "betweenness-centrality", "closeness-centrality", "pagerank",
+      "connected-components", "triangles", "common-neighbors", "greedy-modularity-communities"
+    ],
+    "path_bounds": { "max_hops": 8, "engine": "Neo4j allShortestPaths" },
+    "approximation_policy": "exact only within ANALYTICS_GRAPH_NODE_CAP; sampled otherwise, labeled approximate"
+  },
+  "data_model": {
+    "tables": [
+      "cases", "entities", "entity_aliases", "entity_candidates", "entity_matches", "evidence_files",
+      "source_records", "ingestion_jobs", "relationships", "relationship_evidence", "findings",
+      "analytics_runs", "metric_results", "community_results", "network_profiles", "data_sources",
+      "users", "roles", "user_roles", "audit_logs"
+    ],
+    "canonical_relationship_key": ["case_id", "source_entity_id", "target_entity_id", "relationship_type"],
+    "migrations_head": "a4b9c7e16d20",
+    "migrations": [
+      { "revision": "e308a313166d", "name": "initial schema" },
+      { "revision": "f31fa700fb23", "name": "canonical relationships" },
+      { "revision": "081a88d02574", "name": "phase 2 data intelligence pipeline" },
+      { "revision": "a4b9c7e16d20", "name": "phase 3 investigation intelligence engine" }
+    ]
+  },
+  "quality_gates": {
+    "tests": { "result": "143 passed", "files": 20, "duration_seconds": 6.02 },
+    "ruff_check": { "result": "All checks passed" },
+    "ruff_format_check": { "result": "116 files already formatted" },
+    "mypy": { "result": "Success: no issues found in 83 source files" },
+    "alembic_heads": { "result": "a4b9c7e16d20 (single head)" },
+    "alembic_check": { "result": "FAILED", "detail": "New upgrade operations detected: remove_index(ix_metric_results_case_id), remove_index(ix_metric_results_run_id)" },
+    "stack_health": { "result": "all 5 services healthy" },
+    "environment_note": "host .venv missing rapidfuzz/charset_normalizer; gates run via container (make test/lint/typecheck) or after pip install -e \".[dev]\""
+  },
+  "test_inventory": {
+    "unit": {
+      "test_normalization": 26, "test_analytics_algorithms": 21, "test_extraction": 16, "test_parsing": 13,
+      "test_relationships": 11, "test_validation": 10, "test_resolution": 6, "test_config": 6,
+      "test_security": 4, "test_readiness": 3, "test_errors": 2,
+      "subtotal": 118
+    },
+    "api": {
+      "test_health": 4, "test_analytics_api": 4, "test_readiness": 3, "test_phase2_api": 2,
+      "subtotal": 13
+    },
+    "integration": {
+      "test_postgres": 3, "test_entity_pipeline": 3, "test_storage": 2, "test_redis": 2, "test_neo4j": 2,
+      "subtotal": 12
+    },
+    "total": 143
+  },
+  "findings": [
+    {
+      "id": "F-01",
+      "severity": "MEDIUM",
+      "category": "schema-drift",
+      "title": "metric_results single-column indexes drift between model and migration",
+      "detail": "Model (app/models/metric_result.py) declares only composite indexes ix_metric_results_case_metric and ix_metric_results_case_entity. Phase-3 migration a4b9c7e16d20 additionally creates ix_metric_results_case_id and ix_metric_results_run_id, so alembic check reports both as 'removed' and a future autogenerate would drop them. run_id is a live FK used to scope metric rows.",
+      "recommendation": "Declare the two single-column indexes in the model so model, migration, and DB converge and alembic check goes green."
+    },
+    {
+      "id": "F-02",
+      "severity": "LOW",
+      "category": "documentation",
+      "title": "Root README.md is stale relative to Phase 3",
+      "detail": "README describes 'Phases 1 + 2', 'no analytics scoring', 'no frontend'; phase-3.md is marked Implemented and the running stack serves the analytics endpoints.",
+      "recommendation": "Update README feature matrix and quick-start (analytics endpoints, make seed, preview_analytics)."
+    },
+    {
+      "id": "F-03",
+      "severity": "LOW",
+      "category": "security-scope",
+      "title": "No authentication endpoints; scheduled Phase 3 scope not delivered",
+      "detail": "phase-1.md notes auth endpoints as 'Phase 3'; Phase 3 shipped analytics. User/Role/UserRole/AuditLog models, bcrypt helpers, UserService, UserRepository exist but are unused. All endpoints incl. PATCH findings status are unauthenticated. phase-2.md lists auth as out of scope, so this is a documented deferral.",
+      "recommendation": "Make auth/RBAC an explicit roadmap item; app/api/dependencies.py is the natural injection point."
+    },
+    {
+      "id": "F-04",
+      "severity": "LOW",
+      "category": "performance",
+      "title": "Synchronous ingestion in the request path",
+      "detail": "POST /cases/{id}/ingest runs parse-extract-resolve-write-graph-sync inline; documented for single-worker local mode. Job status fields already exist for async execution.",
+      "recommendation": "Move ingestion to background execution / worker while preserving the job-status contract, then add a poll endpoint."
+    },
+    {
+      "id": "F-05",
+      "severity": "LOW",
+      "category": "performance",
+      "title": "N+1 alias reads when building the graph",
+      "detail": "EntityService.build_graph issues one alias query per entity; graph stats build the full in-memory graph. Fine at pilot scale.",
+      "recommendation": "Batch-fetch aliases per case in a single query."
+    },
+    {
+      "id": "F-06",
+      "severity": "INFO",
+      "category": "repo-hygiene",
+      "title": "Empty placeholders and untracked artifacts",
+      "detail": "frontend/, ml/, infra/, data/ are empty. scripts/phase3_api_dump.sh and phase3_api_complete_dump.txt (625 KB) are untracked session artifacts.",
+      "recommendation": "Decide whether to commit a trimmed dump or delete."
+    },
+    {
+      "id": "F-07",
+      "severity": "INFO",
+      "category": "infrastructure",
+      "title": "No CI configuration",
+      "detail": "No .github/workflows or equivalent; all quality gates run manually via Makefile.",
+      "recommendation": "Wire CI: lint + typecheck + unit always; API-contract tests with service creds; integration gated on Compose/service fixture."
+    },
+    {
+      "id": "F-08",
+      "severity": "INFO",
+      "category": "analytics-behavior",
+      "title": "Approximation throttle in analytics",
+      "detail": "Exact centrality/communities only within ANALYTICS_GRAPH_NODE_CAP; larger cases use sampled math, labeled approximate. Intentional and documented.",
+      "recommendation": "Ensure consumers understand scores can be approximate at scale."
+    }
+  ],
+  "recommendations": [
+    "Reconcile metric_results indexes (model vs migration); restore green alembic check (F-01).",
+    "Update README for Phase 3 and add explicit auth/RBAC roadmap item (F-02, F-03).",
+    "Add CI wiring for test/lint/typecheck gates (F-07).",
+    "Pre-fetch aliases per case to remove graph-build N+1 (F-05).",
+    "Move ingestion to background execution while preserving the job contract (F-04).",
+    "Reinstall dev deps into local venv so gates run without the container."
+  ]
+}

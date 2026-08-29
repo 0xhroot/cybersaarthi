@@ -115,6 +115,8 @@ async def test_entity_graph_and_review_endpoints(http_client, phase2_case) -> No
     assert graph["case_id"] == str(case_id)
     assert len(graph["nodes"]) == 6
     assert len(graph["edges"]) == 9
+    rajesh_node = next(node for node in graph["nodes"] if node["canonical_value"] == "rajesh kumar")
+    assert "rajesh kumar" in rajesh_node["aliases"]
 
     response = await http_client.get(f"{prefix}/cases/{case_id}/graph/stats")
     assert response.status_code == 200

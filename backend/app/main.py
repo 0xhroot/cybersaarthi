@@ -73,7 +73,11 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="CyberSaarthi API",
-        description="AI-powered criminal network analysis - Phase 1 foundation.",
+        description=(
+            "Evidence ingestion, entity resolution, graph knowledge base and "
+            "deterministic investigation analytics (patterns, hypotheses, "
+            "findings, Network DNA, paths)."
+        ),
         version=__version__,
         lifespan=lifespan,
     )
