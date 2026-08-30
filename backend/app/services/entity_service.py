@@ -133,5 +133,5 @@ class EntityQueryService:
         return {"nodes": nodes, "edges": edges}
 
     async def graph_synced(self, case_id: uuid.UUID) -> bool:
-        jobs = await self._evidence.list_jobs(case_id)
+        jobs, _ = await self._evidence.list_jobs(case_id)
         return any(str(job.graph_sync_status) == GraphSyncStatus.SYNCED for job in jobs)

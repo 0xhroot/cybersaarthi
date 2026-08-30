@@ -17,6 +17,8 @@ from app.main import app
 from app.models import RELATIONSHIP_TYPES, Case
 from sqlalchemy import delete
 
+from tests.api.conftest import ApiUser
+
 CSV_BYTES = (
     b"name,phone,organization,vehicle_no,city\n"
     b"Arjun Mehta,7000000001,TechSecure Pvt Ltd,MH12AB1111,Mumbai\n"
@@ -27,11 +29,12 @@ CSV_BYTES = (
 
 
 @pytest.fixture
-async def phase3_case(database: Database) -> tuple[uuid.UUID, Database]:
+async def phase3_case(database: Database, api_user: ApiUser) -> tuple[uuid.UUID, Database]:
     case = Case(
         id=uuid.uuid4(),
         case_number=f"ANL-{uuid.uuid4().hex[:8]}",
         title="phase-3 analytics api test case",
+        owner_id=api_user.id,
     )
     factory = database.session_factory()
     async with factory() as session:
@@ -282,7 +285,9 @@ async def test_hypotheses_are_candidates_not_facts(http_client, phase3_case) -> 
     assert all(key in sample["explanation"] for key in ("approach", "signals", "evidence"))
 
 
-async def test_paths_validation_and_openapi_contract(http_client, phase3_case) -> None:
+async def test_paths_validation_and_openapi_contract(
+    http_client, phase3_case, api_user: ApiUser
+) -> None:
     case_id, database = phase3_case
     prefix = get_settings().API_V1_PREFIX
     await _ingested_case(http_client, case_id)
@@ -338,6 +343,7 @@ async def test_paths_validation_and_openapi_contract(http_client, phase3_case) -
         id=uuid.uuid4(),
         case_number=f"ANL-{uuid.uuid4().hex[:8]}",
         title="phase-3 path isolation case",
+        owner_id=api_user.id,
     )
     factory = database.session_factory()
     async with factory() as session:
@@ -376,7 +382,9 @@ async def test_analytics_summary_exact_flag_defaults(http_client, phase3_case) -
     assert all(entry["exact"] is True for entry in response.json())
 
 
-async def test_analytics_not_found_and_isolation(http_client, phase3_case) -> None:
+async def test_analytics_not_found_and_isolation(
+    http_client, phase3_case, api_user: ApiUser
+) -> None:
     case_id, database = phase3_case
     prefix = get_settings().API_V1_PREFIX
     await _ingested_case(http_client, case_id)
@@ -397,6 +405,7 @@ async def test_analytics_not_found_and_isolation(http_client, phase3_case) -> No
         id=uuid.uuid4(),
         case_number=f"ANL-{uuid.uuid4().hex[:8]}",
         title="phase-3 isolated empty case",
+        owner_id=api_user.id,
     )
     factory = database.session_factory()
     async with factory() as session:

@@ -9,6 +9,9 @@ from app.api.dependencies import (
     get_relationship_repository,
 )
 from app.api.routes.analytics import router as analytics_router
+from app.api.routes.audit import router as audit_router
+from app.api.routes.auth import router as auth_router
+from app.api.routes.cases import router as cases_router
 from app.api.routes.entities import router as entities_router
 from app.api.routes.evidence import router as evidence_router
 from app.api.routes.findings import router as findings_router
@@ -25,6 +28,9 @@ __all__ = [
     "get_ingestion_service",
     "get_relationship_repository",
     "analytics_router",
+    "audit_router",
+    "auth_router",
+    "cases_router",
     "entities_router",
     "evidence_router",
     "findings_router",

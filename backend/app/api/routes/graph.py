@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_case_or_404, get_entity_query_service
@@ -34,11 +34,12 @@ def _to_graph_response(payload: dict[str, Any], case_id: uuid.UUID) -> GraphResp
 @router.get("/{case_id}/graph", response_model=GraphResponse)
 async def get_case_graph(
     case_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
     service: EntityQueryService = Depends(get_entity_query_service),
 ) -> GraphResponse:
     """The full projected knowledge graph for a case (PostgreSQL source of truth)."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     payload = await service.build_graph(case_id)
     return _to_graph_response(payload, case_id)
 
@@ -47,11 +48,12 @@ async def get_case_graph(
 async def get_entity_ego_graph(
     case_id: uuid.UUID,
     entity_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
     service: EntityQueryService = Depends(get_entity_query_service),
 ) -> EntityEgoGraph:
     """One-hop neighbourhood around a single entity."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     entity, _ = await service.get_entity_detail(entity_id)
     if entity is None or str(entity.case_id) != str(case_id):
         raise HTTPException(status_code=404, detail=f"entity {entity_id} not found")
@@ -80,11 +82,12 @@ async def get_entity_ego_graph(
 @router.get("/{case_id}/graph/stats", response_model=GraphStats)
 async def get_graph_stats(
     case_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
     service: EntityQueryService = Depends(get_entity_query_service),
 ) -> GraphStats:
     """Aggregate metrics about a case's entity graph."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     payload = await service.build_graph(case_id)
     nodes: list[dict[str, Any]] = payload["nodes"]
     edges: list[dict[str, Any]] = payload["edges"]

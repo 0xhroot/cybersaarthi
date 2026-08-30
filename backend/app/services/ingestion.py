@@ -62,6 +62,7 @@ class IngestionService:
         case_id: uuid.UUID,
         evidence_file_id: uuid.UUID,
         metadata: dict[str, Any] | None = None,
+        actor_id: uuid.UUID | None = None,
     ) -> IngestionJob:
         evidence = await self._evidence_repository.get_evidence(evidence_file_id)
         if evidence is None:
@@ -73,6 +74,7 @@ class IngestionService:
             case_id=case_id,
             evidence_file_id=evidence_file_id,
             status="pending",
+            actor_id=actor_id,
         )
         await self._session.commit()
 

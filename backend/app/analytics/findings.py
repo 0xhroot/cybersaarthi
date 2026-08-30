@@ -676,9 +676,12 @@ class AnalyticsService:
         }
 
     # -- persistence -------------------------------------------------------
-    async def run_analytics(self, case: uuid.UUID) -> AnalyticsRun:
+    async def run_analytics(
+        self, case: uuid.UUID, *, actor_id: uuid.UUID | None = None
+    ) -> AnalyticsRun:
         """Compute and persist a full analytics run as one atomic transaction."""
         run = await self._data.create_run(case)
+        run.actor_id = actor_id
         await self._data.update_run(run.id, stage="compute")
         try:
             context = await self.compute(case)

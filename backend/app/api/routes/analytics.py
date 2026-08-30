@@ -12,14 +12,20 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics import compute_priority
 from app.analytics.findings import AnalyticsService
 from app.analytics.priority import hypothesis_weight, pattern_weight
-from app.api.dependencies import get_analytics_service, get_case_or_404
+from app.api.dependencies import (
+    get_analytics_service,
+    get_case_or_404,
+    require_permission,
+)
+from app.core import rbac
 from app.db.postgres import get_db_session
+from app.models import User
 from app.schemas.analytics import (
     AnalyticsEntityOut,
     AnalyticsRunListResponse,
@@ -36,6 +42,7 @@ from app.schemas.analytics import (
     PriorityOut,
     RelationshipStrengthOut,
 )
+from app.services.audit import record_audit
 
 router = APIRouter(prefix="/cases", tags=["analytics"])
 
@@ -141,11 +148,12 @@ async def _priority_rows(context: Any) -> list[dict[str, Any]]:
 @router.get("/{case_id}/analytics/summary", response_model=AnalyticsSummary)
 async def get_analytics_summary(
     case_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> AnalyticsSummary:
     """Case-level analytics summary (deterministic, computed on demand)."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     summary = context.summary
     return AnalyticsSummary(
@@ -169,6 +177,7 @@ async def get_analytics_summary(
 @router.get("/{case_id}/analytics/centrality", response_model=list[CentralityEntry])
 async def get_centrality(
     case_id: uuid.UUID,
+    request: Request,
     metric: str = Query(
         "degree", description="degree|in_degree|out_degree|betweenness|closeness|pagerank"
     ),
@@ -177,7 +186,7 @@ async def get_centrality(
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> list[CentralityEntry]:
     """Exact centrality metric values for every entity (or the top N by rank)."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     entries = [
         CentralityEntry(
@@ -199,11 +208,12 @@ async def get_centrality(
 @router.get("/{case_id}/analytics/communities", response_model=list[CommunityOut])
 async def get_communities(
     case_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> list[CommunityOut]:
     """Detected communities and their statistics."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     return [_to_community(community) for community in context.communities]
 
@@ -213,12 +223,13 @@ async def get_communities(
 )
 async def get_entity_analytics(
     case_id: uuid.UUID,
+    request: Request,
     entity_id: uuid.UUID,
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> AnalyticsEntityOut:
     """Network DNA profile + centrality + priority for one entity."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     entity_str = str(entity_id)
     meta = context.entities.get(entity_str)
@@ -277,12 +288,13 @@ async def get_entity_analytics(
 @router.get("/{case_id}/analytics/network-dna", response_model=list[NetworkProfileOut])
 async def get_network_dna(
     case_id: uuid.UUID,
+    request: Request,
     limit: int = Query(50, ge=1, le=500),
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> list[NetworkProfileOut]:
     """Network DNA profiles for every entity, highest score first."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     profiles = []
     for entity_id, profile in context.profiles.items():
@@ -317,12 +329,13 @@ async def get_network_dna(
 @router.get("/{case_id}/analytics/priorities", response_model=list[PriorityOut])
 async def get_priorities(
     case_id: uuid.UUID,
+    request: Request,
     limit: int = Query(50, ge=1, le=500),
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> list[PriorityOut]:
     """Investigation priority for every entity (CRITICAL first)."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     rows = await _priority_rows(context)
     rows.sort(key=lambda r: (-r["priority_score"], r["entity_id"]))
@@ -347,12 +360,13 @@ async def get_priorities(
 @router.get("/{case_id}/analytics/strength", response_model=list[RelationshipStrengthOut])
 async def get_relationship_strength(
     case_id: uuid.UUID,
+    request: Request,
     limit: int = Query(100, ge=1, le=1000),
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> list[RelationshipStrengthOut]:
     """Relationship strength for every relationship in the case, strongest first."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     rows = [
         _to_strength(
@@ -369,6 +383,7 @@ async def get_relationship_strength(
 @router.get("/{case_id}/analytics/paths/entity/{entity_id}", response_model=EgoPathsResponse)
 async def get_entity_paths(
     case_id: uuid.UUID,
+    request: Request,
     entity_id: uuid.UUID,
     max_hops: int = Query(3, ge=1, le=MAX_HOPS_LIMIT),
     limit: int = Query(10, ge=1, le=50),
@@ -376,7 +391,7 @@ async def get_entity_paths(
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> EgoPathsResponse:
     """Bounded multi-hop traversals (Neo4j) originating from one entity."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     from app.analytics.paths import bounded_ego_paths
 
     paths: list[dict[str, Any]] = await bounded_ego_paths(
@@ -405,6 +420,7 @@ async def get_entity_paths(
 @router.get("/{case_id}/analytics/paths", response_model=PairPathsResponse)
 async def get_pair_paths(
     case_id: uuid.UUID,
+    request: Request,
     source_id: uuid.UUID,
     target_id: uuid.UUID,
     max_hops: int = Query(4, ge=2, le=MAX_HOPS_LIMIT),
@@ -413,7 +429,7 @@ async def get_pair_paths(
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> PairPathsResponse:
     """Non-trivial paths (2 .. max_hops) between two entities (Neo4j)."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     if source_id == target_id:
         raise HTTPException(status_code=422, detail="source_id and target_id must differ")
     from app.analytics.paths import bounded_pair_paths
@@ -446,12 +462,13 @@ async def get_pair_paths(
 @router.get("/{case_id}/analytics/patterns", response_model=list[PatternOut])
 async def get_patterns(
     case_id: uuid.UUID,
+    request: Request,
     limit: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> list[PatternOut]:
     """Detected suspicious patterns with their signals and evidence."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     return [
         PatternOut(
@@ -473,12 +490,13 @@ async def get_patterns(
 @router.get("/{case_id}/analytics/hypotheses", response_model=list[HypothesisOut])
 async def get_hypotheses(
     case_id: uuid.UUID,
+    request: Request,
     limit: int = Query(25, ge=1, le=100),
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> list[HypothesisOut]:
     """Missing-link hypotheses (candidate edges — never written to the graph)."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     context = await service.compute(case_id)
     return [
         HypothesisOut(
@@ -501,18 +519,31 @@ async def get_hypotheses(
 @router.post("/{case_id}/analytics/run", response_model=AnalyticsRunOut, status_code=201)
 async def run_analytics(
     case_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
+    user: User = Depends(require_permission(rbac.PERM_ANALYTICS_RUN)),
 ) -> AnalyticsRunOut:
     """Persist a complete analytics run: metrics, communities, profiles, findings."""
-    await get_case_or_404(case_id, session)
-    run = await service.run_analytics(case_id)
+    await get_case_or_404(case_id, request, session)
+    run = await service.run_analytics(case_id, actor_id=user.id)
+    await record_audit(
+        session,
+        actor_id=user.id,
+        action="analytics.run_completed",
+        resource_type="analytics_run",
+        resource_id=run.id,
+        case_id=case_id,
+        metadata={"status": run.status, "stage": run.stage},
+    )
+    await session.commit()
     return AnalyticsRunOut(
         id=run.id,
         case_id=case_id,
         status=run.status,
         stage=run.stage,
         error=run.error,
+        actor_id=run.actor_id,
         summary=run.summary,
         started_at=run.started_at,
         completed_at=run.completed_at,
@@ -523,14 +554,16 @@ async def run_analytics(
 @router.get("/{case_id}/analytics/runs", response_model=AnalyticsRunListResponse)
 async def list_analytics_runs(
     case_id: uuid.UUID,
+    request: Request,
     limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_db_session),
     service: AnalyticsService = Depends(get_analytics_service),
 ) -> AnalyticsRunListResponse:
     """History of persisted analytics runs for a case."""
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     runs = await service.list_runs(case_id)
-    runs = runs[:limit]
+    page = runs[offset : offset + limit]
     return AnalyticsRunListResponse(
         items=[
             AnalyticsRunOut(
@@ -539,12 +572,13 @@ async def list_analytics_runs(
                 status=run.status,
                 stage=run.stage,
                 error=run.error,
+                actor_id=run.actor_id,
                 summary=run.summary,
                 started_at=run.started_at,
                 completed_at=run.completed_at,
                 created_at=run.created_at,
             )
-            for run in runs
+            for run in page
         ],
         total=len(runs),
     )

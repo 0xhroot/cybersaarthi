@@ -14,6 +14,8 @@ from app.db.postgres import Database
 from app.models import Case
 from sqlalchemy import delete
 
+from tests.api.conftest import ApiUser
+
 CSV_BYTES = (
     b"name,phone,organization,vehicle_no,city\n"
     b"Rajesh Kumar,9876543210,TechSecure Pvt Ltd,MH12AB1234,Mumbai\n"
@@ -22,11 +24,12 @@ CSV_BYTES = (
 
 
 @pytest.fixture
-async def phase2_case(database: Database) -> tuple[uuid.UUID, Database]:
+async def phase2_case(database: Database, api_user: ApiUser) -> tuple[uuid.UUID, Database]:
     case = Case(
         id=uuid.uuid4(),
         case_number=f"API-{uuid.uuid4().hex[:8]}",
         title="phase-2 api test case",
+        owner_id=api_user.id,
     )
     factory = database.session_factory()
     async with factory() as session:

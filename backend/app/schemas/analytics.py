@@ -180,6 +180,7 @@ class AnalyticsRunOut(BaseModel):
     status: Literal["pending", "running", "completed", "failed"]
     stage: str
     error: str | None
+    actor_id: UUID | None
     summary: dict[str, Any] | None
     started_at: datetime | None
     completed_at: datetime | None
@@ -207,6 +208,9 @@ class FindingOut(BaseModel):
     evidence_ids: list[UUID] = []
     explanation: dict[str, Any]
     details: dict[str, Any] | None
+    reviewed_by: UUID | None = None
+    reviewed_at: datetime | None = None
+    review_comment: str | None = None
     created_at: datetime
 
 
@@ -220,6 +224,9 @@ class FindingListResponse(BaseModel):
 class FindingStatusOut(BaseModel):
     id: UUID
     status: FindingStatus
+    reviewed_by: UUID | None = None
+    reviewed_at: datetime | None = None
+    review_comment: str | None = None
 
 
 class FindingStatsOut(BaseModel):

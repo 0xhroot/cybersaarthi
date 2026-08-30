@@ -88,7 +88,8 @@ async def _cleanup(
     factory = database.session_factory()
     async with factory() as session:
         evidence_repo = EvidenceRepository(session)
-        for evidence in await evidence_repo.list_evidence(case_id):
+        evidence_items, _ = await evidence_repo.list_evidence(case_id)
+        for evidence in evidence_items:
             storage.delete(evidence.stored_key)
     async with graph_store.driver().session() as session:
         await session.run("MATCH (n:Entity {case_id: $id}) DETACH DELETE n", {"id": str(case_id)})
@@ -216,7 +217,7 @@ async def test_ingestion_is_idempotent_and_free_text_works(
 
             second_counts = await engine.count_entities_by_type(case_id)
             assert dict(second_counts) == dict(first_counts)
-            jobs = await EvidenceRepository(session).list_jobs(case_id)
+            jobs, _ = await EvidenceRepository(session).list_jobs(case_id)
             assert len(jobs) == 2
     finally:
         await _cleanup(database, storage, graph_store, case_id)

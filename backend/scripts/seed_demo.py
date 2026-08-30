@@ -37,7 +37,7 @@ from app.core.config import Settings, get_settings
 from app.db.neo4j import GraphStore
 from app.db.postgres import Database
 from app.db.storage import Storage
-from app.models import Case, Entity, EvidenceFile, Relationship
+from app.models import Case, Entity, EvidenceFile, Relationship, User
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.evidence_repository import EvidenceRepository
 from app.repositories.relationship_repository import RelationshipRepository
@@ -46,6 +46,8 @@ from app.services.ingestion import IngestionService
 from app.services.validation import fingerprint
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from scripts.seed_users import DEFAULT_INVESTIGATOR_USERNAME, ensure_seed_users
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,8 @@ class Seeder:
     async def run(self) -> None:
         factory = self._database.session_factory()
         async with factory() as session:
+            await ensure_seed_users(session)
+            investigation_lead = await self._investigation_lead(session)
             ingestion = IngestionService(
                 session=session,
                 evidence_repository=EvidenceRepository(session),
@@ -189,23 +193,36 @@ class Seeder:
                 graph_sync=GraphSyncService(self._graph_store, self._settings),
                 settings=self._settings,
             )
-            case = await self._get_or_create_case(session)
+            case = await self._get_or_create_case(session, owner_id=investigation_lead)
             for fmt, filename, payload in EVIDENCE_PLAN:
                 await self._ensure_ingested(
                     session, ingestion, case, fmt, filename, _bytes(payload)
                 )
             await self._log_summary(session, case)
 
-    async def _get_or_create_case(self, session: AsyncSession) -> Case:
+    async def _investigation_lead(self, session: AsyncSession) -> uuid.UUID | None:
+        result = await session.execute(
+            select(User).where(User.username == DEFAULT_INVESTIGATOR_USERNAME)
+        )
+        user = result.scalar_one_or_none()
+        return user.id if user is not None else None
+
+    async def _get_or_create_case(
+        self, session: AsyncSession, owner_id: uuid.UUID | None = None
+    ) -> Case:
         result = await session.execute(select(Case).where(Case.case_number == DEMO_CASE_NUMBER))
         case = result.scalar_one_or_none()
         if case is not None:
+            if owner_id is not None and case.owner_id is None:
+                case.owner_id = owner_id
+                await session.commit()
             return case
         case = Case(
             case_number=DEMO_CASE_NUMBER,
             title="CyberSaarthi Phase 2 demo case",
             description="Synthetic evidence ingested by scripts.seed_demo (no real data).",
             status="in_progress",
+            owner_id=owner_id,
         )
         session.add(case)
         await session.commit()

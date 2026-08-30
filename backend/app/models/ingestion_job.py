@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -11,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -44,6 +46,12 @@ class IngestionJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     stage: Mapped[str] = mapped_column(String(64), default="created", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     processed_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

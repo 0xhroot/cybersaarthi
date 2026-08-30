@@ -35,9 +35,41 @@ class EvidenceListItem(BaseModel):
     created_at: datetime
 
 
+class EvidenceDetailResponse(BaseModel):
+    id: UUID
+    case_id: UUID
+    data_source: str | None
+    original_filename: str
+    stored_key: str
+    content_type: str
+    file_size: int
+    sha256: str
+    format: str | None
+    encoding: str | None
+    status: str
+    status_detail: str | None
+    record_count: int | None
+    metadata_json: dict[str, Any] | None
+    created_at: datetime
+
+
 class EvidenceListResponse(BaseModel):
     items: list[EvidenceListItem]
     total: int
+    limit: int
+    offset: int
+
+
+class EvidenceProvenanceResponse(BaseModel):
+    evidence: EvidenceDetailResponse
+    record_count: int
+    records_by_status: dict[str, int]
+    entity_count: int
+    relationship_count: int
+    finding_count: int
+    related_entity_ids: list[UUID]
+    related_relationship_ids: list[UUID]
+    finding_ids: list[UUID]
 
 
 class IngestRequest(BaseModel):

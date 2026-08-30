@@ -91,13 +91,15 @@ class EvidenceRepository:
         evidence.status_detail = status_detail
         await self._session.flush()
 
-    async def list_evidence(self, case_id: uuid.UUID) -> list[EvidenceFile]:
+    async def list_evidence(
+        self, case_id: uuid.UUID, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[EvidenceFile], int]:
+        base = select(EvidenceFile).where(EvidenceFile.case_id == str(case_id))
+        total = await self._session.scalar(select(func.count()).select_from(base.subquery()))
         result = await self._session.execute(
-            select(EvidenceFile)
-            .where(EvidenceFile.case_id == str(case_id))
-            .order_by(EvidenceFile.created_at.desc())
+            base.order_by(EvidenceFile.created_at.desc()).limit(limit).offset(offset)
         )
-        return list(result.scalars())
+        return list(result.scalars()), int(total or 0)
 
     # Source records -------------------------------------------------------
     async def create_source_record(
@@ -185,11 +187,13 @@ class EvidenceRepository:
         case_id: uuid.UUID,
         evidence_file_id: uuid.UUID,
         status: str = "pending",
+        actor_id: uuid.UUID | None = None,
     ) -> IngestionJob:
         job = IngestionJob(
             case_id=str(case_id),
             evidence_file_id=str(evidence_file_id),
             status=status,
+            actor_id=actor_id,
         )
         self._session.add(job)
         await self._session.flush()
@@ -202,13 +206,15 @@ class EvidenceRepository:
         result = await self._session.execute(select(IngestionJob).where(IngestionJob.id == job_id))
         return result.scalar_one_or_none()
 
-    async def list_jobs(self, case_id: uuid.UUID) -> list[IngestionJob]:
+    async def list_jobs(
+        self, case_id: uuid.UUID, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[IngestionJob], int]:
+        base = select(IngestionJob).where(IngestionJob.case_id == str(case_id))
+        total = await self._session.scalar(select(func.count()).select_from(base.subquery()))
         result = await self._session.execute(
-            select(IngestionJob)
-            .where(IngestionJob.case_id == str(case_id))
-            .order_by(IngestionJob.created_at.desc())
+            base.order_by(IngestionJob.created_at.desc()).limit(limit).offset(offset)
         )
-        return list(result.scalars())
+        return list(result.scalars()), int(total or 0)
 
     async def mark_job_running(
         self,

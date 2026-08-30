@@ -21,7 +21,7 @@ from app.db.neo4j import GraphStore
 from app.db.postgres import Database
 from app.db.redis import Cache
 from app.db.storage import Storage
-from app.middleware import SecurityHeadersMiddleware
+from app.middleware import RequestObservabilityMiddleware, SecurityHeadersMiddleware
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(RequestObservabilityMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,

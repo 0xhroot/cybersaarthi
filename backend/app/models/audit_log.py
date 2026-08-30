@@ -24,6 +24,12 @@ class AuditLog(UUIDPrimaryKeyMixin, Base):
     action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     resource_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     resource_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    case_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("cases.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     metadata_: Mapped[dict[str, object] | None] = mapped_column("metadata", JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

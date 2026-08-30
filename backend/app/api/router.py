@@ -6,6 +6,9 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     analytics_router,
+    audit_router,
+    auth_router,
+    cases_router,
     entities_router,
     evidence_router,
     findings_router,
@@ -15,6 +18,11 @@ from app.api.routes import (
 
 api_router = APIRouter()
 api_router.include_router(health_router, prefix="/api/v1")
+
+# Phase 4: authentication, case management and the audit trail.
+api_router.include_router(auth_router, prefix="/api/v1")
+api_router.include_router(cases_router, prefix="/api/v1")
+api_router.include_router(audit_router, prefix="/api/v1")
 
 # Phase 2: evidence ingestion, entities, resolution review and graph queries.
 api_router.include_router(evidence_router, prefix="/api/v1")

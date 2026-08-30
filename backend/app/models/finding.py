@@ -8,9 +8,11 @@ paths and evidence that support it, and the limitations of the measurement.
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Float, ForeignKey, Index, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,6 +71,14 @@ class Finding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     evidence_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     explanation: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     details: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:
         return (

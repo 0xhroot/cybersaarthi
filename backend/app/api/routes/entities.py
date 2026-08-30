@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_case_or_404, get_entity_query_service
@@ -41,6 +41,7 @@ def _to_entity_out(entity: Entity) -> EntityOut:
 @router.get("/{case_id}/entities", response_model=EntityListResponse)
 async def list_entities(
     case_id: uuid.UUID,
+    request: Request,
     entity_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     query: str | None = Query(default=None),
@@ -49,7 +50,7 @@ async def list_entities(
     session: AsyncSession = Depends(get_db_session),
     service: EntityQueryService = Depends(get_entity_query_service),
 ) -> EntityListResponse:
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     entities, total = await service.list_entities(
         case_id=case_id,
         entity_type=entity_type,
@@ -69,11 +70,12 @@ async def list_entities(
 @router.get("/{case_id}/entities/{entity_id}", response_model=EntityDetailOut)
 async def get_entity_detail(
     case_id: uuid.UUID,
+    request: Request,
     entity_id: uuid.UUID,
     session: AsyncSession = Depends(get_db_session),
     service: EntityQueryService = Depends(get_entity_query_service),
 ) -> EntityDetailOut:
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     entity, aliases = await service.get_entity_detail(entity_id)
     if entity is None or str(entity.case_id) != str(case_id):
         raise HTTPException(status_code=404, detail=f"entity {entity_id} not found")
@@ -90,11 +92,12 @@ async def get_entity_detail(
 @router.get("/{case_id}/relationships", response_model=RelationshipListResponse)
 async def list_relationships(
     case_id: uuid.UUID,
+    request: Request,
     limit: int = Query(default=500, ge=1, le=2000),
     session: AsyncSession = Depends(get_db_session),
     service: EntityQueryService = Depends(get_entity_query_service),
 ) -> RelationshipListResponse:
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     relationships = await service.list_relationships(case_id, limit=limit)
     return RelationshipListResponse(
         items=[
@@ -116,10 +119,11 @@ async def list_relationships(
 @router.get("/{case_id}/resolution/review", response_model=ReviewListResponse)
 async def list_review_matches(
     case_id: uuid.UUID,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
     service: EntityQueryService = Depends(get_entity_query_service),
 ) -> ReviewListResponse:
-    await get_case_or_404(case_id, session)
+    await get_case_or_404(case_id, request, session)
     rows = await service.review_matches_detailed(case_id)
     items = [ReviewCandidateOut(**row) for row in rows]
     return ReviewListResponse(items=items, total=len(items))
