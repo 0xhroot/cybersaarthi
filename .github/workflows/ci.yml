@@ -6,23 +6,41 @@ on:
   pull_request:
 
 jobs:
-  lint-and-unit-tests:
-    name: Lint, typecheck, unit tests
+  backend:
+    name: Backend (lint · type · unit tests · alembic)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cybersaarthi
+          POSTGRES_PASSWORD: cybersaarthi
+          POSTGRES_DB: cybersaarthi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cybersaarthi -d cybersaarthi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
-      # Deterministically install runtime + dev dependencies from backend/uv.lock
-      # with the same package manager (uv) used by the Docker `dev` build target.
+      # Deterministically install runtime + development dependencies from
+      # backend/uv.lock with the same package manager (uv) and version used by the
+      # Docker `dev` build target. `--extra dev` installs the declared
+      # [project.optional-dependencies].dev group (pytest, pytest-asyncio, httpx,
+      # ruff, mypy, types-python-dateutil).
       - uses: astral-sh/setup-uv@v5
         with:
           version: "0.12.5"
+          enable-cache: true
 
-      - name: Install dependencies
-        run: uv sync --frozen
+      - name: Install dependencies (with dev extra)
+        run: uv sync --frozen --extra dev
 
       - name: Lint (ruff check)
         run: uv run ruff check .
@@ -35,3 +53,43 @@ jobs:
 
       - name: Unit tests (no infrastructure)
         run: uv run pytest tests/unit -q
+
+      - name: Apply migrations on fresh database
+        env:
+          POSTGRES_HOST: localhost
+        run: uv run alembic upgrade head
+
+      - name: Verify migrations match models (alembic check)
+        env:
+          POSTGRES_HOST: localhost
+        run: uv run alembic check
+
+  frontend:
+    name: Frontend (test · typecheck · lint · build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests (vitest)
+        run: npm test -- --run
+
+      - name: Typecheck (tsc)
+        run: npm run typecheck
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Build (tsc + vite)
+        run: npm run build
