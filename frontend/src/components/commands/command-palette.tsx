@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Spinner } from "@/components/ui/button";
 import { useHotkey, useDebounce } from "@/hooks/ui";
 import { useCaseNavStore } from "@/stores/case-nav";
+import { useCan } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import type { EntityType } from "@/types/domain";
 
@@ -41,6 +42,7 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const debounced = useDebounce(query.trim(), 200);
   const activeCaseId = useCaseNavStore((s) => s.activeCaseId);
+  const canAudit = useCan("audit.read");
 
   useHotkey(["mod+k"], () => {
     onOpenChange(!open);
@@ -82,7 +84,9 @@ export function CommandPalette({
         kind: "action",
         action: () => navigate("/app/cases?new=1"),
       });
-      out.push({ id: "audit", title: "Open audit log", kind: "action", action: () => navigate("/app/audit") });
+      if (canAudit) {
+        out.push({ id: "audit", title: "Open audit log", kind: "action", action: () => navigate("/app/audit") });
+      }
       out.push({ id: "settings", title: "Go to settings", kind: "action", action: () => navigate("/app/settings") });
       return out;
     }

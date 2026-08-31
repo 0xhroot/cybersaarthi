@@ -35,6 +35,7 @@ PERM_CASE_UPDATE = "case.update"
 PERM_CASE_ARCHIVE = "case.archive"
 PERM_EVIDENCE_READ = "evidence.read"
 PERM_EVIDENCE_UPLOAD = "evidence.upload"
+PERM_EVIDENCE_DELETE = "evidence.delete"
 PERM_INGESTION_RUN = "ingestion.run"
 PERM_ANALYTICS_RUN = "analytics.run"
 PERM_FINDINGS_READ = "findings.read"
@@ -52,6 +53,7 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         PERM_CASE_ARCHIVE,
         PERM_EVIDENCE_READ,
         PERM_EVIDENCE_UPLOAD,
+        PERM_EVIDENCE_DELETE,
         PERM_INGESTION_RUN,
         PERM_ANALYTICS_RUN,
         PERM_FINDINGS_READ,
@@ -73,6 +75,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             PERM_CASE_ARCHIVE,
             PERM_EVIDENCE_READ,
             PERM_EVIDENCE_UPLOAD,
+            PERM_EVIDENCE_DELETE,
             PERM_INGESTION_RUN,
             PERM_ANALYTICS_RUN,
             PERM_FINDINGS_READ,

@@ -83,7 +83,7 @@ def create_app() -> FastAPI:
     )
 
     app.add_middleware(RequestObservabilityMiddleware)
-    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware, strict=settings.is_production)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

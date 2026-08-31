@@ -215,6 +215,27 @@ function pushAudit(action: string, resourceType: string, caseId: string | null, 
   });
 }
 
+/**
+ * Restore the in-memory state to its deterministic seed data (and drop any
+ * active session) so tests can run independently without cross-test leakage.
+ */
+export function resetMockState(): void {
+  casesState.length = 0;
+  casesState.push(...MOCK_CASES);
+  evidenceState.length = 0;
+  evidenceState.push(...MAIN_EVIDENCE);
+  findingsState.length = 0;
+  findingsState.push(...MAIN_FINDINGS);
+  jobsState.length = 0;
+  jobsState.push(...MAIN_JOBS);
+  auditState.length = 0;
+  auditState.push(...MAIN_AUDIT);
+  registeredState.length = 0;
+  currentUserId = null;
+  currentRoles = [];
+  authSession.clear();
+}
+
 /* ------------------------------------------------------------------ */
 
 export const mockApi: Api = {
@@ -476,7 +497,7 @@ export const mockApi: Api = {
         sha256: `${hash.toString(16).padStart(8, "0")}${hash.toString(16).padStart(8, "0")}${hash.toString(16).padStart(8, "0")}${hash.toString(16).padStart(8, "0")}`,
         format: file.name.endsWith(".csv") ? "csv" : file.name.endsWith(".json") ? "json" : "txt",
         encoding: "utf-8",
-        status: "pending",
+        status: "stored",
         status_detail: null,
         created_at: created,
       };
@@ -486,7 +507,7 @@ export const mockApi: Api = {
         sha256: item.sha256,
         format: item.format,
         file_size: file.size,
-        status: "pending",
+        status: "stored",
         record_count: null,
         created_at: created,
       });
@@ -548,7 +569,9 @@ export const mockApi: Api = {
         updated_at: new Date().toISOString(),
       };
       jobsState.unshift(job);
-      item.status = "ingested";
+      // Mirrors the backend lifecycle: a completed ingestion leaves the
+      // evidence file in the "parsed" state (stored -> processing -> parsed).
+      item.status = "parsed";
       pushAudit("ingestion.job_ran", "ingestion_job", caseId, { status: "completed" });
       return { job, duplicate: false };
     },

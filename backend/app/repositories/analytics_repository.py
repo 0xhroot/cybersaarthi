@@ -258,6 +258,28 @@ class AnalyticsDataRepository:
     ) -> int:
         if not findings:
             return 0
+        # A09: collapse unchanged signals. A re-run over the same case produces
+        # byte-identical findings; reusing the existing unreviewed row for a
+        # known (finding_type, title) signal prevents the findings table and the
+        # review queue from inflating run after run, while a reviewer's manual
+        # triage and the run-scoped audit history are preserved untouched.
+        existing_rows = await self._session.execute(
+            select(Finding.id, Finding.finding_type, Finding.title).where(
+                Finding.case_id == str(case_id)
+            )
+        )
+        seen: set[tuple[str, str]] = {
+            (finding_type, title) for finding_type, title in existing_rows.all()
+        }
+        to_insert = []
+        for row in findings:
+            signal_key = (row["finding_type"], row["title"])
+            if signal_key in seen:
+                continue
+            seen.add(signal_key)
+            to_insert.append(row)
+        if not to_insert:
+            return 0
         self._session.add_all(
             [
                 Finding(
@@ -276,11 +298,11 @@ class AnalyticsDataRepository:
                     explanation=row["explanation"],
                     details=row.get("metadata"),
                 )
-                for row in findings
+                for row in to_insert
             ]
         )
         await self._session.flush()
-        return len(findings)
+        return len(to_insert)
 
     # Findings reads / status --------------------------------------------
     async def list_findings(

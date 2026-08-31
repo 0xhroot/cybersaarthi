@@ -40,22 +40,24 @@ export default function DashboardPage() {
   const canCreate = useCan("case.create");
   const canAudit = useCan("audit.read");
 
-  const featured = useQuery({
-    queryKey: ["dashboard", "featured"],
+  // F05: single stats query against server-side status totals (exact counts,
+  // not a sample of the recent page) plus the recent-cases list. No duplicate
+  // full-list fetch — the highlight is simply the most recent item.
+  const stats = useQuery({
+    queryKey: ["dashboard", "case-counts"],
     queryFn: async () => {
-      const list = await api.cases.list({ limit: 100 });
-      return list.items[0] ?? null;
+      const [open, inProgress, closed] = await Promise.all(
+        (["open", "in_progress", "closed"] as const).map((status) =>
+          api.cases.list({ status, limit: 1 }).then((list) => list.total),
+        ),
+      );
+      return { open, inProgress, closed };
     },
     staleTime: 60_000,
-    enabled: cases.isSuccess,
   });
 
   const items = cases.data?.items ?? [];
-  const open = items.filter((c) => c.status === "open").length;
-  const inProgress = items.filter((c) => c.status === "in_progress").length;
-  const closed = items.filter((c) => c.status === "closed" || c.status === "archived").length;
-
-  const highlight = featured.data;
+  const highlight = items[0] ?? null;
 
   return (
     <PageContainer>
@@ -73,17 +75,20 @@ export default function DashboardPage() {
       />
 
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        {(cases.isLoading ? [0, 0, 0] : [open, inProgress, closed]).map((value, index) =>
-          cases.isLoading ? (
-            <Skeleton key={index} className="h-[88px]" />
-          ) : (
-            <StatCard
-              key={index}
-              label={["Open", "In progress", "Closed"][index] ?? ""}
-              value={value}
-              tone={["#d6a14e", "#6d9ec2", "#7e8a99"][index] ?? "#7e8a99"}
-            />
-          ),
+        {stats.isLoading ? (
+          <>
+            <Skeleton className="h-[88px]" />
+            <Skeleton className="h-[88px]" />
+            <Skeleton className="h-[88px]" />
+          </>
+        ) : (
+          [
+            { label: "Open", value: stats.data?.open ?? 0, tone: "#d6a14e" },
+            { label: "In progress", value: stats.data?.inProgress ?? 0, tone: "#6d9ec2" },
+            { label: "Closed", value: stats.data?.closed ?? 0, tone: "#7e8a99" },
+          ].map((stat) => (
+            <StatCard key={stat.label} label={stat.label} value={stat.value} tone={stat.tone} />
+          ))
         )}
       </div>
 

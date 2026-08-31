@@ -1,7 +1,9 @@
 # CyberSaarthi Frontend — Design System
 
-Single-source design tokens live in `src/styles/globals.css`. All components
-consume tokens only — no raw hex values in JSX.
+Single-source design tokens live in `src/styles/globals.css`. Components consume
+tokens for UI chrome; raw hex remains only where Cytoscape graph node colors and
+dashboard stat-card tones require literal values (see `cyto-graph.tsx`,
+`dashboard.tsx`).
 
 ## Colour tokens
 
@@ -41,13 +43,13 @@ Typeography: Inter Variable (self-hosted), numeric data uses `tabular-nums`
 
 ## Z-layers
 
-`--z-sidebar` < `--z-dropdown` < `--z-sticky` < `--z-tooltip` <
-`--z-drawer` < `--z-toast` < `--z-dialog`.
+`--z-sidebar` (40) < `--z-topbar` (50) < `--z-drawer` (60) <
+`--z-dialog` (80) < `--z-toast` (100) < `--z-palette` (120).
 
 ## Components (`src/components/ui`)
 
 `button`, `input` (Input/Textarea/Label), `badge`, `card` (Card/Panel),
-`tabs`, `dialog`, `drawer`, `select`, `dropdown-menu`, `switch`, `tooltip`,
+`dialog`, `drawer`, `select`, `dropdown-menu`, `tooltip`,
 `loading` (Skeleton/Progress/SpinnerBlock), `table`, `toast`,
 `empty-state`, `error-state`.
 

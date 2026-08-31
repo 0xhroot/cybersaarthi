@@ -61,6 +61,57 @@ def test_articulation_points_none_in_triangle() -> None:
     assert articulation_points(graph) == frozenset()
 
 
+def test_articulation_points_two_node_component() -> None:
+    graph = _graph([("a", "b")])
+    assert articulation_points(graph) == frozenset()
+
+
+def test_articulation_points_disconnected_with_isolated_nodes() -> None:
+    graph = _graph([("a", "b"), ("b", "c"), ("y", "z")])
+    assert articulation_points(graph) == frozenset({"b"})
+
+
+def test_articulation_points_long_chain_exceeds_recursion_limit() -> None:
+    """Regression: a 1500-node chain used to raise RecursionError (A01).
+
+    The DFS is iterative, so deep graphs are analysed without touching the
+    interpreter recursion limit.  Every interior node of a chain is a cut
+    vertex: the two endpoints are not.
+    """
+    size = 1500
+    edges = [(f"n{i}", f"n{i + 1}") for i in range(size - 1)]
+    graph = build_graph(
+        {node for edge in edges for node in edge},
+        [(a, b, "chain") for a, b in edges],
+    )
+    cuts = articulation_points(graph)
+    assert len(cuts) == size - 2
+    assert "n0" not in cuts and f"n{size - 1}" not in cuts
+    assert "n749" in cuts
+
+
+def test_articulation_points_large_star() -> None:
+    """A 1500-node star has exactly one cut vertex (its hub)."""
+    size = 1500
+    graph = build_graph(
+        {f"leaf{i}" for i in range(size)} | {"hub"},
+        [(f"leaf{i}", "hub", "called") for i in range(size)],
+    )
+    assert articulation_points(graph) == frozenset({"hub"})
+
+
+def test_articulation_points_is_deterministic() -> None:
+    """Repeated runs over the same graph return an identical cut set."""
+    edges = [(f"n{i}", f"n{i + 1}") for i in range(1200 - 1)]
+    graph = build_graph(
+        {node for edge in edges for node in edge},
+        [(a, b, "chain") for a, b in edges],
+    )
+    first = articulation_points(graph)
+    for _ in range(3):
+        assert articulation_points(graph) == first
+
+
 def test_betweenness_bridge_middleman() -> None:
     graph = _graph([("a", "b"), ("b", "c"), ("c", "d")])
     betweenness = betweenness_centrality(graph)

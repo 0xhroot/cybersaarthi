@@ -41,6 +41,40 @@ async def test_security_headers_present(http_client: httpx.AsyncClient) -> None:
     response = await http_client.get("/api/v1/health")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cross-origin-opener-policy"] == "same-origin"
+
+
+async def test_production_headers_only_when_strict() -> None:
+    """A12: HSTS + CSP are added only in production (strict mode).
+
+    In the dev/test environment the SecurityHeadersMiddleware must stay
+    non-strict so browsers do not cache HSTS/CSP while iterating locally.
+    """
+    from app.middleware import SecurityHeadersMiddleware
+    from starlette.applications import Starlette
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+
+    async def _endpoint(request) -> PlainTextResponse:
+        return PlainTextResponse("ok")
+
+    async def _fetch(strict: bool) -> dict[str, str]:
+        inner = Starlette(routes=[Route("/", _endpoint)])
+        app = SecurityHeadersMiddleware(inner, strict=strict)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            response = await client.get("/")
+            return dict(response.headers)
+
+    dev_headers = await _fetch(strict=False)
+    assert "strict-transport-security" not in dev_headers
+    assert "content-security-policy" not in dev_headers
+
+    prod_headers = await _fetch(strict=True)
+    assert prod_headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+    assert "frame-ancestors 'none'" in prod_headers["content-security-policy"]
 
 
 async def test_docs_are_available(http_client: httpx.AsyncClient) -> None:

@@ -10,14 +10,40 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import TypedDict
 
 from neo4j import AsyncDriver
 
 from app.core.config import Settings
 from app.db.neo4j import GraphStore
 from app.models import Entity, Relationship
+from app.models.relationship import RELATIONSHIP_TYPES
 
 logger = logging.getLogger(__name__)
+
+
+class RelationshipPayload(TypedDict):
+    """One edge projected into Neo4j during a case graph sync."""
+
+    id: str
+    case_id: str
+    source: str
+    target: str
+    type: str
+    confidence: float | None
+    explanation: str | None
+    created_at: str
+
+
+def _assert_legal_relationship_types(payload: list[RelationshipPayload]) -> None:
+    """A11: guard the only interpolated Cypher fragment (the relationship
+    label). PostgreSQL constrains these values today, but explicit defence-in-
+    depth means a future looser type cannot inject Cypher."""
+    allowed = {t.upper() for t in RELATIONSHIP_TYPES}
+    for edge in payload:
+        label = edge["type"]
+        if label not in allowed:
+            raise ValueError(f"illegal relationship type for graph sync: {label!r}")
 
 
 class GraphSyncService:
@@ -89,7 +115,7 @@ class GraphSyncService:
         case_id: uuid.UUID,
     ) -> int:
         now = datetime.now(UTC).isoformat()
-        payload = [
+        payload: list[RelationshipPayload] = [
             {
                 "id": str(rel.id),
                 "case_id": str(case_id),
@@ -104,6 +130,8 @@ class GraphSyncService:
         ]
         if not payload:
             return 0
+        # A11: the relationship label is the only interpolated Cypher fragment.
+        _assert_legal_relationship_types(payload)
         async with self.driver().session() as session:
             for start in range(0, len(payload), self._chunk_size):
                 chunk = payload[start : start + self._chunk_size]
@@ -126,7 +154,7 @@ class GraphSyncService:
                             r.explanation = $explanation,
                             r.created_at = $created_at
                         """,
-                        edge,
+                        dict(edge),
                     )
         return len(payload)
 
@@ -178,6 +206,42 @@ class GraphSyncService:
         logger.info(
             "graph sync complete",
             extra={"case_id": str(case_id), "nodes": nodes, "edges": edges},
+        )
+        return nodes, edges
+
+    async def delete_case(self, case_id: uuid.UUID) -> tuple[int, int]:
+        """Remove every node and relationship of a case from the projection.
+
+        Case removal is not yet an API operation, but cleanup / maintenance
+        tooling calls this so a PostgreSQL case deletion never leaves orphaned
+        graph state (A02). Deleting relationships first is only an
+        optimisation: ``DETACH DELETE`` also clears any incident edges.
+        """
+        cid = str(case_id)
+        async with self.driver().session() as session:
+            rel_result = await session.run(
+                """
+                MATCH (n:Entity {case_id: $cid})-[r]->()
+                DELETE r
+                RETURN count(r) AS removed
+                """,
+                {"cid": cid},
+            )
+            rel_record = await rel_result.single()
+            edges = int(rel_record["removed"]) if rel_record else 0
+            node_result = await session.run(
+                """
+                MATCH (n:Entity {case_id: $cid})
+                DETACH DELETE n
+                RETURN count(n) AS removed
+                """,
+                {"cid": cid},
+            )
+            node_record = await node_result.single()
+            nodes = int(node_record["removed"]) if node_record else 0
+        logger.info(
+            "graph case removed",
+            extra={"case_id": cid, "nodes": nodes, "edges": edges},
         )
         return nodes, edges
 

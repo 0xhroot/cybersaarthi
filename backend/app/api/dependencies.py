@@ -31,6 +31,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.entity_service import EntityQueryService
 from app.services.graph_sync import GraphSyncService
 from app.services.ingestion import IngestionService
+from app.services.token import is_revoked, token_jti
 from app.services.users import UserService
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,11 @@ async def get_current_user(
     user_id = decode_access_token(token, secret=get_settings().SECRET_KEY)
     if user_id is None:
         raise HTTPException(status_code=401, detail="invalid or expired access token")
+    if get_settings().TOKEN_REVOCATION_ENABLED:
+        cache = request.app.state.cache
+        jti = token_jti(token, secret=get_settings().SECRET_KEY)
+        if await is_revoked(cache, jti):
+            raise HTTPException(status_code=401, detail="access token has been revoked")
     user = await session.get(User, user_id)
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="invalid or inactive account")

@@ -396,7 +396,7 @@ export const MAIN_EVIDENCE: EvidenceListItem[] = EVIDENCE_SEEDS.map((seed, index
     sha256: sha256For(seed.key),
     format: seed.format,
     file_size: seed.size,
-    status: index === 0 ? "pending" : "ingested",
+    status: index === 0 ? "stored" : "parsed",
     record_count: seed.records,
     created_at: created,
   } satisfies EvidenceListItem;
@@ -419,7 +419,7 @@ export const EVIDENCE_DETAILS: Record<
       stored_key: `cases/${CASE_ID_MAIN}/evidence/${uid(500 + index)}/${seed.filename}`,
       content_type: seed.format === "csv" ? "text/csv" : seed.format === "json" ? "application/json" : "text/plain",
       encoding: "utf-8",
-      status_detail: index === 0 ? null : "Ingested successfully",
+      status_detail: index === 0 ? null : "Parsed successfully",
       data_source: seed.dataSource,
       metadata_json: { source: seed.dataSource, integrity: "verified" },
     },
@@ -1116,8 +1116,8 @@ const SECONDARY_FINDINGS: Finding[] = [
 ];
 
 const SECONDARY_EVIDENCE: EvidenceListItem[] = [
-  { id: uid(6510), original_filename: "shipment_manifest_2026.csv", sha256: sha256For("manifest"), format: "csv", file_size: 221_500, status: "ingested", record_count: 96, created_at: iso(8) },
-  { id: uid(6511), original_filename: "intake_forms.json", sha256: sha256For("intake"), format: "json", file_size: 12_800, status: "ingested", record_count: 14, created_at: iso(7) },
+  { id: uid(6510), original_filename: "shipment_manifest_2026.csv", sha256: sha256For("manifest"), format: "csv", file_size: 221_500, status: "parsed", record_count: 96, created_at: iso(8) },
+  { id: uid(6511), original_filename: "intake_forms.json", sha256: sha256For("intake"), format: "json", file_size: 12_800, status: "parsed", record_count: 14, created_at: iso(7) },
 ];
 
 const SECONDARY_JOBS: IngestionJob[] = [

@@ -214,11 +214,15 @@ async def test_ingestion_is_idempotent_and_free_text_works(
             job_two = await service.ingest(case_id=case_id, evidence_file_id=evidence_id)
             assert job_two.status == "completed"
             assert job_two.graph_sync_status == "synced"
+            # A08: a second ingest of the same evidence file reuses the existing
+            # job (unique on case_id + evidence_file_id) instead of queuing a
+            # redundant one.
+            assert job_two.id == job.id
 
             second_counts = await engine.count_entities_by_type(case_id)
             assert dict(second_counts) == dict(first_counts)
             jobs, _ = await EvidenceRepository(session).list_jobs(case_id)
-            assert len(jobs) == 2
+            assert len(jobs) == 1
     finally:
         await _cleanup(database, storage, graph_store, case_id)
 

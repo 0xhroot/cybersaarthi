@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 from app.analytics.communities import detect_communities
-from app.analytics.graph import Graph, common_neighbors
+from app.analytics.graph import Graph
 from app.analytics.patterns import EntityMeta
 from app.core.config import Settings
 
@@ -78,13 +78,15 @@ def generate_hypotheses(
 
     adj = graph.adjacency
     # Map pair -> shared neighbours (identity of common neighbours is a traceable
-    # structural signal).
+    # structural signal). ``adj`` is computed once: re-deriving it per pair (via
+    # ``common_neighbors``) makes large graphs O(pairs * edges), which stalls the
+    # pipeline at a few hundred nodes.
     shared: dict[tuple[str, str], set[str]] = defaultdict(set)
     for a_index, a in enumerate(actors):
         for b in actors[a_index + 1 :]:
             if b in adj.get(a, ()):
                 continue  # already directly connected
-            shared_neighbors = common_neighbors(graph, a, b)
+            shared_neighbors = adj.get(a, set()) & adj.get(b, set())
             if shared_neighbors:
                 shared[(a, b)] = shared_neighbors
 

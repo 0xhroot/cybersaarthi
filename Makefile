@@ -1,5 +1,9 @@
 COMPOSE := docker compose
 EXEC := $(COMPOSE) exec -T backend
+# Development/verification commands run in a dedicated `backend-dev` container
+# (build target `dev`) that contains pytest/ruff/mypy on top of the runtime,
+# keeping the production `backend` image lean.
+DEV := $(COMPOSE) run --rm -T backend-dev
 
 .PHONY: help up down down-v build logs ps seed test test-unit lint format format-check typecheck \
         migrate migration shell
@@ -28,23 +32,23 @@ ps: ## show service status
 seed: ## seed the deterministic demo case (idempotent)
 	$(EXEC) python -m scripts.seed_demo
 
-test: ## run the full test suite (unit, api, integration) in the backend container
-	$(EXEC) pytest
+test: ## run the full test suite (unit, api, integration) in the dev container
+	$(DEV) pytest
 
 test-unit: ## run only tests that do not need infrastructure
-	$(EXEC) pytest -m "not integration"
+	$(DEV) pytest -m "not integration"
 
-lint: ## run Ruff linter in the backend container
-	$(EXEC) ruff check .
+lint: ## run Ruff linter in the dev container
+	$(DEV) ruff check .
 
-format: ## format code with Ruff
-	$(EXEC) ruff format .
+format: ## format code with Ruff in the dev container
+	$(DEV) ruff format .
 
 format-check: ## verify formatting without modifying files
-	$(EXEC) ruff format --check .
+	$(DEV) ruff format --check .
 
 typecheck: ## run mypy type checks on the backend
-	$(EXEC) mypy app
+	$(DEV) mypy app
 
 migrate: ## apply all pending migrations
 	$(EXEC) alembic upgrade head

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -32,6 +33,7 @@ class IngestionJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "graph_sync_status IN ('pending', 'synced', 'failed')",
             name="ingestion_job_graph_sync_valid",
         ),
+        UniqueConstraint("case_id", "evidence_file_id", name="uq_ingestion_jobs_case_evidence"),
     )
 
     case_id: Mapped[str] = mapped_column(

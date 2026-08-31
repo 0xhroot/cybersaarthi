@@ -50,18 +50,40 @@ class EntityRepository:
         confidence: float | None,
         status: str = "active",
     ) -> Entity:
-        entity = Entity(
-            case_id=str(case_id),
-            entity_type=entity_type,
-            canonical_value=canonical_value,
-            blocking_key=blocking_key,
-            display_value=display_value,
-            confidence=confidence,
-            status=status,
+        """Create an entity or return the existing one with the same key (A08).
+
+        Concurrency-safe: two workers ingesting the same new canonical value
+        race on ``uq_entities_case_type_value``; ``on_conflict_do_nothing``
+        makes one insert win and the other refetch the row instead of raising
+        an ``IntegrityError``. Callers rely on the returned ORM instance.
+        """
+        statement = (
+            pg_insert(Entity)
+            .values(
+                case_id=str(case_id),
+                entity_type=entity_type,
+                canonical_value=canonical_value,
+                blocking_key=blocking_key,
+                display_value=display_value,
+                confidence=confidence,
+                status=status,
+            )
+            .on_conflict_do_nothing(constraint="uq_entities_case_type_value")
+            .returning(Entity.id)
         )
-        self._session.add(entity)
-        await self._session.flush()
-        return entity
+        result = await self._session.execute(statement)
+        entity_id = result.scalar_one_or_none()
+        if entity_id is not None:
+            return await self._session.get(Entity, entity_id)  # type: ignore[return-value]
+        # Another worker inserted the same key; return the existing row.
+        existing = await self._session.scalar(
+            select(Entity).where(
+                Entity.case_id == str(case_id),
+                Entity.entity_type == entity_type,
+                Entity.canonical_value == canonical_value,
+            )
+        )
+        return existing  # type: ignore[return-value]
 
     async def update_entity_context(
         self,

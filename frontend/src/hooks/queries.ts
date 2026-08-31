@@ -327,6 +327,15 @@ export function useIngestEvidence(caseId: string) {
       void qc.invalidateQueries({ queryKey: queryKeys.summary(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+      // F04: the case's analytics panes derive from the same pipeline, so a
+      // successful ingest/run must refresh every analytics-backed panel too.
+      void qc.invalidateQueries({ queryKey: ["analytics", caseId, "centrality"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.communities(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.networkDna(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.priorities(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.strength(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.patterns(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.hypotheses(caseId) });
     },
   });
 }
@@ -342,6 +351,15 @@ export function useRunAnalytics(caseId: string) {
       void qc.invalidateQueries({ queryKey: queryKeys.summary(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+      // F04: refresh every analytics-derived key so no dashboard panel shows
+      // stale data (up to the previous 60 s cache window) after a run.
+      void qc.invalidateQueries({ queryKey: ["analytics", caseId, "centrality"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.communities(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.networkDna(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.priorities(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.strength(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.patterns(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.hypotheses(caseId) });
     },
   });
 }

@@ -70,6 +70,37 @@ def decode_access_token(
     ``None`` covers malformed encoding, a bad signature (tampered token),
     an expired token and an unreadable user claim. Verification never raises.
     """
+    payload: dict[str, object] | None = _decode_payload(token, secret=secret, now=now)
+    if payload is None:
+        return None
+    user_id = payload.get(IDENTIFIER_PER_CLAIM)
+    try:
+        return uuid.UUID(str(user_id))
+    except (ValueError, TypeError):
+        return None
+
+
+def decode_access_token_claims(
+    token: str,
+    *,
+    secret: str,
+    now: datetime | None = None,
+) -> dict[str, object] | None:
+    """Return the validated token claims (jti, exp, uid) or ``None``.
+
+    This is the same signature+expiry verification path as
+    :func:`decode_access_token` but also surfaces the raw claims, so server-side
+    revocation (A07) can read the token id (``jti``) before trusting it.
+    """
+    return _decode_payload(token, secret=secret, now=now)
+
+
+def _decode_payload(
+    token: str,
+    *,
+    secret: str,
+    now: datetime | None,
+) -> dict[str, object] | None:
     if "." not in token:
         return None
     encoded, supplied_signature = token.split(".", 1)
@@ -91,11 +122,7 @@ def decode_access_token(
     current = now if now is not None else datetime.now(UTC)
     if current.timestamp() > expires_at:
         return None
-    user_id = payload.get(IDENTIFIER_PER_CLAIM)
-    try:
-        return uuid.UUID(str(user_id))
-    except (ValueError, TypeError):
-        return None
+    return payload
 
 
 def _sign(encoded_payload: str, secret: str) -> str:

@@ -14,21 +14,41 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Headers applied on every response.
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "X-XSS-Protection": "1; mode=block",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+}
+
+# Headers applied only in production (A12): HSTS mutates browser behaviour and
+# CSP is best served at the origin (this is a JSON API; no inline scripts exist).
+PROD_SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Content-Security-Policy": (
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    ),
 }
 
 _REQUEST_ID_HEADERS = ("x-request-id", "x-correlation-id")
 
 
 class SecurityHeadersMiddleware:
-    """Adds baseline security headers to every HTTP response."""
+    """Adds security headers to every HTTP response.
 
-    def __init__(self, app: ASGIApp) -> None:
+    ``strict`` (production) additionally sets HSTS and a restrictive CSP. When
+    running behind a TLS-terminating proxy these should be considered the
+    backend's own guarantee and may be refined at the proxy.
+    """
+
+    def __init__(self, app: ASGIApp, *, strict: bool = False) -> None:
         self.app = app
+        self.headers = dict(SECURITY_HEADERS)
+        if strict:
+            self.headers.update(PROD_SECURITY_HEADERS)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -38,8 +58,7 @@ class SecurityHeadersMiddleware:
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 message["headers"] = [
-                    (key.lower().encode(), value.encode())
-                    for key, value in SECURITY_HEADERS.items()
+                    (key.lower().encode(), value.encode()) for key, value in self.headers.items()
                 ] + list(message.get("headers", []))
             await send(message)
 

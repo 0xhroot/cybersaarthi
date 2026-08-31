@@ -94,7 +94,7 @@ the real HTTP adapter by flipping one env var.
 
 - `npx tsc -p tsconfig.app.json --noEmit` → clean (strict, no `any`).
 - `npm run lint` → 0 problems (ESLint 9 + typescript-eslint).
-- `npm run test` → 27 passed (unit + guards, jsdom, Testing Library).
+- `npm run test` → 34 passed (unit + guards, jsdom, Testing Library).
 - `npm run build` → production build succeeds (code-split pages; graph chunk
   carries the Cytoscape bundle).
 
@@ -103,8 +103,9 @@ the real HTTP adapter by flipping one env var.
 ## FRONTEND STATUS
 
 - **STATUS**: COMPLETE
-- **BUILD**: `npm run build` passes (tsc -b + vite build; 12 code-split route chunks)
-- **TESTS**: 27 passed across 8 files (`npm run test`)
+- **BUILD**: `npm run build` passes (tsc -b + vite build; 16+ lazy route chunks,
+  35 JS assets total; Cytoscape isolated to the graph chunk).
+- **TESTS**: 34 passed across 10 files (`npm run test`)
 - **LINT**: 0 problems (`npm run lint`)
 - **TYPECHECK**: clean (`npx tsc -p tsconfig.app.json --noEmit`)
 - **MOCK MODE**: default (`VITE_USE_MOCK_API=true`) — deterministic seed data, demo creds on login

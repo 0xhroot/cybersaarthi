@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "@/app/layouts/app-shell";
 import { useAuthStore } from "@/stores/auth";
+import { useCan, type Permission } from "@/lib/permissions";
 import { Brand } from "@/components/layout/brand";
 import { SpinnerBlock } from "@/components/ui/loading";
 
@@ -20,6 +21,7 @@ const FindingsPage = lazy(() => import("@/app/pages/findings"));
 const FindingDetailPage = lazy(() => import("@/app/pages/finding-detail"));
 const TimelinePage = lazy(() => import("@/app/pages/timeline"));
 const AuditPage = lazy(() => import("@/app/pages/audit"));
+const NoAccessPage = lazy(() => import("@/app/pages/no-access"));
 const SettingsPage = lazy(() => import("@/app/pages/settings"));
 const NotFoundPage = lazy(() => import("@/app/pages/not-found"));
 
@@ -37,6 +39,15 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
   if (status !== "authenticated") {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  return <>{children}</>;
+}
+
+/** F03: a route that additionally demands a permission (e.g. audit.read). */
+function RequirePermission({ permission, children }: { permission: Permission; children: ReactNode }) {
+  const allowed = useCan(permission);
+  if (!allowed) {
+    return <NoAccessPage />;
   }
   return <>{children}</>;
 }
@@ -85,7 +96,14 @@ export function AppRouter() {
             <Route path="findings/:findingId" element={<FindingDetailPage />} />
             <Route path="timeline" element={<TimelinePage />} />
           </Route>
-          <Route path="audit" element={<AuditPage />} />
+          <Route
+            path="audit"
+            element={
+              <RequirePermission permission="audit.read">
+                <AuditPage />
+              </RequirePermission>
+            }
+          />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="/" element={<Navigate to="/app" replace />} />

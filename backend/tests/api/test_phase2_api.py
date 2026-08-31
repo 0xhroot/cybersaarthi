@@ -140,3 +140,127 @@ async def test_entity_graph_and_review_endpoints(http_client, phase2_case) -> No
     missing = "00000000-0000-0000-0000-000000000000"
     response = await http_client.get(f"{prefix}/cases/{missing}/entities")
     assert response.status_code == 404
+
+
+async def _upload_one(http_client, case_id: uuid.UUID) -> dict:
+    prefix = get_settings().API_V1_PREFIX
+    response = await http_client.post(
+        f"{prefix}/cases/{case_id}/evidence",
+        files={"file": ("citizens.csv", CSV_BYTES.encode(), "text/csv")},
+        data={"data_source": "police_csv"},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _evidence_objects(app, case_id: uuid.UUID) -> list[str]:
+    return app.state.storage.list_keys(f"cases/{case_id}/evidence/")
+
+
+async def test_evidence_delete_removes_row_and_object(
+    http_client, phase2_case, monkeypatch
+) -> None:
+    """DELETE /cases/:id/evidence/:id purges the DB row and the object (A03)."""
+    from app.main import app
+
+    case_id, _ = phase2_case
+    prefix = get_settings().API_V1_PREFIX
+    evidence = await _upload_one(http_client, case_id)
+    evidence_id = evidence["id"]
+    assert len(_evidence_objects(app, case_id)) == 1
+
+    # parenthesise: request.app.state is the same object as the imported app
+    response = await http_client.delete(f"{prefix}/cases/{case_id}/evidence/{evidence_id}")
+    assert response.status_code == 204, response.text
+
+    response = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+    assert _evidence_objects(app, case_id) == []
+
+    # deleting an unknown evidence row is a 404, not a 500
+    response = await http_client.delete(f"{prefix}/cases/{case_id}/evidence/{evidence_id}")
+    assert response.status_code == 404
+
+
+async def test_evidence_delete_scoped_to_case(http_client, phase2_case, user_factory) -> None:
+    """An evidence row from another case cannot be deleted via this case (A03)."""
+    from app.main import app
+
+    case_id, database = phase2_case
+    prefix = get_settings().API_V1_PREFIX
+    other_owner = await user_factory()
+    other_case = Case(
+        id=uuid.uuid4(),
+        case_number=f"API-{uuid.uuid4().hex[:8]}",
+        title="other case",
+        owner_id=other_owner.id,
+    )
+    factory = database.session_factory()
+    async with factory() as session:
+        session.add(other_case)
+        await session.commit()
+    try:
+        import httpx
+
+        other_headers = {"Authorization": f"Bearer {other_owner.token}"}
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers=other_headers,
+        ) as other_client:
+            evidence = await _upload_one(other_client, other_case.id)
+            evidence_id = evidence["id"]
+
+            response = await http_client.delete(f"{prefix}/cases/{case_id}/evidence/{evidence_id}")
+            assert response.status_code == 404, response.text
+            # the row and object survive (listed via the owner's client)
+            response = await other_client.get(f"{prefix}/cases/{other_case.id}/evidence")
+            assert response.status_code == 200, response.text
+            assert response.json()["total"] == 1
+            assert len(_evidence_objects(app, other_case.id)) == 1
+    finally:
+        async with factory() as session:
+            await session.execute(delete(Case).where(Case.id == other_case.id))
+            await session.commit()
+
+
+async def test_evidence_delete_requires_permission(http_client, phase2_case, user_factory) -> None:
+    """viewer has no evidence.delete, so the request is rejected (A03)."""
+    import httpx
+    from app.main import app
+
+    case_id, _ = phase2_case
+    prefix = get_settings().API_V1_PREFIX
+    evidence = await _upload_one(http_client, case_id)
+    viewer = await user_factory(role="VIEWER")
+    viewer_headers = {"Authorization": f"Bearer {viewer.token}"}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver", headers=viewer_headers
+    ) as client:
+        response = await client.delete(f"{prefix}/cases/{case_id}/evidence/{evidence['id']}")
+    assert response.status_code == 403, response.text
+
+
+async def test_evidence_upload_failure_cleans_up_object(
+    http_client, phase2_case, monkeypatch
+) -> None:
+    """A03 compensating delete: an object uploaded before a failed insert is
+    removed, so the bucket holds no orphan for the failed upload."""
+    from app.main import app
+    from app.repositories.evidence_repository import EvidenceRepository
+
+    case_id, _ = phase2_case
+    prefix = get_settings().API_V1_PREFIX
+
+    async def _boom(self, **kwargs):
+        raise RuntimeError("simulated insert failure")
+
+    monkeypatch.setattr(EvidenceRepository, "create_evidence_file", _boom)
+    with pytest.raises(RuntimeError):
+        await http_client.post(
+            f"{prefix}/cases/{case_id}/evidence",
+            files={"file": ("citizens.csv", CSV_BYTES.encode(), "text/csv")},
+            data={"data_source": "police_csv"},
+        )
+    assert _evidence_objects(app, case_id) == []

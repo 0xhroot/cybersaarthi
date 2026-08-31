@@ -14,7 +14,7 @@ import pytest
 from app.core.config import get_settings
 from app.db.postgres import Database
 from app.main import app
-from app.models import RELATIONSHIP_TYPES, Case
+from app.models import RELATIONSHIP_TYPES, Case, Entity, Relationship
 from sqlalchemy import delete
 
 from tests.api.conftest import ApiUser
@@ -362,6 +362,60 @@ async def test_paths_validation_and_openapi_contract(
             await session.commit()
 
 
+async def test_analytics_handles_graph_beyond_recursion_depth(http_client, phase3_case) -> None:
+    """Regression for A01: analytics over a >1000-node graph must not crash.
+
+    Articulation detection is a depth-first Tarjan pass that used to recurse
+    once per node, overflowing the interpreter stack on deep graphs (a long
+    relationship chain) and surfacing as a 500 from the analytics endpoints.
+    DFS is now explicit-stack, so a 1200-node chain resolves cleanly.
+    """
+    case_id, database = phase3_case
+    prefix = get_settings().API_V1_PREFIX
+
+    size = 1200
+    factory = database.session_factory()
+    async with factory() as session:
+        entities = [
+            Entity(
+                case_id=str(case_id),
+                entity_type="person",
+                canonical_value=f"chain-person-{i:04d}",
+                blocking_key=f"bk-{case_id}-chain-{i:04d}",
+                display_value=f"Chain Person {i:04d}",
+                status="active",
+            )
+            for i in range(size)
+        ]
+        session.add_all(entities)
+        await session.flush()
+        ids = [entity.id for entity in entities]
+        relationships = [
+            Relationship(
+                case_id=str(case_id),
+                source_entity_id=ids[i],
+                target_entity_id=ids[i + 1],
+                relationship_type="called",
+            )
+            for i in range(size - 1)
+        ]
+        session.add_all(relationships)
+        await session.commit()
+
+    response = await http_client.get(f"{prefix}/cases/{case_id}/analytics/summary")
+    assert response.status_code == 200, response.text
+    summary = response.json()
+    assert summary["entity_count"] == size
+    assert summary["relationship_count"] == size - 1
+    assert summary["exact_graph"] is True
+
+    response = await http_client.get(
+        f"{prefix}/cases/{case_id}/analytics/centrality?metric=betweenness&limit=5"
+    )
+    assert response.status_code == 200, response.text
+    assert all(entry["exact"] is True for entry in response.json())
+
+
 async def test_analytics_summary_exact_flag_defaults(http_client, phase3_case) -> None:
     """Small cases run exact analytics; the summary surfaces no approximation
     notice and the centrality payloads report exact=True."""
@@ -420,3 +474,24 @@ async def test_analytics_not_found_and_isolation(
         async with factory() as session:
             await session.execute(delete(Case).where(Case.id == other_id))
             await session.commit()
+
+
+async def test_findings_do_not_duplicate_across_unchanged_runs(http_client, phase3_case) -> None:
+    """A09: re-running analytics over unchanged data must not inflate the
+    findings table. Unchanged signals are collapsed, so the total stays flat."""
+    case_id, _ = phase3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _ingested_case(http_client, case_id)
+
+    response = await http_client.post(f"{prefix}/cases/{case_id}/analytics/run")
+    assert response.status_code == 201, response.text
+    first_total = (await http_client.get(f"{prefix}/cases/{case_id}/findings")).json()["total"]
+    assert first_total >= 1
+
+    response = await http_client.post(f"{prefix}/cases/{case_id}/analytics/run")
+    assert response.status_code == 201, response.text
+
+    after = (await http_client.get(f"{prefix}/cases/{case_id}/findings")).json()
+    # Deterministic engine: an unchanged case yields the same findings, so the
+    # second run must not add a second copy of every finding.
+    assert after["total"] == first_total

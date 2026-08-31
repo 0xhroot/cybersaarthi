@@ -102,36 +102,59 @@ def connected_components(graph: Graph) -> list[frozenset[str]]:
 
 
 def articulation_points(graph: Graph) -> frozenset[str]:
-    """Tarjan's algorithm, deterministic over sorted iteration order."""
+    """Tarjan's algorithm, deterministic over sorted iteration order.
+
+    The DFS is iterative (explicit stack) so graphs far larger than the
+    Python recursion limit (thousands of nodes, e.g. long relationship
+    chains) are analysed without a RecursionError. Discovery, low-link
+    updates and cut-vertex detection mirror the recursive formulation
+    exactly, and neighbours are visited in sorted order for stability.
+    """
     adj = graph.adjacency
     disc: dict[str, int] = {}
     low: dict[str, int] = {}
     parent: dict[str, str | None] = {}
+    child_count: dict[str, int] = {}
     cut: set[str] = set()
     timer = 0
 
-    def dfs(node: str) -> None:
+    def dfs(start: str) -> None:
         nonlocal timer
-        disc[node] = low[node] = timer
+        parent[start] = None
+        child_count[start] = 0
+        disc[start] = low[start] = timer
         timer += 1
-        children = 0
-        for neighbor in sorted(adj.get(node, ())):
+        stack: list[str] = [start]
+        neighbors = {start: iter(sorted(adj.get(start, ())))}
+        while stack:
+            node = stack[-1]
+            try:
+                neighbor = next(neighbors[node])
+            except StopIteration:
+                stack.pop()
+                node_parent = parent[node]
+                if node_parent is None:
+                    if child_count[node] > 1:
+                        cut.add(node)
+                else:
+                    low[node_parent] = min(low[node_parent], low[node])
+                    if parent[node_parent] is not None and low[node] >= disc[node_parent]:
+                        cut.add(node_parent)
+                continue
             if neighbor not in disc:
                 parent[neighbor] = node
-                children += 1
-                dfs(neighbor)
-                low[node] = min(low[node], low[neighbor])
-                if parent.get(node) is None and children > 1:
-                    cut.add(node)
-                if parent.get(node) is not None and low[neighbor] >= disc[node]:
-                    cut.add(node)
-            elif neighbor != parent.get(node):
+                child_count[node] += 1
+                child_count[neighbor] = 0
+                disc[neighbor] = low[neighbor] = timer
+                timer += 1
+                neighbors[neighbor] = iter(sorted(adj.get(neighbor, ())))
+                stack.append(neighbor)
+            elif neighbor != parent[node]:
                 low[node] = min(low[node], disc[neighbor])
 
     for node in sorted(graph.nodes):
-        if node not in disc:
-            if adj.get(node):
-                dfs(node)
+        if node not in disc and adj.get(node):
+            dfs(node)
     return frozenset(cut)
 
 

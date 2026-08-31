@@ -153,3 +153,107 @@ async def test_register_creates_user_and_conflicts(http_client, user_factory) ->
     assert login.status_code == 200, login.text
     me_payload = login.json()["user"]
     assert me_payload["username"] == username
+
+
+async def test_login_throttled_after_too_many_failures(
+    http_client, user_factory, monkeypatch
+) -> None:
+    """A06: /auth/login returns 429 once the IP+username budget is exhausted,
+    then 200 again once the counters are cleared after a successful login."""
+    from app.main import app as _app
+    from app.services import throttle
+
+    test_ip = "213.100.50.10"
+    monkeypatch.setattr(throttle, "client_ip", lambda _request: test_ip)
+
+    prefix = get_settings().API_V1_PREFIX
+    user = await user_factory()
+    settings = get_settings()
+    saved = (settings.LOGIN_MAX_ATTEMPTS, settings.LOGIN_IP_MAX_ATTEMPTS)
+    settings.LOGIN_MAX_ATTEMPTS = 2
+    settings.LOGIN_IP_MAX_ATTEMPTS = 100
+    try:
+        for _ in range(settings.LOGIN_MAX_ATTEMPTS):
+            response = await http_client.post(
+                f"{prefix}/auth/login",
+                json={"username": user.username, "password": "wrong-password"},
+            )
+            assert response.status_code == 401, response.text
+
+        blocked = await http_client.post(
+            f"{prefix}/auth/login",
+            json={"username": user.username, "password": user.password},
+        )
+        assert blocked.status_code == 429, blocked.text
+
+        # A successful login on the same IP+username clears the counters.
+        await throttle.clear_attempts(_app.state.cache, user.username, test_ip)
+        allowed = await http_client.post(
+            f"{prefix}/auth/login",
+            json={"username": user.username, "password": user.password},
+        )
+        assert allowed.status_code == 200, allowed.text
+    finally:
+        settings.LOGIN_MAX_ATTEMPTS, settings.LOGIN_IP_MAX_ATTEMPTS = saved
+        await throttle.clear_attempts(_app.state.cache, user.username, test_ip)
+
+
+async def test_logout_revokes_token_when_enabled(http_client, user_factory) -> None:
+    """A07: with TOKEN_REVOCATION_ENABLED, /auth/logout makes the same bearer
+    token unusable immediately (401 on a later authenticated call)."""
+    from app.main import app as _app
+    from app.services import token as token_svc
+
+    settings = get_settings()
+    saved = settings.TOKEN_REVOCATION_ENABLED
+    settings.TOKEN_REVOCATION_ENABLED = True
+    prefix = get_settings().API_V1_PREFIX
+    user = await user_factory()
+    try:
+        login = await http_client.post(
+            f"{prefix}/auth/login",
+            json={"username": user.username, "password": user.password},
+        )
+        assert login.status_code == 200, login.text
+        access_token = login.json()["access_token"]
+
+        authed = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        async with authed:
+            assert (await authed.get(f"{prefix}/auth/me")).status_code == 200
+            assert (await authed.post(f"{prefix}/auth/logout")).status_code == 204
+            assert (await authed.get(f"{prefix}/auth/me")).status_code == 401
+    finally:
+        settings.TOKEN_REVOCATION_ENABLED = saved
+        jti = token_svc.token_jti(access_token, secret=settings.SECRET_KEY)
+        if jti:
+            await token_svc.revoke_token(_app.state.cache, jti, ttl_seconds=0)
+
+
+async def test_logout_is_noop_when_disabled(http_client, user_factory) -> None:
+    """A07: with revocation disabled, logout returns 204 but the token is not
+    denylisted (stateless mode preserved)."""
+    settings = get_settings()
+    saved = settings.TOKEN_REVOCATION_ENABLED
+    settings.TOKEN_REVOCATION_ENABLED = False
+    prefix = get_settings().API_V1_PREFIX
+    user = await user_factory()
+    try:
+        login = await http_client.post(
+            f"{prefix}/auth/login",
+            json={"username": user.username, "password": user.password},
+        )
+        access_token = login.json()["access_token"]
+        authed = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        async with authed:
+            assert (await authed.post(f"{prefix}/auth/logout")).status_code == 204
+            assert (await authed.get(f"{prefix}/auth/me")).status_code == 200
+    finally:
+        settings.TOKEN_REVOCATION_ENABLED = saved

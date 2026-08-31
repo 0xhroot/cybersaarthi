@@ -20,18 +20,37 @@ class EvidenceRepository:
     async def get_or_create_data_source(
         self, name: str, description: str | None = None
     ) -> DataSource:
-        result = await self._session.execute(select(DataSource).where(DataSource.name == name))
-        existing = result.scalar_one_or_none()
-        if existing is not None:
-            return existing
-        source = DataSource(name=name, description=description)
-        self._session.add(source)
-        await self._session.flush()
-        return source
+        """Return an existing data source or create it (A08).
+
+        Concurrency-safe: two workers simultaneously seeding the same named
+        source race on the ``name`` unique index; ``on_conflict_do_nothing``
+        lets one insert win and the other refetch instead of raising a 500.
+        """
+        statement = (
+            pg_insert(DataSource)
+            .values(name=name, description=description)
+            .on_conflict_do_nothing(index_elements=["name"])
+            .returning(DataSource.id)
+        )
+        result = await self._session.execute(statement)
+        source_id = result.scalar_one_or_none()
+        if source_id is not None:
+            return await self._session.get(DataSource, source_id)  # type: ignore[return-value]
+        existing = await self._session.scalar(select(DataSource).where(DataSource.name == name))
+        return existing  # type: ignore[return-value]
 
     # Evidence files -------------------------------------------------------
     async def get_evidence(self, evidence_file_id: uuid.UUID) -> EvidenceFile | None:
         return await self._session.get(EvidenceFile, evidence_file_id)
+
+    async def delete_evidence(self, evidence_file_id: uuid.UUID) -> EvidenceFile | None:
+        """Delete the row; DB-level cascades remove source records, and
+        ingestion jobs get their evidence reference set to NULL."""
+        evidence = await self.get_evidence(evidence_file_id)
+        if evidence is None:
+            return None
+        await self._session.delete(evidence)
+        return evidence
 
     async def get_by_sha(self, case_id: uuid.UUID, sha256: str) -> EvidenceFile | None:
         result = await self._session.execute(
@@ -189,15 +208,35 @@ class EvidenceRepository:
         status: str = "pending",
         actor_id: uuid.UUID | None = None,
     ) -> IngestionJob:
-        job = IngestionJob(
-            case_id=str(case_id),
-            evidence_file_id=str(evidence_file_id),
-            status=status,
-            actor_id=actor_id,
+        """Create or return the existing ingestion job for this evidence (A08).
+
+        Two concurrent ingests of the same evidence file race on
+        ``uq_ingestion_jobs_case_evidence``; ``on_conflict_do_nothing`` makes
+        the first queued job win and the second refetch it rather than queuing
+        a redundant job.
+        """
+        statement = (
+            pg_insert(IngestionJob)
+            .values(
+                case_id=str(case_id),
+                evidence_file_id=str(evidence_file_id),
+                status=status,
+                actor_id=actor_id,
+            )
+            .on_conflict_do_nothing(constraint="uq_ingestion_jobs_case_evidence")
+            .returning(IngestionJob.id)
         )
-        self._session.add(job)
-        await self._session.flush()
-        return job
+        result = await self._session.execute(statement)
+        job_id = result.scalar_one_or_none()
+        if job_id is not None:
+            return await self._session.get(IngestionJob, job_id)  # type: ignore[return-value]
+        existing = await self._session.scalar(
+            select(IngestionJob).where(
+                IngestionJob.case_id == str(case_id),
+                IngestionJob.evidence_file_id == str(evidence_file_id),
+            )
+        )
+        return existing  # type: ignore[return-value]
 
     async def get_job(self, job_id: uuid.UUID) -> IngestionJob | None:
         # Loaded with a real SELECT (not ``session.get``) so server-generated

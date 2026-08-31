@@ -78,6 +78,7 @@ def test_every_permission_is_covered_and_valid() -> None:
         rbac.PERM_CASE_ARCHIVE,
         rbac.PERM_EVIDENCE_READ,
         rbac.PERM_EVIDENCE_UPLOAD,
+        rbac.PERM_EVIDENCE_DELETE,
         rbac.PERM_INGESTION_RUN,
         rbac.PERM_ANALYTICS_RUN,
         rbac.PERM_FINDINGS_READ,

@@ -167,28 +167,85 @@ async def upload_evidence(
     content_type = file.content_type or "application/octet-stream"
     await asyncio.to_thread(storage.upload, object_key, data, content_type)
 
-    evidence = await evidence_repository.create_evidence_file(
-        case_id=case_id,
-        data_source_id=source.id,
-        original_filename=file.filename or "evidence",
-        stored_key=object_key,
-        content_type=content_type,
-        file_size=len(data),
-        sha256=sha256,
-        metadata_json=metadata_json,
-    )
+    try:
+        evidence = await evidence_repository.create_evidence_file(
+            case_id=case_id,
+            data_source_id=source.id,
+            original_filename=file.filename or "evidence",
+            stored_key=object_key,
+            content_type=content_type,
+            file_size=len(data),
+            sha256=sha256,
+            metadata_json=metadata_json,
+        )
+        await record_audit(
+            session,
+            actor_id=user.id,
+            action="evidence.uploaded",
+            resource_type="evidence_file",
+            resource_id=evidence.id,
+            case_id=case_id,
+            metadata={
+                "filename": evidence.original_filename,
+                "sha256": sha256,
+                "format": fmt.value,
+            },
+        )
+        await session.commit()
+    except Exception:
+        # A03: the object reached the bucket before the row committed (or a
+        # concurrent duplicate insert failed on the unique constraint). Remove
+        # the orphan so any upload failure leaves no object behind.
+        await asyncio.to_thread(storage.delete, object_key)
+        raise
+    await session.refresh(evidence)
+    return _evidence_to_create_response(evidence)
+
+
+@router.delete(
+    "/{case_id}/evidence/{evidence_id}",
+    status_code=204,
+)
+async def delete_evidence(
+    case_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
+    user: User = Depends(require_permission(rbac.PERM_EVIDENCE_DELETE)),
+) -> None:
+    """Delete an evidence file: DB row (cascades source records) then object.
+
+    The row is committed before the object is removed so a failure can never
+    leave a referenced-but-missing object; the row is gone in that case, so any
+    leftover object is an orphan that reconciliation removes.
+    """
+    await get_case_or_404(case_id, request, session)
+    evidence = await get_evidence_or_404(case_id, evidence_id, evidence_repository)
+    key = evidence.stored_key
+    await evidence_repository.delete_evidence(evidence_id)
     await record_audit(
         session,
         actor_id=user.id,
-        action="evidence.uploaded",
+        action="evidence.deleted",
         resource_type="evidence_file",
-        resource_id=evidence.id,
+        resource_id=evidence_id,
         case_id=case_id,
-        metadata={"filename": evidence.original_filename, "sha256": sha256, "format": fmt.value},
+        metadata={"filename": evidence.original_filename},
     )
     await session.commit()
-    await session.refresh(evidence)
-    return _evidence_to_create_response(evidence)
+    await asyncio.to_thread(request.app.state.storage.delete, key)
+
+
+async def get_evidence_or_404(
+    case_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    evidence_repository: EvidenceRepository,
+) -> EvidenceFile:
+    evidence = await evidence_repository.get_evidence(evidence_id)
+    if evidence is None or str(evidence.case_id) != str(case_id):
+        raise HTTPException(status_code=404, detail=f"evidence {evidence_id} not found")
+    return evidence
 
 
 @router.get("/{case_id}/evidence", response_model=EvidenceListResponse)
@@ -232,9 +289,7 @@ async def get_evidence_detail(
 ) -> EvidenceDetailResponse:
     """Full metadata for a single evidence file within the case."""
     await get_case_or_404(case_id, request, session)
-    evidence = await evidence_repository.get_evidence(evidence_id)
-    if evidence is None or str(evidence.case_id) != str(case_id):
-        raise HTTPException(status_code=404, detail=f"evidence {evidence_id} not found")
+    evidence = await get_evidence_or_404(case_id, evidence_id, evidence_repository)
     return _evidence_detail(evidence, await _data_source_name(session, evidence.data_source_id))
 
 

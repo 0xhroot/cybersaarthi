@@ -36,6 +36,7 @@ from app.schemas.auth import (
 )
 from app.services import throttle
 from app.services.audit import record_audit
+from app.services.token import revoke_token, token_jti
 from app.services.users import UserService
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _MAX_ATTEMPTS_REACHED = "too many failed login attempts; please retry later"
+
+
+def _bearer_token(request: Request) -> str | None:
+    header = request.headers.get("Authorization", "")
+    if header.lower().startswith("bearer "):
+        token = header[7:].strip()
+        return token or None
+    return None
 
 
 def _user_out(user: User) -> UserOut:
@@ -60,17 +69,15 @@ async def login(
     """Authenticate against PostgreSQL users and return a short-lived token."""
     cache = request.app.state.cache
     username = payload.username.strip()
-    if (
-        settings.LOGIN_MAX_ATTEMPTS > 0
-        and await throttle.attempts(cache, username, settings) >= settings.LOGIN_MAX_ATTEMPTS
-    ):
+    ip = throttle.client_ip(request)
+    if await throttle.is_throttled(cache, username, ip, settings):
         raise HTTPException(status_code=429, detail=_MAX_ATTEMPTS_REACHED)
 
     user = await user_service.get_by_username(username) or await user_service.get_by_email(
         username.lower()
     )
     if user is None or not verify_password(payload.password, user.password_hash):
-        await throttle.record_failed_attempt(cache, username, settings)
+        await throttle.record_failed_attempt(cache, username, ip, settings)
         if user is not None:
             await record_audit(
                 session,
@@ -85,7 +92,7 @@ async def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="account is deactivated")
 
-    await throttle.clear_attempts(cache, username)
+    await throttle.clear_attempts(cache, username, ip)
     token = create_access_token(
         user.id,
         secret=settings.SECRET_KEY,
@@ -147,6 +154,28 @@ async def register(
         roles=roles,
         created_at=user.created_at,
     )
+
+
+@router.post("/logout", status_code=204)
+async def logout(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Revoke the current bearer token (A07).
+
+    Idempotent: revoking an already-revoked or invalid token is a no-op that
+    still succeeds, so a client can always log out without surfacing errors.
+    When ``TOKEN_REVOCATION_ENABLED`` is false the endpoint still returns 204
+    (the client discards the token) but no server-side denylist update occurs.
+    """
+    if settings.TOKEN_REVOCATION_ENABLED:
+        token = _bearer_token(request)
+        jti = token_jti(token, secret=settings.SECRET_KEY) if token else None
+        if jti is not None:
+            await revoke_token(
+                request.app.state.cache, jti, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            )
 
 
 @router.get("/me", response_model=MeResponse)

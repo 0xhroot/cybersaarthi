@@ -4,13 +4,18 @@ All environment-specific values come from the environment (or a local `.env` fil
 during development). Real credentials must never be hard-coded here or committed.
 """
 
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import Self
+from urllib.parse import urlsplit
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PLACEHOLDER_SECRETS = {"changeme", "change-me", "password", "secret"}
+# Environments that are allowed to run with the development defaults below.
+DEV_ENVIRONMENTS = {"development", "test"}
 
 
 class Settings(BaseSettings):
@@ -82,7 +87,14 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     # Login throttling (Redis-backed). Set LOGIN_MAX_ATTEMPTS to 0 to disable.
     LOGIN_MAX_ATTEMPTS: int = 5
+    LOGIN_IP_MAX_ATTEMPTS: int = 20
     LOGIN_LOCKOUT_SECONDS: int = 300
+    LOGIN_MAX_LOCKOUT_SECONDS: int = 3600
+    LOGIN_THROTTLE_FAIL_CLOSED: bool = False
+    # Server-side token revocation (A07). Disabled by default so the stateless
+    # behaviour (and the existing test suite) is preserved; enable to get
+    # logout/revoke semantics backed by Redis at a small per-request cost.
+    TOKEN_REVOCATION_ENABLED: bool = False
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -103,24 +115,48 @@ class Settings(BaseSettings):
         )
 
     @model_validator(mode="after")
-    def validate_secrets_in_production(self) -> Self:
-        if self.APP_ENV != "production":
+    def validate_secrets_outside_dev(self) -> Self:
+        """A05: refuse obvious deployment foot-guns outside development/test.
+
+        Previously the guard only fired for APP_ENV == "production", so an
+        operator running "staging"/"qa" (or a production that never set the
+        flag) silently shipped with a known signing secret. Now any environment
+        other than development/test must set real secrets — and that check now
+        covers REDIS_URL credentials and the CORS allowlist too.
+        """
+        if self.APP_ENV in DEV_ENVIRONMENTS:
             return self
 
-        secret_pairs = {
-            "POSTGRES_PASSWORD": self.POSTGRES_PASSWORD,
-            "NEO4J_PASSWORD": self.NEO4J_PASSWORD,
-            "S3_SECRET_KEY": self.S3_SECRET_KEY,
-            "SECRET_KEY": self.SECRET_KEY,
-        }
+        def is_placeholder(value: str) -> bool:
+            return not value or value.lower() in PLACEHOLDER_SECRETS
+
+        def redis_creds_placeholder(url: str) -> bool:
+            try:
+                netloc = urlsplit(url).netloc
+            except ValueError:
+                netloc = url
+            if "@" not in netloc:
+                return False
+            userinfo = netloc.split("@", 1)[0]
+            password_part = userinfo.split(":", 1)[1] if ":" in userinfo else userinfo
+            return not password_part or password_part.lower() in PLACEHOLDER_SECRETS
+
         failing = [
             name
-            for name, value in secret_pairs.items()
-            if not value or value.lower() in PLACEHOLDER_SECRETS
+            for name, value in {
+                "POSTGRES_PASSWORD": self.POSTGRES_PASSWORD,
+                "NEO4J_PASSWORD": self.NEO4J_PASSWORD,
+                "S3_SECRET_KEY": self.S3_SECRET_KEY,
+                "SECRET_KEY": self.SECRET_KEY,
+                "REDIS_URL": self.REDIS_URL,
+            }.items()
+            if (is_placeholder(value) if name != "REDIS_URL" else redis_creds_placeholder(value))
         ]
+        if not self.cors_origins or "*" in self.cors_origins:
+            failing.append("CORS_ORIGINS")
         if failing:
             raise ValueError(
-                f"Refusing to start in production: {', '.join(failing)} "
+                f"Refusing to start in environment {self.APP_ENV!r}: {', '.join(failing)} "
                 "must be set to real, non-placeholder values."
             )
         return self

@@ -6,7 +6,7 @@ Authentication uses `Authorization: Bearer <token>`; tokens are short-lived
 the platform envelope:
 
 ```json
-{ "status": 403, "code": "FORBIDDEN", "detail": "..." }
+{ "error": { "code": "FORBIDDEN", "message": "permission 'case.read' required" } }
 ```
 
 ## Authentication
@@ -14,6 +14,7 @@ the platform envelope:
 | Method & path | Auth | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
 | `POST /auth/login` | public | `{username, password}` (username may be an email) | `200` `TokenResponse` | `401` bad creds; `429` throttled; `403` inactive account |
+| `POST /auth/logout` | bearer | — | `204` (revokes the token when revocation is enabled) | `401` |
 | `POST /auth/register` | `users.manage` (ADMIN) | `{username, email, password, role?}` | `201` `RegisteredUserOut` | `401` unauth; `403` non-admin; `409` duplicate; `422` validation |
 | `GET /auth/me` | bearer | — | `200` `{user, roles, permissions}` | `401` |
 
@@ -33,9 +34,10 @@ Roles returned by `/auth/me`: `ADMIN` / `INVESTIGATOR` / `ANALYST` / `VIEWER`.
 | `POST /cases/{id}/archive` | `case.archive` + access | — | `200` | `401`/`403`/`404` |
 
 `CaseOut`: `{id, case_number, title, description, status, owner_id, created_at, updated_at}`.
-`status`: `open` / `in_progress` / `archived`. **Client must not send
-`archived` via PATCH** (use the archive endpoint) — the API rejects it with
-`422`.
+`status`: `open` / `in_progress` / `closed` (writable states). **Reads** may also
+return `archived` — a read-only terminal state set via the archive endpoint.
+Clients must **never send `archived`** on create or update; the API rejects it
+with `422`.
 
 Access semantics: 404 for a missing case; 403 for a case you do not own (unless
 `ADMIN`); 401 with no/invalid credentials.
@@ -62,6 +64,7 @@ transition), `404` (missing finding). Same-status calls are idempotent no-ops
 | `POST /cases/{id}/evidence` | `evidence.upload` + access | multipart `file`, `data_source?`, `metadata?` | `201` | `409` duplicate sha256; `413` too large; `400` undetectable format |
 | `GET /cases/{id}/evidence` | access | `?limit=&offset=` | `200` `{items, total, limit, offset}` |
 | `GET /cases/{id}/evidence/{eid}` | access | — | `200` `EvidenceDetailResponse` |
+| `DELETE /cases/{id}/evidence/{eid}` | `evidence.delete` + access | — | `204` (cascades source records, nulls ingestion-job refs, deletes the object) | `401`/`403`/`404` |
 | `GET /cases/{id}/evidence/{eid}/provenance` | access | — | `200` `EvidenceProvenanceResponse` |
 | `POST /cases/{id}/ingest` | `ingestion.run` + access | `{evidence_file_id, metadata?}` | `200` `{job, duplicate}` |
 | `GET /cases/{id}/ingest-jobs` | access | — | `200` `{items, total}` |
@@ -106,7 +109,11 @@ endpoint. `VIEWER`/`ANALYST` get `403`.
 Every response carries:
 
 - `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
-  `Referrer-Policy: no-referrer`, `X-XSS-Protection: 1; mode=block`
+  `Referrer-Policy: no-referrer`, `X-XSS-Protection: 1; mode=block`,
+  `Cross-Origin-Opener-Policy: same-origin`,
+  `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()`
+- In `production` the backend additionally sets `Strict-Transport-Security`
+  (HSTS) and a restrictive `Content-Security-Policy` (`default-src 'none'`).
 - `x-request-id` — send `X-Request-Id`/`X-Correlation-Id` to correlate a
   request across backend logs; the server generates one if absent and echoes it
   unchanged (including on error responses).

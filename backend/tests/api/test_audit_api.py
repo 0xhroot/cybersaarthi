@@ -101,3 +101,63 @@ async def test_audit_log_is_denied_for_viewers(http_client, user_factory) -> Non
     viewer = await user_factory(role="VIEWER")
     async with await _client(viewer.token) as client:
         assert (await client.get(f"{prefix}/audit-logs")).status_code == 403
+
+
+async def test_audit_scoped_to_owned_cases_for_non_admin(
+    http_client, api_user: ApiUser, user_factory
+) -> None:
+    """A04: a non-admin sees only their own cases' events plus their own auth
+    events; ADMIN still sees the global log."""
+    prefix = get_settings().API_V1_PREFIX
+
+    other = await user_factory()
+    async with await _client(other.token) as other_client:
+        other_case = await other_client.post(f"{prefix}/cases", json={"title": "other user's case"})
+    assert other_case.status_code == 201
+    other_case_id = other_case.json()["id"]
+    try:
+        own_case = await http_client.post(f"{prefix}/cases", json={"title": "my own case"})
+        assert own_case.status_code == 201
+        own_case_id = own_case.json()["id"]
+
+        # A login event has no case_id; it must appear for its own actor.
+        await http_client.post(
+            f"{prefix}/auth/login",
+            json={"username": api_user.username, "password": api_user.password},
+        )
+
+        # Non-admin sees own-case events and own auth events only...
+        scoped = await http_client.get(f"{prefix}/audit-logs")
+        assert scoped.status_code == 200
+        assert all(
+            item["case_id"] is None or item["case_id"] == str(own_case_id)
+            for item in scoped.json()["items"]
+        )
+
+        # ...never events on the other user's case.
+        other_events = await http_client.get(
+            f"{prefix}/audit-logs", params={"case_id": other_case_id}
+        )
+        assert other_events.json()["total"] == 0
+
+        # An ADMIN resolving the same log sees the other case's events.
+        admin = await user_factory(role="ADMIN")
+        async with await _client(admin.token) as admin_client:
+            response = await admin_client.get(
+                f"{prefix}/audit-logs", params={"case_id": other_case_id}
+            )
+            assert response.status_code == 200
+            assert response.json()["total"] >= 1
+            assert response.json()["items"][0]["case_id"] == other_case_id
+    finally:
+        from app.db.postgres import Database
+        from app.models import Case
+        from sqlalchemy import delete
+
+        db = Database(get_settings())
+        factory = db.session_factory()
+        async with factory() as session:
+            await session.execute(delete(Case).where(Case.id == other_case_id))
+            await session.execute(delete(Case).where(Case.id == own_case_id))
+            await session.commit()
+        await db.close()

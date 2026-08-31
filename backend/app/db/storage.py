@@ -7,6 +7,7 @@ Evidence upload/download pipeline belongs to a later phase.
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 import boto3
 from app.core.config import Settings
@@ -86,3 +87,36 @@ class Storage:
 
     def delete(self, key: str) -> None:
         self.client().delete_object(Bucket=self.bucket_name(), Key=key)
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        """All object keys under *prefix* ('' for the whole bucket)."""
+        keys: list[str] = []
+        paginator = self.client().get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket_name(), Prefix=prefix):
+            for obj in page.get("Contents", []):
+                keys.append(obj["Key"])
+        return keys
+
+    def delete_objects(self, keys: list[str]) -> None:
+        """Batch-delete object keys (1000 per request, the S3 limit)."""
+        if not keys:
+            return
+        for start in range(0, len(keys), 1000):
+            self.client().delete_objects(
+                Bucket=self.bucket_name(),
+                Delete={
+                    "Objects": [{"Key": key} for key in keys[start : start + 1000]],
+                    "Quiet": True,
+                },
+            )
+
+    def delete_case_objects(self, case_id: uuid.UUID) -> int:
+        """Remove every object stored under ``cases/<case_id>/`` (A03 teardown).
+
+        Returns the number of objects removed. Idempotent: a case with no
+        objects removes nothing.
+        """
+        prefix = f"cases/{case_id}/"
+        keys = self.list_keys(prefix)
+        self.delete_objects(keys)
+        return len(keys)

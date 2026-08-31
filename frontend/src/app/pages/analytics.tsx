@@ -23,7 +23,9 @@ import { Progress } from "@/components/ui/loading";
 import { EmptyState } from "@/components/ui/empty-state";
 import { formatPercent, formatRelative, pluralize } from "@/lib/utils";
 
-const CENTRALITY_METRICS = ["degree", "betweenness", "pagerank", "eigenvector"] as const;
+// F08: only metrics the backend actually computes (degree|betweenness|closeness|
+// pagerank — no eigenvector) are offered; a dead option 400s with 422.
+const CENTRALITY_METRICS = ["degree", "betweenness", "pagerank", "closeness"] as const;
 type Metric = (typeof CENTRALITY_METRICS)[number];
 
 const RUN_STAGES = [

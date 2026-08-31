@@ -46,6 +46,14 @@ export type ProfileTier = "FOCAL" | "SIGNIFICANT" | "MONITORED" | "PERIPHERAL";
 
 export type CaseStatus = "open" | "in_progress" | "closed" | "archived";
 
+/** Statuses callers may submit when creating/updating a case (F07).
+ *
+ * ``archived`` is a read-only terminal state: the backend Pydantic schema
+ * rejects it on create/update with 422, so the request types must never allow
+ * sending it even though reads must tolerate it.
+ */
+export type WritableCaseStatus = Exclude<CaseStatus, "archived">;
+
 export type JobStatus = "pending" | "running" | "completed" | "failed" | "partial";
 
 export type GraphSyncStatus = "pending" | "synced" | "failed";
@@ -96,13 +104,13 @@ export interface CaseCreateRequest {
   title: string;
   description?: string | null;
   case_number?: string | null;
-  status?: CaseStatus;
+  status?: WritableCaseStatus;
 }
 
 export interface CaseUpdateRequest {
   title?: string | null;
   description?: string | null;
-  status?: Exclude<CaseStatus, "archived">;
+  status?: WritableCaseStatus;
 }
 
 /* ------------------------------ Entities ---------------------------- */

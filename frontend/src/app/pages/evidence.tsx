@@ -50,7 +50,7 @@ const DATA_SOURCES = [
 ];
 
 function statusMeta(status: string): { label: string; tone: "success" | "info" | "critical" | "high" } {
-  if (status === "ingested") return { label: "Ingested", tone: "success" };
+  if (status === "parsed") return { label: "Parsed", tone: "success" };
   if (status === "failed") return { label: "Failed", tone: "critical" };
   if (status === "processing") return { label: "Processing", tone: "high" };
   return { label: "Stored", tone: "info" };

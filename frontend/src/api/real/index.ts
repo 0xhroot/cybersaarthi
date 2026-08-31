@@ -77,21 +77,16 @@ const authService: ApiAuthService = {
 
 const caseService: ApiCaseService = {
   async list(params: CaseListParams = {}) {
-    const response = await request<{ items: Case[]; total: number }>(
-      `/cases${buildQuery({ limit: params.limit ?? 100, offset: params.offset ?? 0 })}`,
+    // Search and status filters are applied server-side (SQL), so `total`
+    // always reflects the filtered universe and pagination stays correct.
+    return request<{ items: Case[]; total: number }>(
+      `/cases${buildQuery({
+        limit: params.limit ?? 100,
+        offset: params.offset ?? 0,
+        ...(params.search ? { search: params.search } : {}),
+        ...(params.status ? { status: params.status } : {}),
+      })}`,
     );
-    let items = response.items;
-    if (params.search) {
-      const q = params.search.toLowerCase();
-      items = items.filter(
-        (c) =>
-          c.title.toLowerCase().includes(q) || c.case_number.toLowerCase().includes(q),
-      );
-    }
-    if (params.status) {
-      items = items.filter((c) => c.status === params.status);
-    }
-    return { items, total: items.length };
   },
   get(id) {
     return request<Case>(`/cases/${id}`);

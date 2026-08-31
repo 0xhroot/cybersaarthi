@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -51,20 +51,12 @@ def _derive_case_number(case_id: uuid.UUID) -> str:
     return f"CS-{case_id.hex[:8].upper()}"
 
 
-async def _accessible_case_ids(
-    session: AsyncSession,
-    user: User,
-    user_roles: list[str],
-) -> list[uuid.UUID]:
+def _case_filters(user: User, user_roles: list[str]) -> list[ColumnElement[bool]]:
+    """Ownership predicate for list: admins see everything, everyone else only
+    their own cases."""
     if any(is_admin_role(role) for role in user_roles):
-        result = await session.execute(select(Case.id).order_by(Case.created_at.desc(), Case.id))
-    else:
-        result = await session.execute(
-            select(Case.id)
-            .where(Case.owner_id == user.id)
-            .order_by(Case.created_at.desc(), Case.id)
-        )
-    return list(result.scalars())
+        return []
+    return [Case.owner_id == user.id]
 
 
 @router.get("", response_model=CaseListResponse)
@@ -72,19 +64,35 @@ async def list_cases(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    search: str | None = Query(None, max_length=200),
+    status: str | None = Query(None, pattern="^(open|in_progress|closed|archived)$"),
     user: User = Depends(require_permission(rbac.PERM_CASE_READ)),
     session: AsyncSession = Depends(get_db_session),
 ) -> CaseListResponse:
-    """List the cases the caller can access (owner or admin)."""
+    """List the cases the caller can access (owner or admin).
+
+    ``search`` matches the title or case number (case-insensitive substring);
+    ``status`` narrows to a single lifecycle state. Filtering, pagination and
+    the ``total`` are computed in SQL rather than post-processing a full id
+    list in Python, which keeps large catalogs memory-bounded.
+    """
     roles = getattr(request.state, "roles", None) or []
-    accessible = await _accessible_case_ids(session, user, roles)
-    total = len(accessible)
-    page_ids = accessible[offset : offset + limit]
-    items: list[Case] = []
-    if page_ids:
-        result = await session.execute(select(Case).where(Case.id.in_(page_ids)))
-        cases_by_id = {case.id: case for case in result.scalars()}
-        items = [cases_by_id[cid] for cid in page_ids]
+    conditions = _case_filters(user, roles)
+    if status is not None:
+        conditions.append(Case.status == status)
+    if search:
+        needle = f"%{search.strip()}%"
+        conditions.append(or_(Case.title.ilike(needle), Case.case_number.ilike(needle)))
+
+    total = await session.scalar(select(func.count(Case.id)).where(*conditions)) or 0
+    result = await session.execute(
+        select(Case)
+        .where(*conditions)
+        .order_by(Case.created_at.desc(), Case.id)
+        .limit(limit)
+        .offset(offset)
+    )
+    items = list(result.scalars())
     return CaseListResponse(
         items=[_case_out(case) for case in items],
         total=total,

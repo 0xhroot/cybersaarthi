@@ -10,6 +10,7 @@ INVESTIGATOR account and case fixtures assign that account as owner.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 
@@ -84,6 +85,67 @@ async def _delete_user(database: Database, user_id: uuid.UUID) -> None:
     async with factory() as session:
         await session.execute(delete(User).where(User.id == user_id))
         await session.commit()
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def _graph_store_hygiene(graph_store: GraphStore, database: Database):
+    """Keep the live Neo4j store aligned with PostgreSQL after the API suite.
+
+    API tests sync one case after another into the shared store and delete the
+    PostgreSQL case rows on teardown, which would otherwise leave ghost
+    projections behind (A02). After the suite, any projection whose case id no
+    longer exists in PostgreSQL is purged.
+    """
+    yield
+    from app.services.graph_sync import GraphSyncService
+    from sqlalchemy import text
+
+    service = GraphSyncService(graph_store, get_settings())
+    case_ids: list[str] = []
+    async with graph_store.driver().session() as session:
+        result = await session.run("MATCH (n:Entity) RETURN DISTINCT n.case_id AS cid")
+        case_ids = [record["cid"] async for record in result]
+    if not case_ids:
+        return
+    factory = database.session_factory()
+    async with factory() as session:
+        existing = (
+            (
+                await session.execute(
+                    text("SELECT id FROM cases WHERE id::text = ANY(:ids)"),
+                    {"ids": case_ids},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    live = {str(row) for row in existing}
+    for case_id in case_ids:
+        if case_id not in live:
+            await service.delete_case(case_id)
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def _object_store_hygiene(storage: Storage, database: Database):
+    """Keep the live MinIO bucket aligned with PostgreSQL after the API suite.
+
+    The suite uploads objects for cases whose PostgreSQL rows are deleted at
+    teardown (evidence cascades away with the case), leaving orphan objects
+    behind (A03). After the suite, every object not stored under a live case
+    prefix is purged.
+    """
+    yield
+    from sqlalchemy import text
+
+    keys = await asyncio.to_thread(storage.list_keys, "cases/")
+    if not keys:
+        return
+    factory = database.session_factory()
+    async with factory() as session:
+        case_rows = (await session.execute(text("SELECT id FROM cases"))).scalars().all()
+    live_prefixes = [f"cases/{str(case_id)}/" for case_id in case_rows]
+    doomed = [key for key in keys if not any(key.startswith(p) for p in live_prefixes)]
+    await asyncio.to_thread(storage.delete_objects, doomed)
 
 
 @pytest.fixture
