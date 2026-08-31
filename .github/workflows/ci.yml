@@ -26,6 +26,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # The Redis-backed unit tests (test_throttle.py, test_token_revocation.py)
+      # exercise real cache operations via the `cache` fixture, which connects to
+      # localhost:6379 just as it does against the compose `redis` service locally.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -51,7 +63,31 @@ jobs:
       - name: Typecheck (mypy)
         run: uv run mypy app
 
-      - name: Unit tests (no infrastructure)
+      # The Redis-backed unit tests (test_throttle.py, test_token_revocation.py)
+      # assert concrete cache behaviour against the service above, so make sure it
+      # is serving before invoking pytest.
+      - name: Wait for Redis to be ready
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+          from app.core.config import Settings
+          from app.db.redis import Cache
+
+          async def main() -> None:
+              cache = Cache(Settings())
+              for _ in range(20):
+                  try:
+                      await cache.ping()
+                      print("Redis ready")
+                      return
+                  except Exception:
+                      await asyncio.sleep(0.5)
+              raise SystemExit("Redis did not become ready")
+
+          asyncio.run(main())
+          PY
+
+      - name: Unit tests (Redis-backed)
         run: uv run pytest tests/unit -q
 
       - name: Apply migrations on fresh database
