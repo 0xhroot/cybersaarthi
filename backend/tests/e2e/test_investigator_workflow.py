@@ -81,10 +81,21 @@ async def test_investigator_end_to_end_workflow(
                 "username": analyst_username,
                 "email": f"{analyst_username}@cybersaarthi.test",
                 "password": "e2e-analyst-password!",
-                "role": "ANALYST",
             },
         )
         assert registered.status_code == 201, registered.text
+        assert registered.json()["user"]["status"] == "PENDING"
+        # A caller-supplied role must not be trusted; still PENDING with no role.
+
+        pending_id = registered.json()["user"]["id"]
+        # ADMIN approves the pending account and grants the analyst role.
+        approved = await admin.post(
+            f"{prefix}/admin/users/{pending_id}/approve",
+            json={"role": "ANALYST"},
+        )
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["status"] == "ACTIVE"
+        assert approved.json()["roles"] == ["ANALYST"]
 
     # INVESTIGATOR logs in and drives the case lifecycle.
     investigator_token = await _login(DEFAULT_INVESTIGATOR_USERNAME, DEFAULT_INVESTIGATOR_PASSWORD)
@@ -152,16 +163,9 @@ async def test_investigator_end_to_end_workflow(
             me = await analyst.get(f"{prefix}/auth/me")
             assert me.status_code == 200
             assert "ANALYST" in me.json()["roles"]
-            assert (
-                await analyst.post(
-                    f"{prefix}/auth/register",
-                    json={
-                        "username": "nope",
-                        "email": "nope@cybersaarthi.test",
-                        "password": "whatever123",
-                    },
-                )
-            ).status_code == 403
+            # Registration is public and self-service, but a non-ADMIN caller
+            # cannot manage users via the admin endpoints.
+            assert (await analyst.get(f"{prefix}/admin/users")).status_code == 403
     finally:
         factory = database.session_factory()
         async with factory() as session:

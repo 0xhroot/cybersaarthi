@@ -13,6 +13,7 @@ export interface StoredUser {
   id: string;
   username: string;
   email: string;
+  status: "PENDING" | "ACTIVE" | "SUSPENDED" | "REJECTED";
   is_active: boolean;
 }
 

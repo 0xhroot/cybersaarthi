@@ -117,4 +117,83 @@ describe("mock adapter", () => {
     // audit.read is not granted to viewers at all.
     await expect(mockApi.audit.list({})).rejects.toMatchObject({ status: 403 });
   });
+
+  it("public registration creates a PENDING account that cannot sign in until approved", async () => {
+    const created = await mockApi.auth.register({
+      username: "fresh-analyst",
+      email: "fresh@cybersaarthi.test",
+      password: "some-password!",
+    });
+    expect(created.user.status).toBe("PENDING");
+    expect(created.user.is_active).toBe(false);
+    expect(created.roles).toEqual([]);
+
+    // A PENDING account must not be able to log in.
+    await expect(
+      mockApi.auth.login({ username: "fresh-analyst", password: "some-password!" }),
+    ).rejects.toMatchObject({ status: 403, code: "ACCOUNT_PENDING" });
+  });
+
+  it("admin can approve a pending account which then signs in with the granted role", async () => {
+    await mockApi.auth.register({
+      username: "approve-me",
+      email: "approve@cybersaarthi.test",
+      password: "some-password!",
+    });
+    await signIn("admin", "admin-dev-password");
+
+    const pendingList = await mockApi.users.listPending({ limit: 50 });
+    const row = pendingList.items.find((u) => u.username === "approve-me");
+    expect(row).toBeTruthy();
+    expect(row!.status).toBe("PENDING");
+
+    const approved = await mockApi.users.approve(row!.id, "ANALYST");
+    expect(approved.status).toBe("ACTIVE");
+    expect(approved.roles).toEqual(["ANALYST"]);
+
+    await signIn("approve-me", "some-password!");
+    expect(await mockApi.auth.me()).toMatchObject({ roles: ["ANALYST"] });
+  });
+
+  it("admin user management is guarded by users.manage", async () => {
+    await signIn("viewer", "viewer-demo-password");
+    await expect(mockApi.users.list({})).rejects.toMatchObject({ status: 403 });
+    await expect(mockApi.users.listPending({})).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("suspend/activate and role change flow through the admin users API", async () => {
+    await mockApi.auth.register({
+      username: "lifecycle",
+      email: "lifecycle@cybersaarthi.test",
+      password: "some-password!",
+    });
+    await signIn("admin", "admin-dev-password");
+    const list = await mockApi.users.list({ status: "PENDING", search: "lifecycle" });
+    const user = list.items[0];
+    expect(user).toBeTruthy();
+
+    await mockApi.users.approve(user.id, "INVESTIGATOR");
+    const suspended = await mockApi.users.suspend(user.id);
+    expect(suspended.status).toBe("SUSPENDED");
+    await expect(
+      mockApi.auth.login({ username: "lifecycle", password: "some-password!" }),
+    ).rejects.toMatchObject({ status: 403, code: "ACCOUNT_SUSPENDED" });
+
+    await mockApi.users.activate(user.id);
+    const roleChanged = await mockApi.users.changeRole(user.id, "VIEWER");
+    expect(roleChanged.status).toBe("ACTIVE");
+    expect(roleChanged.roles).toEqual(["VIEWER"]);
+
+    await signIn("lifecycle", "some-password!");
+    expect(await mockApi.auth.me()).toMatchObject({ user: { status: "ACTIVE" }, roles: ["VIEWER"] });
+  });
+
+  it("cannot suspend or reject an active administrator (self-guard mirror)", async () => {
+    await signIn("admin", "admin-dev-password");
+    const all = await mockApi.users.list({ limit: 50 });
+    const admin = all.items.find((u) => u.username === "admin");
+    expect(admin).toBeTruthy();
+    await expect(mockApi.users.suspend(admin!.id)).rejects.toMatchObject({ status: 422 });
+    await expect(mockApi.users.reject(admin!.id)).rejects.toMatchObject({ status: 422 });
+  });
 });

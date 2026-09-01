@@ -10,7 +10,7 @@ from functools import lru_cache
 from typing import Self
 from urllib.parse import urlsplit
 
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PLACEHOLDER_SECRETS = {"changeme", "change-me", "password", "secret"}
@@ -46,12 +46,30 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Object storage (S3-compatible)
-    S3_ENDPOINT: str = "http://localhost:9000"
-    S3_ACCESS_KEY: str = "cybersaarthi"
-    S3_SECRET_KEY: str = "cybersaarthi"
-    S3_BUCKET: str = "cybersaarthi"
-    S3_REGION: str = "us-east-1"
+    # Object storage (S3-compatible). STORAGE_* aliases are the canonical
+    # Phase 5 names; S3_* remain accepted for backward compatibility.
+    STORAGE_ENDPOINT: str = "http://localhost:9000"
+    STORAGE_ACCESS_KEY: str = "cybersaarthi"
+    STORAGE_SECRET_KEY: str = "cybersaarthi"
+    STORAGE_BUCKET: str = "cybersaarthi"
+    STORAGE_REGION: str = "us-east-1"
+
+    S3_ENDPOINT: str = Field(
+        default="http://localhost:9000",
+        validation_alias=AliasChoices("STORAGE_ENDPOINT", "S3_ENDPOINT"),
+    )
+    S3_ACCESS_KEY: str = Field(
+        default="cybersaarthi", validation_alias=AliasChoices("STORAGE_ACCESS_KEY", "S3_ACCESS_KEY")
+    )
+    S3_SECRET_KEY: str = Field(
+        default="cybersaarthi", validation_alias=AliasChoices("STORAGE_SECRET_KEY", "S3_SECRET_KEY")
+    )
+    S3_BUCKET: str = Field(
+        default="cybersaarthi", validation_alias=AliasChoices("STORAGE_BUCKET", "S3_BUCKET")
+    )
+    S3_REGION: str = Field(
+        default="us-east-1", validation_alias=AliasChoices("STORAGE_REGION", "S3_REGION")
+    )
 
     # Evidence ingestion
     EVIDENCE_MAX_SIZE_BYTES: int = 5 * 1024 * 1024
@@ -90,11 +108,11 @@ class Settings(BaseSettings):
     LOGIN_IP_MAX_ATTEMPTS: int = 20
     LOGIN_LOCKOUT_SECONDS: int = 300
     LOGIN_MAX_LOCKOUT_SECONDS: int = 3600
-    LOGIN_THROTTLE_FAIL_CLOSED: bool = False
-    # Server-side token revocation (A07). Disabled by default so the stateless
-    # behaviour (and the existing test suite) is preserved; enable to get
-    # logout/revoke semantics backed by Redis at a small per-request cost.
-    TOKEN_REVOCATION_ENABLED: bool = False
+    LOGIN_THROTTLE_FAIL_CLOSED: bool = True
+    # Server-side token revocation (A07). Enabled by default: logout/revoke
+    # semantics are backed by Redis at a small per-request cost, and a Redis
+    # outage fails *closed* for reads so a revoked token is never trusted again.
+    TOKEN_REVOCATION_ENABLED: bool = True
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

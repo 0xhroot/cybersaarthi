@@ -113,11 +113,16 @@ async def test_disabled_throttling_is_a_permanent_pass(cache: Cache, settings: S
 
 
 async def test_fail_open_when_redis_is_unavailable(settings: Settings) -> None:
-    broken = _BrokenCache()
-    assert await throttle.counts(broken, USERNAME, IP, settings) == (0, 0)
-    assert await throttle.is_throttled(broken, USERNAME, IP, settings) is False
-    await throttle.record_failed_attempt(broken, USERNAME, IP, settings)  # must not raise
-    await throttle.clear_attempts(broken, USERNAME, IP)  # must not raise
+    saved = settings.LOGIN_THROTTLE_FAIL_CLOSED
+    settings.LOGIN_THROTTLE_FAIL_CLOSED = False
+    try:
+        broken = _BrokenCache()
+        assert await throttle.counts(broken, USERNAME, IP, settings) == (0, 0)
+        assert await throttle.is_throttled(broken, USERNAME, IP, settings) is False
+        await throttle.record_failed_attempt(broken, USERNAME, IP, settings)  # must not raise
+        await throttle.clear_attempts(broken, USERNAME, IP)  # must not raise
+    finally:
+        settings.LOGIN_THROTTLE_FAIL_CLOSED = saved
 
 
 async def test_fail_closed_when_redis_is_unavailable(settings: Settings) -> None:

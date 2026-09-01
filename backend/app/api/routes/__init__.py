@@ -17,6 +17,7 @@ from app.api.routes.evidence import router as evidence_router
 from app.api.routes.findings import router as findings_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.health import router as health_router
+from app.api.routes.users import router as users_router
 
 __all__ = [
     "get_analytics_data_repository",
@@ -36,4 +37,5 @@ __all__ = [
     "findings_router",
     "graph_router",
     "health_router",
+    "users_router",
 ]

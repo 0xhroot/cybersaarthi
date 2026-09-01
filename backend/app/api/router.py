@@ -14,6 +14,7 @@ from app.api.routes import (
     findings_router,
     graph_router,
     health_router,
+    users_router,
 )
 
 api_router = APIRouter()
@@ -23,6 +24,9 @@ api_router.include_router(health_router, prefix="/api/v1")
 api_router.include_router(auth_router, prefix="/api/v1")
 api_router.include_router(cases_router, prefix="/api/v1")
 api_router.include_router(audit_router, prefix="/api/v1")
+
+# Phase 5: administrative user management (account lifecycle).
+api_router.include_router(users_router, prefix="/api/v1")
 
 # Phase 2: evidence ingestion, entities, resolution review and graph queries.
 api_router.include_router(evidence_router, prefix="/api/v1")

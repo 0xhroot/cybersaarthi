@@ -1,10 +1,11 @@
 """Routes: authentication and user management.
 
-``/auth/register`` requires the ``users.manage`` permission, so accounts are
-created by an administrator (or the seeded admin account) - never by anonymous
-callers. ``/auth/login`` is the only public endpoint and is throttled via
-Redis. ``/auth/me`` returns the current user with their roles and resolved
-permissions.
+Phase 5 makes registration a public, self-service flow: anyone may create an
+account, but it starts PENDING and is unusable until an administrator approves
+it and assigns a role. ``/auth/login`` is public and throttled via Redis.
+``/auth/me`` returns the current user with their roles and resolved permission
+set. Administrative user management (approve/reject/suspend/activate/role)
+lives in :mod:`app.api.routes.users`.
 """
 
 from __future__ import annotations
@@ -18,11 +19,19 @@ from app.api.dependencies import (
     get_current_roles,
     get_current_user,
     get_user_service,
-    require_permission,
+)
+from app.api.errors import (
+    CODE_ACCOUNT_PENDING,
+    CODE_ACCOUNT_REJECTED,
+    CODE_ACCOUNT_SUSPENDED,
+    CODE_DUPLICATE_EMAIL,
+    CODE_INVALID_CREDENTIALS,
+    MESSAGES,
+    ApiHTTPException,
 )
 from app.core.auth import create_access_token
 from app.core.config import Settings, get_settings
-from app.core.rbac import PERM_USERS_MANAGE
+from app.core.enums import AccountStatus
 from app.core.security import verify_password
 from app.db.postgres import get_db_session
 from app.models import User
@@ -55,7 +64,24 @@ def _bearer_token(request: Request) -> str | None:
 
 
 def _user_out(user: User) -> UserOut:
-    return UserOut(id=user.id, username=user.username, email=user.email, is_active=user.is_active)
+    return UserOut(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        status=user.status,
+        is_active=user.is_active,
+    )
+
+
+def _account_status_error(status: str) -> ApiHTTPException:
+    """Map an account lifecycle status to its stable error code."""
+    mapping = {
+        AccountStatus.PENDING.value: (403, CODE_ACCOUNT_PENDING),
+        AccountStatus.SUSPENDED.value: (403, CODE_ACCOUNT_SUSPENDED),
+        AccountStatus.REJECTED.value: (403, CODE_ACCOUNT_REJECTED),
+    }
+    status_code, code = mapping[status]
+    return ApiHTTPException(status_code, code, MESSAGES[code])
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -88,9 +114,11 @@ async def login(
                 metadata={"reason": "invalid_credentials"},
             )
         await session.commit()
-        raise HTTPException(status_code=401, detail="invalid username or password")
+        raise ApiHTTPException(401, CODE_INVALID_CREDENTIALS, MESSAGES[CODE_INVALID_CREDENTIALS])
+    if user.status != AccountStatus.ACTIVE.value:
+        raise _account_status_error(user.status)
     if not user.is_active:
-        raise HTTPException(status_code=403, detail="account is deactivated")
+        raise ApiHTTPException(403, CODE_ACCOUNT_SUSPENDED, MESSAGES[CODE_ACCOUNT_SUSPENDED])
 
     await throttle.clear_attempts(cache, username, ip)
     token = create_access_token(
@@ -119,39 +147,40 @@ async def login(
 async def register(
     payload: RegisterRequest,
     request: Request,
-    actor: User = Depends(require_permission(PERM_USERS_MANAGE)),
     session: AsyncSession = Depends(get_db_session),
     user_service: UserService = Depends(get_user_service),
 ) -> RegisteredUserOut:
-    """Create a user account with an initial role (administrator action)."""
-    if await user_service.username_exists(payload.username):
-        raise HTTPException(status_code=409, detail=f"username {payload.username!r} is taken")
-    if await user_service.email_exists(payload.email):
-        raise HTTPException(status_code=409, detail=f"email {payload.email!r} is registered")
+    """Create a PENDING account by public self-registration.
 
-    user = await user_service.create_user_with_role(
+    The caller supplies only identity + password; no role is accepted or
+    trusted here. A request role is never auto-granted — administrators assign
+    a role at approval time.
+    """
+    if await user_service.username_exists(payload.username):
+        raise ApiHTTPException(409, "DUPLICATE_USERNAME", f"username {payload.username!r} is taken")
+    if await user_service.email_exists(payload.email):
+        raise ApiHTTPException(409, CODE_DUPLICATE_EMAIL, f"email {payload.email!r} is registered")
+
+    user = await user_service.register_pending(
         username=payload.username,
-        email=payload.email.lower(),
+        email=payload.email,
         password=payload.password,
-        role=payload.role,
     )
-    roles = await user_service.roles(user.id)
     await record_audit(
         session,
-        actor_id=actor.id,
-        action="auth.user_created",
+        actor_id=None,
+        action="auth.registration_requested",
         resource_type="user",
         resource_id=user.id,
-        metadata={"username": user.username, "role": payload.role},
+        metadata={"username": user.username, "email": user.email},
     )
     await session.commit()
     logger.info(
-        "user created",
-        extra={"user_id": str(user.id), "actor": str(actor.id), "role": payload.role},
+        "registration requested",
+        extra={"user_id": str(user.id), "status": user.status},
     )
     return RegisteredUserOut(
         user=_user_out(user),
-        roles=roles,
         created_at=user.created_at,
     )
 
@@ -165,9 +194,8 @@ async def logout(
     """Revoke the current bearer token (A07).
 
     Idempotent: revoking an already-revoked or invalid token is a no-op that
-    still succeeds, so a client can always log out without surfacing errors.
-    When ``TOKEN_REVOCATION_ENABLED`` is false the endpoint still returns 204
-    (the client discards the token) but no server-side denylist update occurs.
+    still succeeds. When ``TOKEN_REVOCATION_ENABLED`` is false the endpoint
+    still returns 204 (the client discards the token) with no denylist write.
     """
     if settings.TOKEN_REVOCATION_ENABLED:
         token = _bearer_token(request)

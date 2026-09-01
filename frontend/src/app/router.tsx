@@ -7,6 +7,8 @@ import { Brand } from "@/components/layout/brand";
 import { SpinnerBlock } from "@/components/ui/loading";
 
 const LoginPage = lazy(() => import("@/app/pages/login"));
+const RegisterPage = lazy(() => import("@/app/pages/register"));
+const PendingPage = lazy(() => import("@/app/pages/pending"));
 const DashboardPage = lazy(() => import("@/app/pages/dashboard"));
 const CasesPage = lazy(() => import("@/app/pages/cases"));
 const CaseLayout = lazy(() => import("@/app/pages/case-layout"));
@@ -21,6 +23,7 @@ const FindingsPage = lazy(() => import("@/app/pages/findings"));
 const FindingDetailPage = lazy(() => import("@/app/pages/finding-detail"));
 const TimelinePage = lazy(() => import("@/app/pages/timeline"));
 const AuditPage = lazy(() => import("@/app/pages/audit"));
+const AdminUsersPage = lazy(() => import("@/app/pages/admin-users"));
 const NoAccessPage = lazy(() => import("@/app/pages/no-access"));
 const SettingsPage = lazy(() => import("@/app/pages/settings"));
 const NotFoundPage = lazy(() => import("@/app/pages/not-found"));
@@ -74,6 +77,8 @@ export function AppRouter() {
     <Suspense fallback={<PageSuspense />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/pending" element={<PendingPage />} />
         <Route
           path="/app"
           element={
@@ -101,6 +106,14 @@ export function AppRouter() {
             element={
               <RequirePermission permission="audit.read">
                 <AuditPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="users"
+            element={
+              <RequirePermission permission="users.manage">
+                <AdminUsersPage />
               </RequirePermission>
             }
           />

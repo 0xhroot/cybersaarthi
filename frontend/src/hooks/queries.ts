@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
-import type { CaseListParams, EntityListParams, FindingListParams, AuditParams } from "@/api/contract";
+import type { AdminUserListParams, CaseListParams, EntityListParams, FindingListParams, AuditParams } from "@/api/contract";
 import type { CaseStatus, PageParams } from "@/types/domain";
 
 const MINUTE = 60_000;
@@ -32,6 +32,8 @@ export const queryKeys = {
   findingStats: (caseId: string) => ["findings", caseId, "stats"] as const,
   audit: (params?: AuditParams) => ["audit", params] as const,
   timeline: (caseId: string) => ["timeline", caseId] as const,
+  users: (params?: AdminUserListParams) => ["users", params] as const,
+  pendingUsers: () => ["users", "pending"] as const,
 };
 
 export function useCases(params?: CaseListParams) {
@@ -393,4 +395,52 @@ export function useInvalidateCaseData() {
     void qc.invalidateQueries({ queryKey: ["timeline", caseId] });
     void qc.invalidateQueries({ queryKey: ["cases"] });
   };
+}
+
+export function useAdminUsers(params?: AdminUserListParams) {
+  return useQuery({
+    queryKey: queryKeys.users(params),
+    queryFn: () => api.users.list(params),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAdminPendingUsers() {
+  return useQuery({
+    queryKey: queryKeys.pendingUsers(),
+    queryFn: () => api.users.listPending({ limit: 200 }),
+  });
+}
+
+export type AdminUserAction =
+  | { type: "approve"; userId: string; role: string }
+  | { type: "reject"; userId: string }
+  | { type: "suspend"; userId: string }
+  | { type: "activate"; userId: string }
+  | { type: "role"; userId: string; role: string };
+
+export function useAdminUserMutation() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["users"] });
+    void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+  };
+  return useMutation<unknown, unknown, AdminUserAction>({
+    mutationFn: (action) => {
+      switch (action.type) {
+        case "approve":
+          return api.users.approve(action.userId, action.role);
+        case "reject":
+          return api.users.reject(action.userId);
+        case "suspend":
+          return api.users.suspend(action.userId);
+        case "activate":
+          return api.users.activate(action.userId);
+        case "role":
+          return api.users.changeRole(action.userId, action.role);
+      }
+    },
+    onSuccess: invalidate,
+    retry: false,
+  });
 }

@@ -39,6 +39,7 @@ async def test_login_round_trip_and_me(http_client, api_user: ApiUser) -> None:
     assert body["token_type"] == "bearer"
     assert body["expires_in"] == get_settings().ACCESS_TOKEN_EXPIRE_MINUTES * 60
     assert body["user"]["username"] == api_user.username
+    assert body["user"]["status"] == "ACTIVE"
     assert (
         decode_access_token(body["access_token"], secret=get_settings().SECRET_KEY) == api_user.id
     )
@@ -82,77 +83,94 @@ async def test_me_requires_a_valid_token(http_client) -> None:
         assert response.status_code == 401
 
 
-async def test_register_requires_admin(http_client) -> None:
+async def test_register_is_public_and_creates_pending_account(http_client) -> None:
     prefix = get_settings().API_V1_PREFIX
-    payload = {
-        "username": f"nobody-{uuid.uuid4().hex[:8]}",
-        "email": "nobody@cybersaarthi.test",
-        "password": PASSWORD,
-    }
+    username = f"nobody-{uuid.uuid4().hex[:8]}"
     anon = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
     async with anon:
-        # Anonymous: no credentials at all.
-        assert (await anon.post(f"{prefix}/auth/register", json=payload)).status_code == 401
-    # Authenticated but not an administrator (no users.manage) -> 403.
-    response = await http_client.post(f"{prefix}/auth/register", json=payload)
-    assert response.status_code == 403, response.text
+        payload = {
+            "username": username,
+            "email": f"{username}@cybersaarthi.test",
+            "password": PASSWORD,
+        }
+        response = await anon.post(f"{prefix}/auth/register", json=payload)
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["user"]["username"] == username
+        assert body["user"]["status"] == "PENDING"
+        assert body["roles"] == []
+
+    # A PENDING account cannot authenticate until approved.
+    login = await http_client.post(
+        f"{prefix}/auth/login", json={"username": username, "password": PASSWORD}
+    )
+    assert login.status_code == 403, login.text
+    assert login.json()["error"]["code"] == "ACCOUNT_PENDING"
 
 
 async def test_register_validates_payload(http_client, user_factory) -> None:
     prefix = get_settings().API_V1_PREFIX
-    admin = await user_factory(role="ADMIN")
-    async with await _client(admin.token) as client:
-        cases = [
-            {"username": "ab", "email": "x@y.test", "password": PASSWORD},  # username too short
-            {"username": "ok-name", "email": "not-an-email", "password": PASSWORD},
-            {"username": "ok-name", "email": "ok@y.test", "password": "short"},  # weak password
-            {"username": "ok-name", "email": "ok@y.test", "password": PASSWORD, "role": "BOSS"},
-        ]
-        for payload in cases:
-            response = await client.post(f"{prefix}/auth/register", json=payload)
-            assert response.status_code == 422, response.text
+    cases = [
+        {"username": "ab", "email": "x@y.test", "password": PASSWORD},  # username too short
+        {"username": "ok-name", "email": "not-an-email", "password": PASSWORD},
+        {"username": "ok-name", "email": "ok@y.test", "password": "short"},  # weak password
+    ]
+    for payload in cases:
+        response = await http_client.post(f"{prefix}/auth/register", json=payload)
+        assert response.status_code == 422, response.text
 
 
-async def test_register_creates_user_and_conflicts(http_client, user_factory) -> None:
+async def test_register_creates_pending_and_conflicts(http_client, user_factory) -> None:
     prefix = get_settings().API_V1_PREFIX
-    admin = await user_factory(role="ADMIN")
     username = f"analyst-{uuid.uuid4().hex[:8]}"
     email = f"{username}@cybersaarthi.test"
 
-    async with await _client(admin.token) as client:
-        response = await client.post(
-            f"{prefix}/auth/register",
-            json={
-                "username": username,
-                "email": email,
-                "password": PASSWORD,
-                "role": "ANALYST",
-            },
-        )
-        assert response.status_code == 201, response.text
-        body = response.json()
-        assert body["user"]["username"] == username
-        assert body["roles"] == ["ANALYST"]
-
-        duplicate_name = await client.post(
-            f"{prefix}/auth/register",
-            json={"username": username, "email": f"other-{email}", "password": PASSWORD},
-        )
-        assert duplicate_name.status_code == 409
-
-        duplicate_email = await client.post(
-            f"{prefix}/auth/register",
-            json={"username": f"other-{username}", "email": email, "password": PASSWORD},
-        )
-        assert duplicate_email.status_code == 409
-
-    # The new analyst can authenticate.
-    login = await http_client.post(
-        f"{prefix}/auth/login", json={"username": username, "password": PASSWORD}
+    registration = await http_client.post(
+        f"{prefix}/auth/register",
+        json={"username": username, "email": email, "password": PASSWORD},
     )
-    assert login.status_code == 200, login.text
-    me_payload = login.json()["user"]
-    assert me_payload["username"] == username
+    assert registration.status_code == 201, registration.text
+    assert registration.json()["user"]["status"] == "PENDING"
+
+    duplicate_name = await http_client.post(
+        f"{prefix}/auth/register",
+        json={"username": username, "email": f"other-{email}", "password": PASSWORD},
+    )
+    assert duplicate_name.status_code == 409
+    assert duplicate_name.json()["error"]["code"] == "DUPLICATE_USERNAME"
+
+    duplicate_email = await http_client.post(
+        f"{prefix}/auth/register",
+        json={"username": f"other-{username}", "email": email, "password": PASSWORD},
+    )
+    assert duplicate_email.status_code == 409
+    assert duplicate_email.json()["error"]["code"] == "DUPLICATE_EMAIL"
+
+
+async def test_register_ignores_client_supplied_role(http_client, user_factory) -> None:
+    """A caller-specified role is never trusted: it stays PENDING with no role."""
+    prefix = get_settings().API_V1_PREFIX
+    username = f"hacker-{uuid.uuid4().hex[:8]}"
+    registration = await http_client.post(
+        f"{prefix}/auth/register",
+        json={
+            "username": username,
+            "email": f"{username}@cybersaarthi.test",
+            "password": PASSWORD,
+            "role": "ADMIN",
+        },
+    )
+    assert registration.status_code == 201, registration.text
+    assert registration.json()["user"]["status"] == "PENDING"
+    assert registration.json()["roles"] == []
+
+    # Even self-registering, the account cannot act as ADMIN before approval.
+    admin = await user_factory(role="ADMIN")
+    async with await _client(admin.token) as client:
+        listed = await client.get(f"{prefix}/admin/users")
+        assert listed.status_code == 200
+        match = [u for u in listed.json()["items"] if u["username"] == username]
+        assert match and match[0]["roles"] == []
 
 
 async def test_login_throttled_after_too_many_failures(

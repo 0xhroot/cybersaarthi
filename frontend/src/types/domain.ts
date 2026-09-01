@@ -8,6 +8,9 @@
 
 export type Role = "ADMIN" | "INVESTIGATOR" | "ANALYST" | "VIEWER";
 
+/** Account lifecycle stage (mirrors backend AccountStatus). */
+export type AccountStatus = "PENDING" | "ACTIVE" | "SUSPENDED" | "REJECTED";
+
 export type EntityType =
   | "person"
   | "phone"
@@ -64,6 +67,7 @@ export interface UserOut {
   id: string;
   username: string;
   email: string;
+  status: AccountStatus;
   is_active: boolean;
 }
 
@@ -84,6 +88,39 @@ export interface RegisterRequest {
   username: string;
   email: string;
   password: string;
+}
+
+/* --------------------------- Admin: users --------------------------- */
+
+export interface RegisteredUserOut {
+  user: UserOut;
+  roles: Role[];
+  created_at: string;
+}
+
+export interface AdminUserOut {
+  id: string;
+  username: string;
+  email: string;
+  status: AccountStatus;
+  is_active: boolean;
+  roles: Role[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminUserList {
+  items: AdminUserOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ApproveRequest {
+  role: Role;
+}
+
+export interface RoleChangeRequest {
   role: Role;
 }
 

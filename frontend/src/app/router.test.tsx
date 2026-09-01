@@ -60,4 +60,36 @@ describe("route guards", () => {
     renderApp("/app/audit");
     expect(await screen.findByText(/No access/i, {}, { timeout: 4000 })).toBeInTheDocument();
   });
+
+  it("blocks the users page for roles without users.manage", async () => {
+    await useAuthStore.getState().login("investigator", "investigator-dev-password");
+    expect(useAuthStore.getState().permissions).not.toContain("users.manage");
+
+    renderApp("/app/users");
+    expect(await screen.findByText(/No access/i, {}, { timeout: 4000 })).toBeInTheDocument();
+  });
+
+  it("renders the users page for an administrator", async () => {
+    await useAuthStore.getState().login("admin", "admin-dev-password");
+
+    renderApp("/app/users");
+    expect(
+      await screen.findByText(/Users & approvals/i, {}, { timeout: 4000 }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the public registration page for anonymous visitors", async () => {
+    useAuthStore.setState({
+      status: "anonymous",
+      user: null,
+      roles: [],
+      permissions: [],
+      error: null,
+    });
+    renderApp("/register");
+    expect(
+      await screen.findByRole("heading", { name: /Create your account/i }, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/Request access/i).length).toBeGreaterThan(0);
+  });
 });

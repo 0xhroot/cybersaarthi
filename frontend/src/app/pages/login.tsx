@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { LockKeyhole, UserRound, ArrowRight, Fingerprint, Network, FileSearch, ShieldCheck } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
@@ -121,6 +121,13 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
+
+          <p className="mt-5 text-center text-sm text-dim">
+            Need an account?{" "}
+            <Link to="/register" className="text-accent hover:text-accent-strong">
+              Request access
+            </Link>
+          </p>
 
           {isMockMode ? (
             <Card className="mt-8">

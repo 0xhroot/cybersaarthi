@@ -18,8 +18,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.findings import AnalyticsService
+from app.api.errors import (
+    CODE_CASE_ACCESS_DENIED,
+    CODE_INSUFFICIENT_PERMISSION,
+    ApiHTTPException,
+)
 from app.core.auth import decode_access_token
 from app.core.config import get_settings
+from app.core.enums import AccountStatus
 from app.core.rbac import has_permission, is_admin_role
 from app.db.postgres import get_db_session
 from app.models import Case, Role, User, UserRole
@@ -65,8 +71,10 @@ async def get_current_user(
         if await is_revoked(cache, jti):
             raise HTTPException(status_code=401, detail="access token has been revoked")
     user = await session.get(User, user_id)
-    if user is None or not user.is_active:
+    if user is None:
         raise HTTPException(status_code=401, detail="invalid or inactive account")
+    if user.status != AccountStatus.ACTIVE.value:
+        raise HTTPException(status_code=401, detail="account is not active")
     request.state.user = user
     request.state.user_id = user.id
     return user
@@ -105,7 +113,9 @@ def require_permission(permission: str) -> Callable[..., Awaitable[User]]:
                 "forbidden: user lacks permission",
                 extra={"user_id": str(user.id), "permission": permission},
             )
-            raise HTTPException(status_code=403, detail=f"permission '{permission}' required")
+            raise ApiHTTPException(
+                403, CODE_INSUFFICIENT_PERMISSION, f"permission '{permission}' required"
+            )
         return user
 
     return dependency
@@ -154,9 +164,10 @@ async def assert_case_access(
         return case
     if case.owner_id is not None and user.id == case.owner_id:
         return case
-    raise HTTPException(
-        status_code=403,
-        detail=f"you do not have access to case {case.id}",
+    raise ApiHTTPException(
+        403,
+        CODE_CASE_ACCESS_DENIED,
+        f"you do not have access to case {case.id}",
     )
 
 

@@ -4,6 +4,7 @@ import {
   FolderKanban,
   ScrollText,
   Settings,
+  Users,
   Search,
   LogOut,
   Menu,
@@ -36,6 +37,7 @@ export function AppShell() {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
   const setSidebarOpen = useUiStore((s) => s.setSidebarOpen);
   const canAudit = useCan("audit.read");
+  const canManageUsers = useCan("users.manage");
   const navigate = useNavigate();
   const isDemo = api.src === "mock";
 
@@ -43,6 +45,9 @@ export function AppShell() {
     ...NAV,
     ...(canAudit
       ? [{ to: "/app/audit", label: "Audit log", icon: ScrollText, end: false }]
+      : []),
+    ...(canManageUsers
+      ? [{ to: "/app/users", label: "Users", icon: Users, end: false }]
       : []),
     { to: "/app/settings", label: "Settings", icon: Settings, end: false },
   ];

@@ -1,6 +1,9 @@
 import { request } from "@/api/client/http";
 import { authSession } from "@/api/client/session";
 import type {
+  AdminUserListParams,
+  Api,
+  ApiAdminUserService,
   ApiAnalyticsService,
   ApiAuditService,
   ApiAuthService,
@@ -9,13 +12,14 @@ import type {
   ApiEvidenceService,
   ApiFindingService,
   ApiGraphService,
-  Api,
   ApiTimelineService,
   CaseListParams,
   RegisterInput,
   RegisteredUserOut,
 } from "@/api/contract";
 import type {
+  AdminUserList,
+  AdminUserOut,
   AnalyticsRun,
   AnalyticsRunList,
   AnalyticsSummary,
@@ -71,7 +75,64 @@ const authService: ApiAuthService = {
     return request<MeResponse>("/auth/me");
   },
   async register(input: RegisterInput) {
-    return request<RegisteredUserOut>("/auth/register", { method: "POST", body: input });
+    return request<RegisteredUserOut>("/auth/register", {
+      method: "POST",
+      body: { username: input.username, email: input.email, password: input.password },
+    });
+  },
+};
+
+const userService: ApiAdminUserService = {
+  list(params: AdminUserListParams = {}) {
+    return request<AdminUserList>(
+      `/admin/users${buildQuery({
+        limit: params.limit ?? 50,
+        offset: params.offset ?? 0,
+        ...(params.status ? { status: params.status } : {}),
+        ...(params.search ? { search: params.search } : {}),
+      })}`,
+    );
+  },
+  listPending(params: AdminUserListParams = {}) {
+    return request<AdminUserList>(
+      `/admin/users/pending${buildQuery({
+        limit: params.limit ?? 50,
+        offset: params.offset ?? 0,
+      })}`,
+    );
+  },
+  get(userId) {
+    return request<AdminUserOut>(`/admin/users/${userId}`);
+  },
+  approve(userId, role) {
+    return request<AdminUserOut>(`/admin/users/${userId}/approve`, {
+      method: "POST",
+      body: { role },
+    });
+  },
+  reject(userId) {
+    return request<AdminUserOut>(`/admin/users/${userId}/reject`, {
+      method: "POST",
+      body: {},
+    });
+  },
+  suspend(userId) {
+    return request<AdminUserOut>(`/admin/users/${userId}/suspend`, {
+      method: "POST",
+      body: {},
+    });
+  },
+  activate(userId) {
+    return request<AdminUserOut>(`/admin/users/${userId}/activate`, {
+      method: "POST",
+      body: {},
+    });
+  },
+  changeRole(userId, role) {
+    return request<AdminUserOut>(`/admin/users/${userId}/role`, {
+      method: "PATCH",
+      body: { role },
+    });
   },
 };
 
@@ -270,6 +331,7 @@ const timelineService: ApiTimelineService = {
 export const realApi: Api = {
   src: "real",
   auth: authService,
+  users: userService,
   cases: caseService,
   entities: entityService,
   evidence: evidenceService,

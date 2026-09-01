@@ -76,3 +76,17 @@ class EvidenceFileStatus(StrEnum):
     PARSED = "parsed"
     PROCESSING = "processing"
     FAILED = "failed"
+
+
+class AccountStatus(StrEnum):
+    """Account lifecycle statuses (Phase 5 real multi-user application).
+
+    A freshly registered account starts PENDING and is only usable once an
+    administrator approves it (ACTIVE). SUSPENDED and REJECTED are terminal
+    states the application refuses to authenticate.
+    """
+
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    REJECTED = "REJECTED"

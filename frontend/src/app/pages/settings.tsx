@@ -26,6 +26,13 @@ export default function SettingsPage() {
     VIEWER: "neutral",
   };
 
+  const statusTone: Record<string, "success" | "accent" | "critical" | "neutral"> = {
+    ACTIVE: "success",
+    PENDING: "accent",
+    SUSPENDED: "critical",
+    REJECTED: "neutral",
+  };
+
   const apiLabel = isMockMode ? "Mock adapter (deterministic demo data)" : "Live Harmony API";
 
   return (
@@ -51,7 +58,9 @@ export default function SettingsPage() {
               </div>
               <div>
                 <p className="text-[11px] uppercase tracking-wider text-dim">Account</p>
-                <Badge tone={user?.is_active ? "success" : "neutral"}>{user?.is_active ? "Active" : "Inactive"}</Badge>
+                <div className="mt-1 flex gap-1.5">
+                  <Badge tone={statusTone[user?.status ?? "PENDING"] ?? "neutral"}>{user?.status ?? "—"}</Badge>
+                </div>
               </div>
               <div>
                 <p className="text-[11px] uppercase tracking-wider text-dim">Roles</p>

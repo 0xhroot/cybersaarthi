@@ -8,6 +8,8 @@
  */
 
 import type {
+  AdminUserList,
+  AdminUserOut,
   AnalyticsRun,
   AnalyticsRunList,
   AnalyticsSummary,
@@ -41,6 +43,7 @@ import type {
   RelationshipList,
   RelationshipStrength,
   TokenResponse,
+  UserOut,
 } from "@/types/domain";
 import type { PageParams } from "@/types/domain";
 export type { PageParams };
@@ -54,11 +57,10 @@ export interface RegisterInput {
   username: string;
   email: string;
   password: string;
-  role: string;
 }
 
 export interface RegisteredUserOut {
-  user: { id: string; username: string; email: string; is_active: boolean };
+  user: UserOut;
   roles: string[];
   created_at: string;
 }
@@ -99,6 +101,22 @@ export interface ApiAuthService {
   login(input: LoginInput): Promise<TokenResponse>;
   me(): Promise<MeResponse>;
   register(input: RegisterInput): Promise<RegisteredUserOut>;
+}
+
+export interface AdminUserListParams extends PageParams {
+  status?: string;
+  search?: string;
+}
+
+export interface ApiAdminUserService {
+  list(params?: AdminUserListParams): Promise<AdminUserList>;
+  listPending(params?: PageParams): Promise<AdminUserList>;
+  get(userId: string): Promise<AdminUserOut>;
+  approve(userId: string, role: string): Promise<AdminUserOut>;
+  reject(userId: string): Promise<AdminUserOut>;
+  suspend(userId: string): Promise<AdminUserOut>;
+  activate(userId: string): Promise<AdminUserOut>;
+  changeRole(userId: string, role: string): Promise<AdminUserOut>;
 }
 
 export interface ApiCaseService {
@@ -175,6 +193,7 @@ export interface ApiTimelineService {
 export interface Api {
   readonly src: "mock" | "real";
   auth: ApiAuthService;
+  users: ApiAdminUserService;
   cases: ApiCaseService;
   entities: ApiEntityService;
   evidence: ApiEvidenceService;

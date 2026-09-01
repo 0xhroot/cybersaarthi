@@ -13,6 +13,7 @@ interface AuthState {
   error: string | null;
   bootstrap: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
+  register: (input: { username: string; email: string; password: string }) => Promise<void>;
   logout: () => void;
   restore: () => void;
 }
@@ -74,6 +75,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         permissions: me.permissions,
         error: null,
       });
+    } catch (err) {
+      set({ status: "anonymous", error: (err as Error).message });
+      throw err;
+    }
+  },
+
+  async register(input) {
+    set({ status: "loading", error: null });
+    try {
+      await api.auth.register(input);
     } catch (err) {
       set({ status: "anonymous", error: (err as Error).message });
       throw err;

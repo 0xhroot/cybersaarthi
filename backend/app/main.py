@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import __version__
-from app.api.errors import error_response
+from app.api.errors import ApiHTTPException, error_response
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -128,6 +128,21 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
     code = _STATUS_CODE_NAMES.get(exc.status_code, "HTTP_ERROR")
     return error_response(exc.status_code, code, detail)
+
+
+@app.exception_handler(ApiHTTPException)
+async def api_http_exception_handler(request: Request, exc: ApiHTTPException) -> JSONResponse:
+    """Render custom-coded errors (account lifecycle, permission, case access)."""
+    logger.info(
+        "api error",
+        extra={"path": request.url.path, "status": exc.status_code, "code": exc.code},
+    )
+    return error_response(
+        exc.status_code,
+        exc.code,
+        exc.detail if isinstance(exc.detail, str) else "Request failed",
+        headers=exc.headers,
+    )
 
 
 @app.exception_handler(Exception)

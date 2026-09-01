@@ -244,7 +244,19 @@ docker compose ps               # confirm all services are up
 
 make migrate                    # apply migrations (also runs automatically on startup)
 make seed                       # seed the deterministic demo case DEMO-2026-001
+make admin                      # bootstrap the first ADMIN user (admin-created, role-gated)
 ```
+
+> **First-administrator bootstrap.** Registration is public and creates a `PENDING`
+> account that cannot sign in until an administrator approves it. To get the first
+> admin, use the bootstrap CLI (idempotent — refuses to create a second admin):
+>
+> ```bash
+> docker compose exec -T backend python -m scripts.create_admin
+> ```
+> Credentials default to development values; override with `ADMIN_USERNAME` /
+> `ADMIN_EMAIL` / `ADMIN_PASSWORD`. Afterward, approve new self-service requests
+> in the UI under **Users & approvals** (or via `POST /admin/users/{id}/approve`).
 
 **Verify it's ready:**
 
@@ -336,8 +348,8 @@ Windows users without `make` can use the Docker equivalents.
 
 | Gate | Status |
 |---|---|
-| Backend tests | ✅ 298 passed (unit · api · integration) |
-| Frontend tests | ✅ 35 passed |
+| Backend tests | ✅ 310 passed (unit · api · integration) |
+| Frontend tests | ✅ 45 passed |
 | Ruff | ✅ pass |
 | Mypy | ✅ 0 errors |
 | Alembic check | ✅ no drift |

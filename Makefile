@@ -5,7 +5,7 @@ EXEC := $(COMPOSE) exec -T backend
 # keeping the production `backend` image lean.
 DEV := $(COMPOSE) run --rm -T backend-dev
 
-.PHONY: help up down down-v build logs ps seed test test-unit lint format format-check typecheck \
+.PHONY: help up down down-v build logs ps seed admin test test-unit lint format format-check typecheck \
         migrate migration shell
 
 help: ## list available make targets
@@ -31,6 +31,9 @@ ps: ## show service status
 
 seed: ## seed the deterministic demo case (idempotent)
 	$(EXEC) python -m scripts.seed_demo
+
+admin: ## bootstrap the first ADMIN user (idempotent)
+	$(EXEC) python -m scripts.create_admin
 
 test: ## run the full test suite (unit, api, integration) in the dev container
 	$(DEV) pytest

@@ -1,4 +1,4 @@
-# Frontend API contract (Phase 4)
+# Frontend API contract (Phase 5)
 
 The base path for every route is `/api/v1`. All endpoints return JSON.
 Authentication uses `Authorization: Bearer <token>`; tokens are short-lived
@@ -9,19 +9,47 @@ the platform envelope:
 { "error": { "code": "FORBIDDEN", "message": "permission 'case.read' required" } }
 ```
 
+Stable error codes: `INVALID_CREDENTIALS`, `ACCOUNT_PENDING`,
+`ACCOUNT_SUSPENDED`, `ACCOUNT_REJECTED`, `INSUFFICIENT_PERMISSION`,
+`CASE_ACCESS_DENIED`, `DUPLICATE_USERNAME`, `DUPLICATE_EMAIL`.
+
 ## Authentication
 
 | Method & path | Auth | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
-| `POST /auth/login` | public | `{username, password}` (username may be an email) | `200` `TokenResponse` | `401` bad creds; `429` throttled; `403` inactive account |
+| `POST /auth/login` | public | `{username, password}` (username may be an email) | `200` `TokenResponse` | `401` `INVALID_CREDENTIALS`/bad creds; `429` throttled; `403` `ACCOUNT_PENDING`/`ACCOUNT_SUSPENDED`/`ACCOUNT_REJECTED` |
 | `POST /auth/logout` | bearer | — | `204` (revokes the token when revocation is enabled) | `401` |
-| `POST /auth/register` | `users.manage` (ADMIN) | `{username, email, password, role?}` | `201` `RegisteredUserOut` | `401` unauth; `403` non-admin; `409` duplicate; `422` validation |
+| `POST /auth/register` | public | `{username, email, password}` | `201` `RegisteredUserOut` (account starts `PENDING`, `roles: []`) | `409` `DUPLICATE_USERNAME`/`DUPLICATE_EMAIL`; `422` validation |
 | `GET /auth/me` | bearer | — | `200` `{user, roles, permissions}` | `401` |
 
 `TokenResponse`: `{access_token, token_type: "bearer", expires_in, user}`.
-`user`: `{id, username, email, is_active, created_at}`.
+`user`: `{id, username, email, status, is_active}` where `status` is one of
+`PENDING` / `ACTIVE` / `SUSPENDED` / `REJECTED` and `is_active` is the derived
+boolean `status == "ACTIVE"`.
 
-Roles returned by `/auth/me`: `ADMIN` / `INVESTIGATOR` / `ANALYST` / `VIEWER`.
+Registration is public self-service; the caller may NOT supply a `role` (any
+sent value is ignored, never trusted). The account is unusable until an
+administrator approves it and assigns a role.
+
+## Admin: user management
+
+All endpoints require `PERM_USERS_MANAGE`; non-admins get `403`
+`INSUFFICIENT_PERMISSION`.
+
+| Method & path | Body | Success |
+| --- | --- | --- |
+| `GET /admin/users` | `?limit=&offset=&status=&search=` | `200` `{items, total, limit, offset}` (`AdminUserOut` list) |
+| `GET /admin/users/pending` | `?limit=&offset=` | `200` `AdminUserList` (PENDING only) |
+| `GET /admin/users/{id}` | — | `200` `AdminUserOut` |
+| `POST /admin/users/{id}/approve` | `{role}` | `200` `AdminUserOut` (ACTIVE + exactly one role) |
+| `POST /admin/users/{id}/reject` | — | `200` `AdminUserOut` (REJECTED) |
+| `POST /admin/users/{id}/suspend` | — | `200` `AdminUserOut` (SUSPENDED) |
+| `POST /admin/users/{id}/activate` | — | `200` `AdminUserOut` (ACTIVE) |
+| `PATCH /admin/users/{id}/role` | `{role}` | `200` `AdminUserOut` |
+
+`AdminUserOut`: `{id, username, email, status, is_active, roles, created_at, updated_at}`.
+The backend forbids an admin from changing/suspending/rejecting their own
+account and from demoting the sole remaining active `ADMIN`.
 
 ## Cases
 
@@ -122,7 +150,7 @@ Every response carries:
 
 | Role | Can do |
 | --- | --- |
-| `ADMIN` | everything incl. `/auth/register`, `/audit-logs`, override of closed findings |
+| `ADMIN` | everything incl. `/admin/users`, `/audit-logs`, override of closed findings |
 | `INVESTIGATOR` | everything except user management |
 | `ANALYST` | read cases/evidence, run analytics, review findings (not confirm/dismiss) |
 | `VIEWER` | read cases/evidence/findings only |
@@ -135,3 +163,10 @@ Every response carries:
    actions by permission and disable them for closed statuses.
 4. On `401` (expired token) clear credentials and redirect to login.
 5. Show the echoed `x-request-id` in error logs to match backend traces.
+6. Gate UIs on the `roles`/`permissions` from `/auth/me`, never on a stored
+   `role` sent to `/auth/register` (it is not trusted).
+7. Treat `PENDING` accounts as "created, awaiting approval": show the approval
+   screen and block sign-in; `ACCOUNT_PENDING` / `ACCOUNT_SUSPENDED` /
+   `ACCOUNT_REJECTED` are recoverable, surfaced as friendly messages at login.
+8. Registering must not establish a session; navigate to the pending/approval
+   screen instead.

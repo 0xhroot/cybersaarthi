@@ -1,6 +1,7 @@
 import type {
   Api,
   ApiTimelineEvent,
+  AdminUserListParams,
   AuditParams,
   CaseListParams,
   EntityListParams,
@@ -13,6 +14,7 @@ import type {
 import { authSession } from "@/api/client/session";
 import { ApiError } from "@/types/api";
 import type {
+  AdminUserOut,
   AnalyticsRun,
   AuditEvent,
   Case,
@@ -84,8 +86,12 @@ interface MockUserRecord {
   username: string;
   email: string;
   password: string;
-  is_active: boolean;
+  status: "PENDING" | "ACTIVE" | "SUSPENDED" | "REJECTED";
   roles: Array<"ADMIN" | "INVESTIGATOR" | "ANALYST" | "VIEWER">;
+}
+
+function active(record: MockUserRecord): boolean {
+  return record.status === "ACTIVE";
 }
 
 const MOCK_USERS: MockUserRecord[] = [
@@ -94,7 +100,7 @@ const MOCK_USERS: MockUserRecord[] = [
     username: "admin",
     email: "admin@cybersaarthi.local",
     password: "admin-dev-password",
-    is_active: true,
+    status: "ACTIVE",
     roles: ["ADMIN"],
   },
   {
@@ -102,7 +108,7 @@ const MOCK_USERS: MockUserRecord[] = [
     username: "investigator",
     email: "investigator@cybersaarthi.local",
     password: "investigator-dev-password",
-    is_active: true,
+    status: "ACTIVE",
     roles: ["INVESTIGATOR"],
   },
   {
@@ -110,7 +116,7 @@ const MOCK_USERS: MockUserRecord[] = [
     username: "analyst",
     email: "analyst@cybersaarthi.local",
     password: "analyst-demo-password",
-    is_active: true,
+    status: "ACTIVE",
     roles: ["ANALYST"],
   },
   {
@@ -118,7 +124,7 @@ const MOCK_USERS: MockUserRecord[] = [
     username: "viewer",
     email: "viewer@cybersaarthi.local",
     password: "viewer-demo-password",
-    is_active: true,
+    status: "ACTIVE",
     roles: ["VIEWER"],
   },
 ];
@@ -251,8 +257,14 @@ export const mockApi: Api = {
       if (!user || user.password !== input.password) {
         throw new ApiError({ status: 401, code: "UNAUTHORIZED", message: "invalid username or password" });
       }
-      if (!user.is_active) {
-        throw new ApiError({ status: 403, code: "FORBIDDEN", message: "account is deactivated" });
+      if (user.status === "PENDING") {
+        throw new ApiError({ status: 403, code: "ACCOUNT_PENDING", message: "account is pending administrator approval" });
+      }
+      if (user.status === "SUSPENDED") {
+        throw new ApiError({ status: 403, code: "ACCOUNT_SUSPENDED", message: "account is suspended" });
+      }
+      if (user.status === "REJECTED") {
+        throw new ApiError({ status: 403, code: "ACCOUNT_REJECTED", message: "account was rejected" });
       }
       currentUserId = user.id;
       currentRoles = user.roles;
@@ -262,7 +274,7 @@ export const mockApi: Api = {
         access_token: `mock-token-${user.id}`,
         token_type: "bearer",
         expires_in: 1800,
-        user: { id: user.id, username: user.username, email: user.email, is_active: user.is_active },
+        user: { id: user.id, username: user.username, email: user.email, status: user.status, is_active: active(user) },
       };
     },
 
@@ -274,7 +286,7 @@ export const mockApi: Api = {
       const permissions = resolvedPermissions(roleList);
       authSession.setPermissions(permissions);
       return {
-        user: { id: record.id, username: record.username, email: record.email, is_active: record.is_active },
+        user: { id: record.id, username: record.username, email: record.email, status: record.status, is_active: active(record) },
         roles: roleList,
         permissions,
       };
@@ -282,7 +294,6 @@ export const mockApi: Api = {
 
     async register(input: RegisterInput): Promise<RegisteredUserOut> {
       await delay(MOCK_LATENCY);
-      requirePermission("users.manage");
       if (MOCK_USERS.some((u) => u.username === input.username) || registeredState.some((u) => u.username === input.username)) {
         throw new ApiError({ status: 409, code: "CONFLICT", message: `username '${input.username}' is taken` });
       }
@@ -294,17 +305,113 @@ export const mockApi: Api = {
         username: input.username,
         email: input.email.toLowerCase(),
         password: input.password,
-        is_active: true,
-        roles: [input.role as MockUserRecord["roles"][number]],
+        status: "PENDING",
+        roles: [],
         created_at: iso(0),
       };
       registeredState.push(record);
-      pushAudit("auth.user_created", "user", null, { username: input.username, role: input.role });
+      pushAudit("auth.registration_requested", "user", null, { username: input.username });
       return {
-        user: { id: record.id, username: record.username, email: record.email, is_active: true },
-        roles: record.roles,
+        user: { id: record.id, username: record.username, email: record.email, status: "PENDING", is_active: false },
+        roles: [],
         created_at: record.created_at,
       };
+    },
+  },
+
+  users: {
+    async list(params: AdminUserListParams = {}) {
+      await delay(MOCK_LATENCY);
+      requirePermission("users.manage");
+      let items = [...MOCK_USERS, ...registeredState];
+      if (params.status) items = items.filter((u) => u.status === params.status);
+      if (params.search) {
+        const q = params.search.toLowerCase();
+        items = items.filter(
+          (u) => u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+        );
+      }
+      const limit = params.limit ?? 50;
+      const offset = params.offset ?? 0;
+      const sorted = [...items].sort((a, b) => a.username.localeCompare(b.username));
+      const page = sorted.slice(offset, offset + limit);
+      return { items: page.map((u) => adminUserOut(u, userStamp(u.id))), total: sorted.length, limit, offset };
+    },
+
+    async listPending(params: AdminUserListParams = {}) {
+      await delay(MOCK_LATENCY / 2);
+      requirePermission("users.manage");
+      const limit = params.limit ?? 50;
+      const offset = params.offset ?? 0;
+      const pending = [...registeredState]
+        .filter((u) => u.status === "PENDING")
+        .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
+      return { items: pending.slice(offset, offset + limit).map((u) => adminUserOut(u, u.created_at ?? "")), total: pending.length, limit, offset };
+    },
+
+    async get(userId: string): Promise<AdminUserOut> {
+      await delay(MOCK_LATENCY / 2);
+      requirePermission("users.manage");
+      return adminUserOut(findUser(userId), userStamp(userId));
+    },
+
+    async approve(userId: string, role: string): Promise<AdminUserOut> {
+      await delay(MOCK_LATENCY);
+      requirePermission("users.manage");
+      const user = findUser(userId);
+      const current = user.status;
+      if (current === "ACTIVE") {
+        throw new ApiError({ status: 409, code: "CONFLICT", message: "account is already active" });
+      }
+      user.status = "ACTIVE";
+      user.roles = [role as MockUserRecord["roles"][number]];
+      pushAudit("user.approved", "user", null, { user_id: userId, role });
+      return adminUserOut(user, userStamp(userId));
+    },
+
+    async reject(userId: string): Promise<AdminUserOut> {
+      await delay(MOCK_LATENCY);
+      requirePermission("users.manage");
+      const user = findUser(userId);
+      if (user.status === "REJECTED") {
+        throw new ApiError({ status: 409, code: "CONFLICT", message: "account is already rejected" });
+      }
+      if (user.status === "ACTIVE" && user.roles.includes("ADMIN")) {
+        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "cannot reject an active administrator" });
+      }
+      user.status = "REJECTED";
+      pushAudit("user.rejected", "user", null, { user_id: userId });
+      return adminUserOut(user, userStamp(userId));
+    },
+
+    async suspend(userId: string): Promise<AdminUserOut> {
+      await delay(MOCK_LATENCY);
+      requirePermission("users.manage");
+      const user = findUser(userId);
+      if (user.roles.includes("ADMIN") && user.status === "ACTIVE") {
+        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "cannot suspend an active administrator" });
+      }
+      user.status = "SUSPENDED";
+      pushAudit("user.suspended", "user", null, { user_id: userId });
+      return adminUserOut(user, userStamp(userId));
+    },
+
+    async activate(userId: string): Promise<AdminUserOut> {
+      await delay(MOCK_LATENCY);
+      requirePermission("users.manage");
+      const user = findUser(userId);
+      user.status = "ACTIVE";
+      pushAudit("user.activated", "user", null, { user_id: userId });
+      return adminUserOut(user, userStamp(userId));
+    },
+
+    async changeRole(userId: string, role: string): Promise<AdminUserOut> {
+      await delay(MOCK_LATENCY);
+      requirePermission("users.manage");
+      const user = findUser(userId);
+      user.roles = [role as MockUserRecord["roles"][number]];
+      pushAudit("user.role_changed", "user", null, { user_id: userId, role });
+      return adminUserOut(user, userStamp(userId));
     },
   },
 
@@ -852,4 +959,32 @@ function entitiesFor(caseId: string): Entity[] {
 
 function relatedEntityId(key: string, caseId: string): string {
   return `d0000000-0000-4000-8000-${caseId.slice(-4)}${key.length}`;
+}
+
+function userStamp(userId: string): string {
+  const record = [...MOCK_USERS, ...registeredState].find((u) => u.id === userId);
+  const stamp = record === undefined ? undefined : (record as { created_at?: string }).created_at;
+  return stamp ? stamp : iso(0);
+}
+
+function findUser(userId: string): MockUserRecord & { created_at?: string } {
+  const record = [...MOCK_USERS, ...registeredState].find((u) => u.id === userId);
+  if (!record) throw notFound("user not found");
+  return record;
+}
+
+function adminUserOut(
+  user: MockUserRecord & { created_at?: string },
+  created: string,
+): AdminUserOut {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    status: user.status,
+    is_active: active(user),
+    roles: user.roles,
+    created_at: created,
+    updated_at: created,
+  };
 }
