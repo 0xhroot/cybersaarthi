@@ -367,6 +367,7 @@ cybersaarthi/
 
 | Resource | Purpose |
 |---|---|
+| [`docs/`](docs/) | Documentation index |
 | [`docs/architecture/`](docs/architecture/) | Phase architecture reports |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 | [`docs/audit/`](docs/audit/) | Security & project audits |
@@ -390,6 +391,10 @@ manifests.
 
 ## 🤝 Contributing
 
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full developer guide, and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for our collaboration expectations.
+Please report security issues privately — see [SECURITY.md](SECURITY.md).
+
 - **Backend** — modular monolith under `backend/app`; ship changes with tests in `backend/tests/`.
 - **Frontend** — add pages under `frontend/src/app/pages`; reuse the typed API facade and query layer.
 - **Tests** — backend `make test`; frontend `npm test -- --run`.
@@ -404,9 +409,7 @@ manifests.
 
 ## License
 
-**Not yet specified.** No `LICENSE` file is present in the repository. The backend package metadata
-(`backend/pyproject.toml`) declares an MIT notice, but no license text is committed — please contact
-the maintainers before reuse.
+Released under the [MIT License](LICENSE).
 
 ---
 
