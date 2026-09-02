@@ -106,15 +106,22 @@ async def test_admin_can_reject_activate_suspend(http_client, user_factory) -> N
     prefix = get_settings().API_V1_PREFIX
     admin = await user_factory(role="ADMIN")
     victim = await user_factory(role="VIEWER")
+    pending_id = (await _register(http_client, prefix, "rejectee"))["id"]
 
     async with await _client(admin.token) as client:
+        # A PENDING application may be rejected directly -> REJECTED (terminal).
+        re = await client.post(f"{prefix}/admin/users/{pending_id}/reject")
+        assert re.status_code == 200, re.text
+        assert re.json()["status"] == "REJECTED"
+        # A rejected account cannot ever be activated (terminal state).
+        act_rejected = await client.post(f"{prefix}/admin/users/{pending_id}/activate")
+        assert act_rejected.status_code == 409, act_rejected.text
+        assert act_rejected.json()["error"]["code"] == "ACCOUNT_TRANSITION_INVALID"
+
+        # An ACTIVE account may be suspended, then reinstated via activate.
         sus = await client.post(f"{prefix}/admin/users/{victim.id}/suspend")
         assert sus.status_code == 200, sus.text
         assert sus.json()["status"] == "SUSPENDED"
-
-        re = await client.post(f"{prefix}/admin/users/{victim.id}/reject")
-        assert re.status_code == 200, re.text
-        assert re.json()["status"] == "REJECTED"
 
         act = await client.post(f"{prefix}/admin/users/{victim.id}/activate")
         assert act.status_code == 200, act.text
@@ -129,6 +136,8 @@ async def test_suspended_and_rejected_users_cannot_login(http_client, user_facto
 
     async with await _client(admin.token) as client:
         await client.post(f"{prefix}/admin/users/{suspended.id}/suspend")
+        # reject is only legal from PENDING or SUSPENDED, so suspend first.
+        await client.post(f"{prefix}/admin/users/{rejected_user.id}/suspend")
         await client.post(f"{prefix}/admin/users/{rejected_user.id}/reject")
 
     codes = {
@@ -180,3 +189,57 @@ async def test_admin_can_assign_any_valid_role(http_client, user_factory) -> Non
             f"{prefix}/admin/users/{target.id}/role", json={"role": "SUPERUSER"}
         )
         assert bad.status_code == 422, bad.text
+
+
+async def test_activate_cannot_promote_pending_account(http_client, user_factory) -> None:
+    """activate is reinstatement-only: it never promotes a PENDING account."""
+    prefix = get_settings().API_V1_PREFIX
+    admin = await user_factory(role="ADMIN")
+    pending_id = (await _register(http_client, prefix, "latent"))["id"]
+
+    async with await _client(admin.token) as client:
+        status = await client.get(f"{prefix}/admin/users/{pending_id}")
+        assert status.json()["status"] == "PENDING"
+
+        act = await client.post(f"{prefix}/admin/users/{pending_id}/activate")
+        assert act.status_code == 409, act.text
+        assert act.json()["error"]["code"] == "ACCOUNT_TRANSITION_INVALID"
+
+        # The account remains unprivileged and not authenticated.
+        get_back = await client.get(f"{prefix}/admin/users/{pending_id}")
+        assert get_back.json()["status"] == "PENDING"
+        assert get_back.json()["roles"] == []
+
+
+async def test_suspend_reject_only_take_effect_from_legal_states(http_client, user_factory) -> None:
+    prefix = get_settings().API_V1_PREFIX
+    admin = await user_factory(role="ADMIN")
+    victim = await user_factory(role="VIEWER")
+
+    async with await _client(admin.token) as client:
+        # An ACTIVE account cannot be rejected directly (must suspend first).
+        re = await client.post(f"{prefix}/admin/users/{victim.id}/reject")
+        assert re.status_code == 409, re.text
+        assert re.json()["error"]["code"] == "ACCOUNT_TRANSITION_INVALID"
+
+        # A PENDING account cannot be suspended (approval path owns it).
+        pending_id = (await _register(http_client, prefix, "pend"))["id"]
+        sus_pending = await client.post(f"{prefix}/admin/users/{pending_id}/suspend")
+        assert sus_pending.status_code == 409, sus_pending.text
+        assert sus_pending.json()["error"]["code"] == "ACCOUNT_TRANSITION_INVALID"
+
+
+async def test_role_cannot_be_granted_to_non_active_account(http_client, user_factory) -> None:
+    prefix = get_settings().API_V1_PREFIX
+    admin = await user_factory(role="ADMIN")
+    pending_id = (await _register(http_client, prefix, "nopriv"))["id"]
+
+    async with await _client(admin.token) as client:
+        resp = await client.patch(
+            f"{prefix}/admin/users/{pending_id}/role", json={"role": "VIEWER"}
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["error"]["code"] == "ACCOUNT_NOT_ACTIVE"
+        # No role actually granted; the account stays unprivileged.
+        get_back = await client.get(f"{prefix}/admin/users/{pending_id}")
+        assert get_back.json()["roles"] == []

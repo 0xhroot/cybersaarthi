@@ -5,6 +5,7 @@ from app.models.analytics_run import ANALYTICS_RUN_STATUSES, AnalyticsRun
 from app.models.audit_log import AuditLog
 from app.models.base import Base
 from app.models.case import Case
+from app.models.case_member import CASE_MEMBER_ROLES, CaseMember
 from app.models.community_result import CommunityResult
 from app.models.data_source import BUILTIN_DATA_SOURCES, DataSource
 from app.models.entity import ENTITY_TYPES, Entity
@@ -34,7 +35,9 @@ __all__ = [
     "AuditLog",
     "Base",
     "BUILTIN_DATA_SOURCES",
+    "CASE_MEMBER_ROLES",
     "Case",
+    "CaseMember",
     "CommunityResult",
     "DataSource",
     "ENTITY_TYPES",

@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
-import type { AdminUserListParams, CaseListParams, EntityListParams, FindingListParams, AuditParams } from "@/api/contract";
+import type { AdminUserListParams, CaseListParams, CaseMemberAddRequest, EntityListParams, FindingListParams, AuditParams } from "@/api/contract";
 import type { CaseStatus, PageParams } from "@/types/domain";
 
 const MINUTE = 60_000;
@@ -8,6 +8,7 @@ const MINUTE = 60_000;
 export const queryKeys = {
   cases: (params?: CaseListParams) => ["cases", params] as const,
   case: (id: string) => ["cases", id] as const,
+  caseMembers: (id: string) => ["cases", id, "members"] as const,
   entities: (caseId: string, params?: EntityListParams) => ["entities", caseId, params] as const,
   entity: (caseId: string, id: string) => ["entities", caseId, id] as const,
   relationships: (caseId: string) => ["relationships", caseId] as const,
@@ -50,6 +51,36 @@ export function useCase(caseId: string) {
     queryKey: queryKeys.case(caseId),
     queryFn: () => api.cases.get(caseId),
     staleTime: MINUTE,
+  });
+}
+
+export function useCaseMembers(caseId: string) {
+  return useQuery({
+    queryKey: queryKeys.caseMembers(caseId),
+    queryFn: () => api.cases.listMembers(caseId),
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useAddCaseMember(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CaseMemberAddRequest) => api.cases.addMember(caseId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.caseMembers(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useRemoveCaseMember(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => api.cases.removeMember(caseId, userId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.caseMembers(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
   });
 }
 
@@ -339,6 +370,41 @@ export function useIngestEvidence(caseId: string) {
       void qc.invalidateQueries({ queryKey: queryKeys.patterns(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.hypotheses(caseId) });
     },
+  });
+}
+
+export function useDeleteEvidence(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (evidenceId: string) => api.evidence.delete(caseId, evidenceId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.evidence(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.jobs(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useRetryGraphSync(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => api.evidence.retryGraphSync(caseId, jobId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.jobs(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.graph(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.graphStats(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.entities(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.summary(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useReviewResolution(caseId: string) {
+  return useQuery({
+    queryKey: ["resolution", caseId, "review"] as const,
+    queryFn: () => api.entities.reviewResolution(caseId),
+    staleTime: MINUTE,
   });
 }
 

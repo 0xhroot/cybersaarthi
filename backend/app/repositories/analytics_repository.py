@@ -25,6 +25,17 @@ from app.models import (
     SourceRecord,
 )
 
+# Analytics-run lifecycle (state machine). A run is created ``pending``, started
+# to ``running``, and ends in ``completed`` or ``failed``. A terminal run is never
+# transitioned again; ``completed_at`` is stamped on every terminal transition.
+_RUN_RUNNING_FROM = frozenset({"pending"})
+_RUN_TERMINAL_FROM = frozenset({"running"})
+_RUN_TERMINAL_STATES = frozenset({"completed", "failed"})
+
+
+class RunTransitionError(ValueError):
+    """A run status update would violate the analytics lifecycle state machine."""
+
 
 @dataclass(frozen=True)
 class CaseEvidenceTotals:
@@ -126,13 +137,23 @@ class AnalyticsDataRepository:
     async def create_run(self, case_id: uuid.UUID) -> AnalyticsRun:
         run = AnalyticsRun(
             case_id=str(case_id),
-            status="running",
-            stage="boot",
-            started_at=datetime.now(UTC),
+            status="pending",
+            stage="pending",
         )
         self._session.add(run)
         await self._session.flush()
         return run
+
+    async def start_run(self, run_id: uuid.UUID, *, stage: str) -> None:
+        run = await self._session.get(AnalyticsRun, run_id)
+        if run is None:
+            return
+        if run.status not in _RUN_RUNNING_FROM:
+            raise RunTransitionError(f"illegal analytics transition {run.status!r} -> 'running'")
+        run.status = "running"
+        run.stage = stage
+        run.started_at = datetime.now(UTC)
+        await self._session.flush()
 
     async def update_run(
         self,
@@ -146,15 +167,19 @@ class AnalyticsDataRepository:
         run = await self._session.get(AnalyticsRun, run_id)
         if run is None:
             return
+        if status is not None and status not in _RUN_TERMINAL_STATES:
+            raise RunTransitionError(f"illegal analytics transition {run.status!r} -> {status!r}")
+        if status is not None and run.status not in _RUN_TERMINAL_FROM:
+            raise RunTransitionError(f"illegal analytics transition {run.status!r} -> {status!r}")
         if status is not None:
             run.status = status
         if stage is not None:
             run.stage = stage
-        if error is not None or (status == "failed"):
+        if error is not None or status == "failed":
             run.error = error
         if summary is not None:
             run.summary = summary
-        if status == "completed":
+        if status in _RUN_TERMINAL_STATES:
             run.completed_at = datetime.now(UTC)
         await self._session.flush()
 
@@ -263,10 +288,12 @@ class AnalyticsDataRepository:
         # known (finding_type, title) signal prevents the findings table and the
         # review queue from inflating run after run, while a reviewer's manual
         # triage and the run-scoped audit history are preserved untouched.
+        # Each run's finding snapshot is isolated by its ``run_id``: unchanged
+        # signals keep the run_id of the run that first produced them, so a
+        # ``?run_id=<run>`` query returns exactly that run's snapshot and
+        # historical runs stay attributable.
         existing_rows = await self._session.execute(
-            select(Finding.id, Finding.finding_type, Finding.title).where(
-                Finding.case_id == str(case_id)
-            )
+            select(Finding.finding_type, Finding.title).where(Finding.case_id == str(case_id))
         )
         seen: set[tuple[str, str]] = {
             (finding_type, title) for finding_type, title in existing_rows.all()

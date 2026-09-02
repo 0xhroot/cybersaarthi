@@ -478,18 +478,23 @@ async def test_analytics_not_found_and_isolation(
 
 async def test_findings_do_not_duplicate_across_unchanged_runs(http_client, phase3_case) -> None:
     """A09: re-running analytics over unchanged data must not inflate the
-    findings table. Unchanged signals are collapsed, so the total stays flat."""
+    findings table. Unchanged signals are collapsed, so the total stays flat.
+
+    Regression: the second run must complete normally (not silently fail while
+    deduplicating findings that already exist from the first run)."""
     case_id, _ = phase3_case
     prefix = get_settings().API_V1_PREFIX
     await _ingested_case(http_client, case_id)
 
     response = await http_client.post(f"{prefix}/cases/{case_id}/analytics/run")
     assert response.status_code == 201, response.text
+    assert response.json()["status"] == "completed"
     first_total = (await http_client.get(f"{prefix}/cases/{case_id}/findings")).json()["total"]
     assert first_total >= 1
 
     response = await http_client.post(f"{prefix}/cases/{case_id}/analytics/run")
     assert response.status_code == 201, response.text
+    assert response.json()["status"] == "completed", response.text
 
     after = (await http_client.get(f"{prefix}/cases/{case_id}/findings")).json()
     # Deterministic engine: an unchanged case yields the same findings, so the

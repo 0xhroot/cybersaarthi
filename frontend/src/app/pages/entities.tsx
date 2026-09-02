@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Search, Users } from "lucide-react";
-import { useEntities } from "@/hooks/queries";
+import { useEntities, useReviewResolution } from "@/hooks/queries";
 import { useDebounce } from "@/hooks/ui";
 import { PageContainer, PageHeader } from "@/components/layout/page";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +39,8 @@ export default function EntitiesPage() {
     query: debounced || undefined,
     limit: 200,
   });
+
+  const review = useReviewResolution(caseId);
 
   useEffect(() => {
     const next = new URLSearchParams(params);
@@ -148,6 +150,31 @@ export default function EntitiesPage() {
           </Card>
         )}
       </div>
+
+      {review.data && review.data.items.length > 0 ? (
+        <div className="mt-5">
+          <Card>
+            <CardContent className="space-y-1">
+              <p className="mb-2 text-[11px] uppercase tracking-wider text-dim">
+                Resolution review · {review.data.total} candidates needing attention
+              </p>
+              <div className="divide-y divide-border">
+                {review.data.items.map((c) => (
+                  <div key={c.match_id} className="flex items-center gap-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-foreground">{c.candidate_value}</p>
+                      <p className="text-[11px] text-dim">
+                        {c.candidate_type} · {c.decision === "auto_match" ? "auto-matched" : "manual review"} · score {formatPercent(c.score, 0)}
+                      </p>
+                    </div>
+                    <EntityTypeBadge value={c.candidate_type as EntityType} />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
     </PageContainer>
   );
 }

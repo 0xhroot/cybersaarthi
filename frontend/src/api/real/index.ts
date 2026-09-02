@@ -25,6 +25,8 @@ import type {
   AnalyticsSummary,
   AuditList,
   Case,
+  CaseList,
+  CaseMemberListResponse,
   CentralityEntry,
   Community,
   EntityDetail,
@@ -40,6 +42,7 @@ import type {
   FindingStatusOut,
   GraphResponse,
   GraphStats,
+  GraphSyncResult,
   Hypothesis,
   IngestAccepted,
   IngestJobList,
@@ -49,6 +52,7 @@ import type {
   Priority,
   RelationshipList,
   RelationshipStrength,
+  ReviewList,
   TokenResponse,
 } from "@/types/domain";
 
@@ -140,7 +144,7 @@ const caseService: ApiCaseService = {
   async list(params: CaseListParams = {}) {
     // Search and status filters are applied server-side (SQL), so `total`
     // always reflects the filtered universe and pagination stays correct.
-    return request<{ items: Case[]; total: number }>(
+    return request<CaseList>(
       `/cases${buildQuery({
         limit: params.limit ?? 100,
         offset: params.offset ?? 0,
@@ -161,6 +165,20 @@ const caseService: ApiCaseService = {
   archive(id) {
     return request<Case>(`/cases/${id}/archive`, { method: "POST", body: {} });
   },
+  listMembers(caseId) {
+    return request<CaseMemberListResponse>(`/cases/${caseId}/members`);
+  },
+  addMember(caseId, input) {
+    return request<CaseMemberListResponse>(`/cases/${caseId}/members`, {
+      method: "POST",
+      body: input,
+    });
+  },
+  removeMember(caseId, userId) {
+    return request<CaseMemberListResponse>(`/cases/${caseId}/members/${userId}`, {
+      method: "DELETE",
+    });
+  },
 };
 
 const entityService: ApiEntityService = {
@@ -174,6 +192,9 @@ const entityService: ApiEntityService = {
     return request<RelationshipList>(
       `/cases/${caseId}/relationships${buildQuery({ limit })}`,
     );
+  },
+  reviewResolution(caseId) {
+    return request<ReviewList>(`/cases/${caseId}/resolution/review`);
   },
 };
 
@@ -210,6 +231,17 @@ const evidenceService: ApiEvidenceService = {
     return request<IngestJobList>(
       `/cases/${caseId}/ingest-jobs${buildQuery({ limit: params.limit ?? 50, offset: params.offset ?? 0 })}`,
     );
+  },
+  delete(caseId, evidenceId) {
+    return request<void>(`/cases/${caseId}/evidence/${evidenceId}`, {
+      method: "DELETE",
+    });
+  },
+  retryGraphSync(caseId, jobId) {
+    return request<GraphSyncResult>(`/cases/${caseId}/ingest/${jobId}/retry-graph-sync`, {
+      method: "POST",
+      body: {},
+    });
   },
 };
 

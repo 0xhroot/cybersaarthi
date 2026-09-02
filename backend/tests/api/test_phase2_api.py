@@ -264,3 +264,121 @@ async def test_evidence_upload_failure_cleans_up_object(
             data={"data_source": "police_csv"},
         )
     assert _evidence_objects(app, case_id) == []
+
+
+async def test_evidence_delete_soft_delete_retains_row_for_provenance(
+    http_client, phase2_case
+) -> None:
+    """Deleting evidence keeps the row (deleted_at set) for provenance while the
+    object is removed and the record disappears from listings (A03 soft-delete)."""
+    from app.main import app
+    from app.models import EvidenceFile
+    from sqlalchemy import select
+
+    case_id, database = phase2_case
+    prefix = get_settings().API_V1_PREFIX
+    evidence = await _upload_one(http_client, case_id)
+    evidence_id = evidence["id"]
+
+    response = await http_client.delete(f"{prefix}/cases/{case_id}/evidence/{evidence_id}")
+    assert response.status_code == 204, response.text
+
+    # row survives but is marked deleted
+    factory = database.session_factory()
+    async with factory() as session:
+        row = await session.scalar(
+            select(EvidenceFile).where(EvidenceFile.id == uuid.UUID(evidence_id))
+        )
+    assert row is not None
+    assert row.deleted_at is not None
+
+    # object purged and listing excludes the soft-deleted record
+    assert _evidence_objects(app, case_id) == []
+    response = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+    # get detail returns 404 for the soft-deleted record
+    response = await http_client.get(f"{prefix}/cases/{case_id}/evidence/{evidence_id}")
+    assert response.status_code == 404, response.text
+
+
+async def test_ingest_reports_duplicate_for_same_evidence(http_client, phase2_case) -> None:
+    """Re-ingesting the same evidence file reports duplicate=True and returns
+    the original job unchanged (idempotent, no pipeline re-run).
+
+    A completed job must not bounce back to ``running``; short-circuiting the
+    terminal job keeps the lifecycle state machine intact.
+    """
+    case_id, _ = phase2_case
+    prefix = get_settings().API_V1_PREFIX
+    evidence = await _upload_one(http_client, case_id)
+
+    first = await http_client.post(
+        f"{prefix}/cases/{case_id}/ingest",
+        json={"evidence_file_id": evidence["id"], "metadata": {"source": "t1"}},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["duplicate"] is False
+    assert first.json()["job"]["status"] == "completed"
+    first_job = first.json()["job"]
+
+    second = await http_client.post(
+        f"{prefix}/cases/{case_id}/ingest",
+        json={"evidence_file_id": evidence["id"], "metadata": {"source": "t2"}},
+    )
+    assert second.status_code == 200, second.text
+    second_body = second.json()
+    assert second_body["duplicate"] is True
+    # the same terminal job is returned (short-circuited), still completed
+    assert second_body["job"]["id"] == first_job["id"]
+    assert second_body["job"]["status"] == "completed"
+
+
+async def test_retry_graph_sync_idor_guard(http_client, phase2_case, user_factory) -> None:
+    """A job owned by another case cannot be re-synced via this case (IDOR)."""
+    import httpx
+    from app.main import app
+
+    case_id, _ = phase2_case
+    prefix = get_settings().API_V1_PREFIX
+    evidence = await _upload_one(http_client, case_id)
+    job = await http_client.post(
+        f"{prefix}/cases/{case_id}/ingest",
+        json={"evidence_file_id": evidence["id"], "metadata": {"source": "t"}},
+    )
+    assert job.status_code == 200, job.text
+    job_id = job.json()["job"]["id"]
+
+    # stranger's case: their /retry-graph-sync must not touch our job
+    stranger = await user_factory()
+    stranger_headers = {"Authorization": f"Bearer {stranger.token}"}
+    other_case = Case(
+        id=uuid.uuid4(),
+        case_number=f"API-{uuid.uuid4().hex[:8]}",
+        title="stranger case",
+        owner_id=stranger.id,
+    )
+    factory = app.state.database.session_factory()
+    async with factory() as session:
+        session.add(other_case)
+        await session.commit()
+        other_case_id = other_case.id
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers=stranger_headers,
+        ) as other_client:
+            response = await other_client.post(
+                f"{prefix}/cases/{other_case_id}/ingest/{job_id}/retry-graph-sync"
+            )
+            assert response.status_code == 404, response.text
+    finally:
+        async with factory() as session:
+            await session.execute(delete(Case).where(Case.id == other_case_id))
+            await session.commit()
+
+    # owner can still re-sync their own job
+    response = await http_client.post(f"{prefix}/cases/{case_id}/ingest/{job_id}/retry-graph-sync")
+    assert response.status_code == 200, response.text

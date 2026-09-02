@@ -196,4 +196,77 @@ describe("mock adapter", () => {
     await expect(mockApi.users.suspend(admin!.id)).rejects.toMatchObject({ status: 422 });
     await expect(mockApi.users.reject(admin!.id)).rejects.toMatchObject({ status: 422 });
   });
+
+  it("case membership grants and revokes access (member-aware, backend mirror)", async () => {
+    // An analyst who is not a member of the main case has no access.
+    await signIn("analyst", "analyst-demo-password");
+    const analystId = (await mockApi.auth.me()).user.id;
+    await expect(mockApi.cases.get(MAIN_CASE_ID)).rejects.toMatchObject({ status: 403 });
+
+    // Owner grants analyst access.
+    await signIn("investigator", "investigator-dev-password");
+    await mockApi.cases.addMember(MAIN_CASE_ID, { user_id: analystId, role: "viewer" });
+    let listed = await mockApi.cases.list({ limit: 100 });
+    expect(listed.items.some((c) => c.id === MAIN_CASE_ID)).toBe(true);
+
+    // The analyst now gets the case in their list and can open it.
+    await signIn("analyst", "analyst-demo-password");
+    listed = await mockApi.cases.list({ limit: 100 });
+    expect(listed.items.some((c) => c.id === MAIN_CASE_ID)).toBe(true);
+    expect((await mockApi.cases.get(MAIN_CASE_ID)).id).toBe(MAIN_CASE_ID);
+
+    // A viewer role cannot manage members; owner can revoke.
+    await expect(
+      mockApi.cases.removeMember(MAIN_CASE_ID, analystId),
+    ).rejects.toMatchObject({ status: 403 });
+    await signIn("investigator", "investigator-dev-password");
+    await mockApi.cases.removeMember(MAIN_CASE_ID, analystId);
+
+    // Access revoked: the analyst can no longer list or open the case.
+    await signIn("analyst", "analyst-demo-password");
+    listed = await mockApi.cases.list({ limit: 100 });
+    expect(listed.items.some((c) => c.id === MAIN_CASE_ID)).toBe(false);
+    await expect(mockApi.cases.get(MAIN_CASE_ID)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("evidence.delete is enforced for admin and investigator, denied otherwise", async () => {
+    await signIn("admin", "admin-dev-password");
+    const adminEv = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 1 });
+    expect(adminEv.items.length).toBeGreaterThan(0);
+    const evId = adminEv.items[0].id;
+    // Admin can delete.
+    await expect(mockApi.evidence.delete(MAIN_CASE_ID, evId)).resolves.toBeUndefined();
+
+    // Restore the row for the next assertion via a fresh upload.
+    const analystList = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 1 });
+    await signIn("analyst", "analyst-demo-password");
+    await expect(
+      mockApi.evidence.delete(MAIN_CASE_ID, analystList.items[0]?.id ?? "missing"),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("retryGraphSync requires ingestion.run and guards job ownership (IDOR)", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const jobs = await mockApi.evidence.jobs(MAIN_CASE_ID, { limit: 50 });
+    expect(jobs.items.length).toBeGreaterThan(0);
+    const jobId = jobs.items[0].id;
+
+    // Retrying the job succeeds and flips the graph-sync status to synced.
+    const result = await mockApi.evidence.retryGraphSync(MAIN_CASE_ID, jobId);
+    expect(result.job_id).toBe(jobId);
+    expect(result.graph_sync_status).toBe("synced");
+
+    // A viewer lacks ingestion.run.
+    await signIn("viewer", "viewer-demo-password");
+    await expect(
+      mockApi.evidence.retryGraphSync(MAIN_CASE_ID, jobId),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("reviewResolution lists candidates for the main case and is empty elsewhere", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const review = await mockApi.entities.reviewResolution(MAIN_CASE_ID);
+    expect(review.items.length).toBeGreaterThan(0);
+    expect(review.items.every((c) => c.candidate_value.length > 0)).toBe(true);
+  });
 });

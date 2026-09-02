@@ -15,23 +15,19 @@ from collections.abc import Mapping
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from app.core.codes import (  # noqa: F401  (re-exported for API callers)
+    CODE_ACCOUNT_NOT_ACTIVE,
+    CODE_ACCOUNT_PENDING,
+    CODE_ACCOUNT_REJECTED,
+    CODE_ACCOUNT_SUSPENDED,
+    CODE_ACCOUNT_TRANSITION_INVALID,
+    CODE_CASE_ACCESS_DENIED,
+    CODE_DUPLICATE_EMAIL,
+    CODE_INSUFFICIENT_PERMISSION,
+    CODE_INVALID_CREDENTIALS,
+    MESSAGES,
+)
 from app.schemas.error import ApiError, ApiErrorResponse
-
-# Stable error codes (Phase 5). Frontend matches on these, not on prose.
-CODE_INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
-CODE_ACCOUNT_PENDING = "ACCOUNT_PENDING"
-CODE_ACCOUNT_SUSPENDED = "ACCOUNT_SUSPENDED"
-CODE_ACCOUNT_REJECTED = "ACCOUNT_REJECTED"
-CODE_INSUFFICIENT_PERMISSION = "INSUFFICIENT_PERMISSION"
-CODE_CASE_ACCESS_DENIED = "CASE_ACCESS_DENIED"
-CODE_DUPLICATE_EMAIL = "DUPLICATE_EMAIL"
-
-MESSAGES = {
-    CODE_INVALID_CREDENTIALS: "invalid username or password",
-    CODE_ACCOUNT_PENDING: "account is pending administrator approval",
-    CODE_ACCOUNT_SUSPENDED: "account has been suspended",
-    CODE_ACCOUNT_REJECTED: "account registration was rejected",
-}
 
 
 class ApiHTTPException(HTTPException):

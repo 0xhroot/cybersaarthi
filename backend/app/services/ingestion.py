@@ -22,7 +22,10 @@ from app.core.enums import EvidenceFormat
 from app.db.storage import Storage
 from app.models import DataSource, Entity, EvidenceFile, IngestionJob, Relationship
 from app.repositories.entity_repository import EntityRepository
-from app.repositories.evidence_repository import EvidenceRepository
+from app.repositories.evidence_repository import (
+    EvidenceRepository,
+    JobTransitionError,
+)
 from app.repositories.relationship_repository import RelationshipRepository
 from app.services.extraction import Mention, extract_record_mentions
 from app.services.graph_sync import GraphSyncService
@@ -32,6 +35,9 @@ from app.services.resolution import build_record_context, resolve_candidate
 from app.services.validation import detect_encoding, detect_format
 
 logger = logging.getLogger(__name__)
+
+# Terminal ingestion states: a job must never return to ``running`` from these.
+_TERMINAL_JOB_STATES = frozenset({"completed", "failed", "partial"})
 
 
 class IngestionService:
@@ -70,21 +76,44 @@ class IngestionService:
         if str(evidence.case_id) != str(case_id):
             raise ValueError("evidence file belongs to a different case")
 
+        existing = await self._evidence_repository.existing_job_for(case_id, evidence_file_id)
+        if existing is not None and existing.status in _TERMINAL_JOB_STATES:
+            # The evidence has already been processed. Re-ingesting would drag a
+            # terminal job back through ``running``, which the lifecycle state
+            # machine forbids, so return the existing job unchanged (no-op).
+            return existing
+
         job = await self._evidence_repository.create_job(
             case_id=case_id,
             evidence_file_id=evidence_file_id,
             status="pending",
             actor_id=actor_id,
         )
+        if job.status in _TERMINAL_JOB_STATES:
+            return job
         await self._session.commit()
 
         stage = "created"
         try:
             await self._run(job, evidence)
+        except JobTransitionError:
+            logger.exception(
+                "ingestion job state transition rejected", extra={"job_id": str(job.id)}
+            )
+            await self._session.rollback()
+            raise
         except Exception as exc:
             logger.exception("ingestion job failed", extra={"job_id": str(job.id), "stage": stage})
-            await self._evidence_repository.fail_job(job.id, error=str(exc), stage=stage)
-            await self._session.commit()
+            try:
+                if job.processed_records > 0:
+                    await self._evidence_repository.mark_job_partial(
+                        job.id, error=str(exc), stage=stage
+                    )
+                else:
+                    await self._evidence_repository.fail_job(job.id, error=str(exc), stage=stage)
+                await self._session.commit()
+            except JobTransitionError:
+                await self._session.rollback()
 
         final_job = await self._evidence_repository.get_job(job.id)
         assert final_job is not None

@@ -682,7 +682,7 @@ class AnalyticsService:
         """Compute and persist a full analytics run as one atomic transaction."""
         run = await self._data.create_run(case)
         run.actor_id = actor_id
-        await self._data.update_run(run.id, stage="compute")
+        await self._data.start_run(run.id, stage="compute")
         try:
             context = await self.compute(case)
             await self._data.save_metric_results(case, run.id, context.centrality_records)

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useParams } from "react-router-dom";
-import { Upload, FileSearch, Workflow, Database } from "lucide-react";
+import { Upload, FileSearch, Workflow, Database, Trash2, RefreshCw } from "lucide-react";
 import {
   useEvidence,
   useEvidenceDetail,
@@ -9,6 +9,8 @@ import {
   useIngestJobs,
   useProvenance,
   useUploadEvidence,
+  useDeleteEvidence,
+  useRetryGraphSync,
 } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
 import { PageContainer, PageHeader } from "@/components/layout/page";
@@ -60,12 +62,14 @@ export default function EvidencePage() {
   const { caseId = "" } = useParams();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<string>("CSV_Journals");
   const [picked, setPicked] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const canUpload = useCan("evidence.upload");
   const canIngest = useCan("ingestion.run");
+  const canDelete = useCan("evidence.delete");
 
   const evidence = useEvidence(caseId, { limit: 50 });
   const jobs = useIngestJobs(caseId);
@@ -73,6 +77,8 @@ export default function EvidencePage() {
   const provenance = useProvenance(caseId, selectedId);
   const upload = useUploadEvidence(caseId);
   const ingest = useIngestEvidence(caseId);
+  const remove = useDeleteEvidence(caseId);
+  const retrySync = useRetryGraphSync(caseId);
 
   const onPick = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
@@ -100,6 +106,32 @@ export default function EvidencePage() {
       toast({ title: "Ingestion failed", description: (err as Error).message });
     }
   };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await remove.mutateAsync(deleteTarget);
+      toast({ title: "Evidence deleted", description: "The record was removed from the case." });
+      setDeleteTarget(null);
+      if (selectedId === deleteTarget) setSelectedId(null);
+    } catch (err) {
+      toast({ title: "Delete failed", description: (err as Error).message });
+    }
+  };
+
+  const triggerRetry = async (jobId: string) => {
+    try {
+      const result = await retrySync.mutateAsync(jobId);
+      toast({
+        title: "Graph sync retried",
+        description: `nodes ${result.nodes_synced} · edges ${result.edges_synced}`,
+      });
+    } catch (err) {
+      toast({ title: "Retry failed", description: (err as Error).message });
+    }
+  };
+
+  const failedSyncJobs = (jobs.data?.items ?? []).filter((j) => j.graph_sync_status === "failed");
 
   const selectedDetail = detail.data;
 
@@ -143,6 +175,26 @@ export default function EvidencePage() {
           </div>
         </CardContent></Card>
       </div>
+
+      {failedSyncJobs.length > 0 && canIngest ? (
+        <div className="mt-4">
+          <Card>
+            <CardContent className="space-y-2">
+              <p className="text-[11px] uppercase tracking-wider text-dim">Graph sync needs attention</p>
+              {failedSyncJobs.map((job) => (
+                <div key={job.id} className="flex items-center justify-between gap-3">
+                  <p className="min-w-0 flex-1 truncate text-xs text-foreground">
+                    Job {job.id.slice(0, 8)} — {job.graph_error ?? "graph sync failed"}
+                  </p>
+                  <Button size="sm" disabled={retrySync.isPending} onClick={() => void triggerRetry(job.id)}>
+                    <RefreshCw className="size-3.5" /> Retry sync
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       <div className="mt-4">
         {evidence.isLoading ? (
@@ -277,6 +329,16 @@ export default function EvidencePage() {
                     <Workflow className="size-4" /> Ingest record
                   </Button>
                 ) : null}
+                {canDelete ? (
+                  <Button
+                    variant="danger"
+                    className="w-full"
+                    disabled={remove.isPending}
+                    onClick={() => setDeleteTarget(selectedDetail.id)}
+                  >
+                    <Trash2 className="size-4" /> {remove.isPending ? "Deleting…" : "Delete record"}
+                  </Button>
+                ) : null}
                 <p className="text-[11px] leading-relaxed text-dim">
                   Evidence id {shortId(selectedDetail.id)} · status <code className="font-mono">{selectedDetail.status}</code>
                 </p>
@@ -322,6 +384,24 @@ export default function EvidencePage() {
             <Button variant="ghost" onClick={() => setUploadOpen(false)}>Cancel</Button>
             <Button disabled={!picked || upload.isPending} onClick={() => void submitUpload()}>
               {upload.isPending ? "Storing…" : "Upload"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete evidence?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the stored record from the case. Prior findings and
+              relationships that reference it keep their provenance.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="danger" disabled={remove.isPending} onClick={() => void confirmDelete()}>
+              {remove.isPending ? "Deleting…" : "Delete record"}
             </Button>
           </DialogFooter>
         </DialogContent>

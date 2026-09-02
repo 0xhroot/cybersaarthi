@@ -214,16 +214,16 @@ async def delete_evidence(
     evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
     user: User = Depends(require_permission(rbac.PERM_EVIDENCE_DELETE)),
 ) -> None:
-    """Delete an evidence file: DB row (cascades source records) then object.
+    """Soft-delete an evidence file, then remove its object from the bucket.
 
-    The row is committed before the object is removed so a failure can never
-    leave a referenced-but-missing object; the row is gone in that case, so any
-    leftover object is an orphan that reconciliation removes.
+    The row is retained (``deleted_at`` set) so findings and relationships that
+    reference it keep their provenance; the object is removed after the row is
+    marked deleted. A repeat delete of the same file is a graceful no-op.
     """
     await get_case_or_404(case_id, request, session)
     evidence = await get_evidence_or_404(case_id, evidence_id, evidence_repository)
     key = evidence.stored_key
-    await evidence_repository.delete_evidence(evidence_id)
+    await evidence_repository.soft_delete_evidence(evidence_id)
     await record_audit(
         session,
         actor_id=user.id,
@@ -243,7 +243,7 @@ async def get_evidence_or_404(
     evidence_repository: EvidenceRepository,
 ) -> EvidenceFile:
     evidence = await evidence_repository.get_evidence(evidence_id)
-    if evidence is None or str(evidence.case_id) != str(case_id):
+    if evidence is None or str(evidence.case_id) != str(case_id) or evidence.is_deleted:
         raise HTTPException(status_code=404, detail=f"evidence {evidence_id} not found")
     return evidence
 
@@ -342,15 +342,20 @@ async def create_ingest_job(
     request: Request,
     session: AsyncSession = Depends(get_db_session),
     ingestion: IngestionService = Depends(get_ingestion_service),
+    evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
     user: User = Depends(require_permission(rbac.PERM_INGESTION_RUN)),
 ) -> IngestAcceptedResponse:
     """Run the full ingestion pipeline for one evidence file.
 
     Ingestion executes synchronously in this API request (single-worker local
     mode) and is idempotent: PostgreSQL unique constraints make re-running a
-    job a no-op, so a retry is always safe.
+    job a no-op, so a retry is always safe. Because a job is uniquely keyed by
+    (case, evidence), asking to ingest the same evidence a second time is
+    reported as a ``duplicate`` rather than a fresh pipeline run.
     """
     await get_case_or_404(case_id, request, session)
+    already_queued = await evidence_repository.existing_job_for(case_id, payload.evidence_file_id)
+    duplicate = already_queued is not None
     job = await ingestion.ingest(
         case_id=case_id,
         evidence_file_id=payload.evidence_file_id,
@@ -367,7 +372,7 @@ async def create_ingest_job(
         metadata={"evidence_file_id": str(payload.evidence_file_id), "status": job.status},
     )
     await session.commit()
-    return IngestAcceptedResponse(job=_to_job_response(job), duplicate=False)
+    return IngestAcceptedResponse(job=_to_job_response(job), duplicate=duplicate)
 
 
 @router.get("/{case_id}/ingest-jobs", response_model=IngestJobListResponse)
@@ -403,6 +408,13 @@ async def retry_graph_sync(
 ) -> GraphSyncResult:
     """Re-run the Neo4j projection for an already-processed job."""
     await get_case_or_404(case_id, request, session)
+    job = await ingestion.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"job {job_id} not found")
+    if str(job.case_id) != str(case_id):
+        # IDOR guard: the caller may access *case_id* but not a job owned by a
+        # different case, so reject before touching the projection.
+        raise HTTPException(status_code=404, detail=f"job {job_id} not found")
     try:
         nodes, edges = await ingestion.retry_graph_sync(job_id)
     except ValueError as exc:

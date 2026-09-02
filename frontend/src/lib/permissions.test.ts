@@ -29,6 +29,13 @@ describe("permission matrix", () => {
     expect(ROLE_PERMISSIONS.VIEWER).not.toContain("audit.read");
   });
 
+  it("mirrors evidence.delete (admin + investigator only, like the backend RBAC)", () => {
+    expect(ROLE_PERMISSIONS.ADMIN).toContain("evidence.delete");
+    expect(ROLE_PERMISSIONS.INVESTIGATOR).toContain("evidence.delete");
+    expect(ROLE_PERMISSIONS.ANALYST).not.toContain("evidence.delete");
+    expect(ROLE_PERMISSIONS.VIEWER).not.toContain("evidence.delete");
+  });
+
   it("keeps reviewer capabilities off analysts and viewers beyond review", () => {
     expect(ROLE_PERMISSIONS.ANALYST).toContain("findings.review");
     expect(ROLE_PERMISSIONS.ANALYST).not.toContain("findings.confirm");

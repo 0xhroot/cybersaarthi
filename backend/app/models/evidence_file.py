@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -48,6 +49,13 @@ class EvidenceFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     record_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="stored", nullable=False)
     status_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[object | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
 
     def __repr__(self) -> str:
         return (

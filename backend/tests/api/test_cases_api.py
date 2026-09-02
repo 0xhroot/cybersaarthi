@@ -226,3 +226,63 @@ async def test_list_search_status_and_pagination_totals(
             if created_ids:
                 await session.execute(delete(Case).where(Case.id.in_(created_ids)))
             await session.commit()
+
+
+async def test_case_status_transitions_are_state_machine_enforced(
+    http_client, database: Database, api_user: ApiUser
+) -> None:
+    """A case may only move along the legal lifecycle transitions."""
+    prefix = get_settings().API_V1_PREFIX
+
+    case = Case(
+        id=uuid.uuid4(),
+        case_number=f"CLC-{uuid.uuid4().hex[:8]}",
+        title="case lifecycle test",
+        status="open",
+        owner_id=api_user.id,
+    )
+    factory = database.session_factory()
+    async with factory() as session:
+        session.add(case)
+        await session.commit()
+        case_id = case.id
+    try:
+        # open -> closed (skip in_progress) is legal.
+        ok = await http_client.patch(f"{prefix}/cases/{case_id}", json={"status": "closed"})
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["status"] == "closed"
+
+        # closed -> reopen to in_progress is legal.
+        reopen = await http_client.patch(
+            f"{prefix}/cases/{case_id}", json={"status": "in_progress"}
+        )
+        assert reopen.status_code == 200, reopen.text
+        assert reopen.json()["status"] == "in_progress"
+
+        # in_progress -> open (go back) is legal.
+        back = await http_client.patch(f"{prefix}/cases/{case_id}", json={"status": "open"})
+        assert back.status_code == 200, back.text
+        assert back.json()["status"] == "open"
+
+        # open -> archived via PATCH is still reserved to the archive endpoint.
+        via_patch = await http_client.patch(
+            f"{prefix}/cases/{case_id}", json={"status": "archived"}
+        )
+        assert via_patch.status_code == 422, via_patch.text
+
+        # Archive endpoint drives open -> archived.
+        arch = await http_client.post(f"{prefix}/cases/{case_id}/archive")
+        assert arch.status_code == 200, arch.text
+        assert arch.json()["status"] == "archived"
+
+        # Archived is terminal: re-archiving conflicts, and it cannot re-open.
+        again = await http_client.post(f"{prefix}/cases/{case_id}/archive")
+        assert again.status_code == 409, again.text
+        reopen_archived = await http_client.patch(
+            f"{prefix}/cases/{case_id}", json={"status": "open"}
+        )
+        assert reopen_archived.status_code == 422, reopen_archived.text
+    finally:
+        async with factory() as session:
+            await session.execute(delete(Case).where(Case.id == case_id))
+            await session.commit()

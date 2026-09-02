@@ -1,6 +1,17 @@
 import { Link, useParams } from "react-router-dom";
-import { ArrowRight, Network, Users, Layers, Bell } from "lucide-react";
-import { useAnalyticsSummary, useNetworkDna, usePriorities, useFindings, useTimeline } from "@/hooks/queries";
+import { ArrowRight, Network, Users, Layers, Bell, UserPlus, Trash2, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import {
+  useAnalyticsSummary,
+  useNetworkDna,
+  usePriorities,
+  useFindings,
+  useTimeline,
+  useCaseMembers,
+  useAddCaseMember,
+  useRemoveCaseMember,
+} from "@/hooks/queries";
+import { useCan } from "@/lib/permissions";
 import { PageContainer } from "@/components/layout/page";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge, FindingStatusBadge, ProfileTierBadge, PriorityBadge } from "@/components/status";
@@ -8,7 +19,11 @@ import { Skeleton } from "@/components/ui/loading";
 import { ErrorState } from "@/components/ui/error-state";
 import { Progress } from "@/components/ui/loading";
 import { useDocumentTitle } from "@/hooks/ui";
-import { timeAgoShort } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "@/components/ui/toast";
+import { timeAgoShort, shortId } from "@/lib/utils";
+import type { CaseMemberRole } from "@/types/domain";
 
 function StatTile({ label, value, icon: Icon, accent }: { label: string; value: string | number; icon: typeof Network; accent: string }) {
   return (
@@ -21,6 +36,118 @@ function StatTile({ label, value, icon: Icon, accent }: { label: string; value: 
           <p className="tabular text-xl font-semibold tracking-tight text-foreground">{value}</p>
           <p className="truncate text-[11px] uppercase tracking-wider text-dim">{label}</p>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function membersMeta(role: CaseMemberRole) {
+  return role === "collaborator"
+    ? { label: "Collaborator", tone: "info" as const }
+    : { label: "Viewer", tone: "neutral" as const };
+}
+
+function CaseAccessCard({ caseId }: { caseId: string }) {
+  const members = useCaseMembers(caseId);
+  const addMember = useAddCaseMember(caseId);
+  const removeMember = useRemoveCaseMember(caseId);
+  const canManage = useCan("case.update");
+  const [userId, setUserId] = useState("");
+  const [role, setRole] = useState<CaseMemberRole>("collaborator");
+
+  const submitAdd = async () => {
+    if (!userId.trim()) return;
+    try {
+      await addMember.mutateAsync({ user_id: userId.trim(), role });
+      toast({ title: "Member added", description: "Access granted to this case." });
+      setUserId("");
+      setRole("collaborator");
+    } catch (err) {
+      toast({ title: "Add failed", description: (err as Error).message });
+    }
+  };
+
+  const confirmRemove = async (memberId: string) => {
+    try {
+      await removeMember.mutateAsync(memberId);
+      toast({ title: "Member removed", description: "Access revoked from this case." });
+    } catch (err) {
+      toast({ title: "Remove failed", description: (err as Error).message });
+    }
+  };
+
+  const list = members.data?.items ?? [];
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck className="size-4" /> Case access
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {members.isLoading ? (
+          <div className="space-y-2"><Skeleton className="h-8" /><Skeleton className="h-8" /></div>
+        ) : members.isError ? (
+          <ErrorState error={members.error} onRetry={() => void members.refetch()} />
+        ) : (
+          <div className="space-y-3">
+            <div className="divide-y divide-border">
+              {list.length === 0 ? (
+                <p className="py-2 text-xs text-dim">No additional members yet.</p>
+              ) : (
+                list.map((m) => {
+                  const meta = membersMeta(m.role);
+                  return (
+                    <div key={m.user_id} className="flex items-center gap-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-mono text-xs text-foreground">{shortId(m.user_id)}</p>
+                        <p className="text-[10px] text-dim">since {timeAgoShort(m.created_at)} · role {m.role}</p>
+                      </div>
+                      <Badge tone={meta.tone}>{meta.label}</Badge>
+                      {canManage ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={removeMember.isPending}
+                          onClick={() => void confirmRemove(m.user_id)}
+                          aria-label="Remove member"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {canManage ? (
+              <div className="rounded-lg border border-border bg-surface-2 p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wider text-dim">Grant access</p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={userId}
+                    onChange={(e) => setUserId(e.target.value)}
+                    placeholder="User ID"
+                    className="min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent"
+                  />
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as CaseMemberRole)}
+                    className="rounded-lg border border-border-strong bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent"
+                  >
+                    <option value="collaborator">Collaborator</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                  <Button size="sm" disabled={addMember.isPending || !userId.trim()} onClick={() => void submitAdd()}>
+                    <UserPlus className="size-4" /> Add
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -58,6 +185,10 @@ export default function CaseOverviewPage() {
           <StatTile label="Findings" value={findings.data?.total ?? 0} icon={Bell} accent="var(--color-critical)" />
         </div>
       )}
+
+      <div className="mt-6">
+        <CaseAccessCard caseId={caseId} />
+      </div>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         {/* Findings by severity */}

@@ -7,6 +7,7 @@ export type Permission =
   | "case.archive"
   | "evidence.read"
   | "evidence.upload"
+  | "evidence.delete"
   | "ingestion.run"
   | "analytics.run"
   | "findings.read"
@@ -23,6 +24,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   "case.archive",
   "evidence.read",
   "evidence.upload",
+  "evidence.delete",
   "ingestion.run",
   "analytics.run",
   "findings.read",

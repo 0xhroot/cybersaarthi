@@ -11,6 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DataSource, EvidenceFile, IngestionJob, SourceRecord
 
+# Ingestion job lifecycle (state machine). A job is created ``pending``, moves to
+# ``running`` once it starts, and ends in one of three terminal states:
+# ``completed`` (success), ``failed`` (hard error before any record persisted),
+# or ``partial`` (records were persisted but the run did not finish cleanly).
+# Each persistence method enforces its legal source state so a terminal job can
+# never be accidentally put back into ``running`` (e.g. a re-ingest re-running an
+# already-completed job).
+_JOB_START_FROM = frozenset({"pending"})
+_JOB_FINISH_FROM = frozenset({"running"})
+
+
+class JobTransitionError(ValueError):
+    """A job status update would violate the ingestion lifecycle state machine."""
+
 
 class EvidenceRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -43,13 +57,19 @@ class EvidenceRepository:
     async def get_evidence(self, evidence_file_id: uuid.UUID) -> EvidenceFile | None:
         return await self._session.get(EvidenceFile, evidence_file_id)
 
-    async def delete_evidence(self, evidence_file_id: uuid.UUID) -> EvidenceFile | None:
-        """Delete the row; DB-level cascades remove source records, and
-        ingestion jobs get their evidence reference set to NULL."""
+    async def soft_delete_evidence(self, evidence_file_id: uuid.UUID) -> EvidenceFile | None:
+        """Soft-delete the row (set deleted_at) rather than removing it.
+
+        Hard deletion would orphan findings/relationships that reference the
+        evidence; keeping the row preserves provenance while hiding it from the
+        default read paths.
+        """
         evidence = await self.get_evidence(evidence_file_id)
         if evidence is None:
             return None
-        await self._session.delete(evidence)
+        if evidence.deleted_at is None:
+            evidence.deleted_at = func.now()
+            await self._session.flush()
         return evidence
 
     async def get_by_sha(self, case_id: uuid.UUID, sha256: str) -> EvidenceFile | None:
@@ -113,7 +133,10 @@ class EvidenceRepository:
     async def list_evidence(
         self, case_id: uuid.UUID, *, limit: int = 50, offset: int = 0
     ) -> tuple[list[EvidenceFile], int]:
-        base = select(EvidenceFile).where(EvidenceFile.case_id == str(case_id))
+        base = select(EvidenceFile).where(
+            EvidenceFile.case_id == str(case_id),
+            EvidenceFile.deleted_at.is_(None),
+        )
         total = await self._session.scalar(select(func.count()).select_from(base.subquery()))
         result = await self._session.execute(
             base.order_by(EvidenceFile.created_at.desc()).limit(limit).offset(offset)
@@ -238,6 +261,18 @@ class EvidenceRepository:
         )
         return existing  # type: ignore[return-value]
 
+    async def existing_job_for(
+        self, case_id: uuid.UUID, evidence_file_id: uuid.UUID
+    ) -> IngestionJob | None:
+        """Return an already-queued/run job for this case+evidence, if any."""
+        result = await self._session.scalar(
+            select(IngestionJob).where(
+                IngestionJob.case_id == str(case_id),
+                IngestionJob.evidence_file_id == str(evidence_file_id),
+            )
+        )
+        return result
+
     async def get_job(self, job_id: uuid.UUID) -> IngestionJob | None:
         # Loaded with a real SELECT (not ``session.get``) so server-generated
         # columns such as ``updated_at`` are always fresh: commit() expires
@@ -265,6 +300,8 @@ class EvidenceRepository:
         job = await self._session.get(IngestionJob, job_id)
         if job is None:
             return
+        if job.status not in _JOB_START_FROM:
+            raise JobTransitionError(f"illegal ingestion transition {job.status!r} -> 'running'")
         job.status = "running"
         job.stage = stage
         job.total_records = total_records
@@ -297,6 +334,8 @@ class EvidenceRepository:
         job = await self._session.get(IngestionJob, job_id)
         if job is None:
             return
+        if job.status not in _JOB_FINISH_FROM:
+            raise JobTransitionError(f"illegal ingestion transition {job.status!r} -> 'completed'")
         job.status = "completed"
         job.stage = "completed"
         job.progress = 100
@@ -309,7 +348,22 @@ class EvidenceRepository:
         job = await self._session.get(IngestionJob, job_id)
         if job is None:
             return
+        if job.status not in _JOB_START_FROM | _JOB_FINISH_FROM:
+            raise JobTransitionError(f"illegal ingestion transition {job.status!r} -> 'failed'")
         job.status = "failed"
+        job.stage = stage
+        job.error = error[:2000]
+        job.completed_at = datetime.now(UTC)
+        await self._session.flush()
+
+    async def mark_job_partial(self, job_id: uuid.UUID, *, error: str, stage: str) -> None:
+        """Mark a run that persisted records but did not finish cleanly."""
+        job = await self._session.get(IngestionJob, job_id)
+        if job is None:
+            return
+        if job.status not in _JOB_FINISH_FROM:
+            raise JobTransitionError(f"illegal ingestion transition {job.status!r} -> 'partial'")
+        job.status = "partial"
         job.stage = stage
         job.error = error[:2000]
         job.completed_at = datetime.now(UTC)
@@ -324,3 +378,20 @@ class EvidenceRepository:
         job.graph_sync_status = status
         job.graph_error = error
         await self._session.flush()
+
+    async def latest_job_graph_status(self, case_id: uuid.UUID) -> str | None:
+        """The graph-sync status of the most recent ingestion job for a case.
+
+        ``graph/stats`` reports whether the *current* projection is in sync. An
+        ``any(job == synced)`` check is misleading: a newer job can sync the
+        projection, then a later job fail to sync, leaving the Neo4j graph stale
+        while an old success still reports ``synced``. The newest job's status is
+        the truthful current-projection state.
+        """
+        result = await self._session.execute(
+            select(IngestionJob.graph_sync_status)
+            .where(IngestionJob.case_id == str(case_id))
+            .order_by(IngestionJob.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()

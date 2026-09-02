@@ -39,11 +39,15 @@ from app.schemas.auth import (
     RoleChangeRequest,
 )
 from app.services.audit import record_audit
-from app.services.users import UserService
+from app.services.users import AccountTransitionError, UserService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/users", tags=["users"])
+
+
+def _conflict_transition(exc: AccountTransitionError) -> ApiHTTPException:
+    return ApiHTTPException(409, exc.code, exc.message)
 
 
 async def _admin_out(service: UserService, user: User) -> AdminUserOut:
@@ -134,7 +138,12 @@ async def approve_user(
     user = await _load_user(user_service, user_id)
     if user.status != "PENDING":
         raise ApiHTTPException(409, "CONFLICT", f"user {user.username!r} is not pending approval")
-    user = await user_service.approve(user.id, payload.role)
+    try:
+        approved = await user_service.approve(user.id, payload.role)
+    except AccountTransitionError as exc:
+        raise _conflict_transition(exc) from exc
+    assert approved is not None
+    user = approved
     await record_audit(
         session,
         actor_id=actor.id,
@@ -157,7 +166,10 @@ async def reject_user(
     user = await _load_user(user_service, user_id)
     await _guard_admin_self(user, actor)
     await _guard_sole_admin(user_service, user)
-    rejected = await user_service.reject(user.id)
+    try:
+        rejected = await user_service.reject(user.id)
+    except AccountTransitionError as exc:
+        raise _conflict_transition(exc) from exc
     assert rejected is not None
     user = rejected
     await record_audit(
@@ -182,7 +194,10 @@ async def suspend_user(
     user = await _load_user(user_service, user_id)
     await _guard_admin_self(user, actor)
     await _guard_sole_admin(user_service, user)
-    suspended = await user_service.suspend(user.id)
+    try:
+        suspended = await user_service.suspend(user.id)
+    except AccountTransitionError as exc:
+        raise _conflict_transition(exc) from exc
     assert suspended is not None
     user = suspended
     await record_audit(
@@ -205,7 +220,10 @@ async def activate_user(
     user_service: UserService = Depends(get_user_service),
 ) -> AdminUserOut:
     user = await _load_user(user_service, user_id)
-    activated = await user_service.activate(user.id)
+    try:
+        activated = await user_service.activate(user.id)
+    except AccountTransitionError as exc:
+        raise _conflict_transition(exc) from exc
     assert activated is not None
     user = activated
     await record_audit(
@@ -238,7 +256,12 @@ async def change_role(
         raise ApiHTTPException(
             422, "VALIDATION_ERROR", f"role {payload.role!r} is not a valid role"
         )
-    await user_service.change_role(user.id, payload.role)
+    try:
+        updated = await user_service.change_role(user.id, payload.role)
+    except AccountTransitionError as exc:
+        raise _conflict_transition(exc) from exc
+    assert updated is not None
+    user = updated
     await record_audit(
         session,
         actor_id=actor.id,

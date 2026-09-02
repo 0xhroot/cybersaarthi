@@ -28,7 +28,7 @@ from app.core.config import get_settings
 from app.core.enums import AccountStatus
 from app.core.rbac import has_permission, is_admin_role
 from app.db.postgres import get_db_session
-from app.models import Case, Role, User, UserRole
+from app.models import Case, CaseMember, Role, User, UserRole
 from app.repositories.analytics_repository import AnalyticsDataRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.evidence_repository import EvidenceRepository
@@ -149,13 +149,23 @@ async def _load_roles_for_user(session: AsyncSession, user_id: uuid.UUID) -> lis
     return list(result.scalars())
 
 
+async def _is_case_member(session: AsyncSession, case: Case, user: User) -> bool:
+    result = await session.execute(
+        select(CaseMember).where(
+            CaseMember.case_id == case.id,
+            CaseMember.user_id == user.id,
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
 async def assert_case_access(
     request: Request,
     case: Case,
     user: User,
     session: AsyncSession,
 ) -> Case:
-    """Enforce owner-or-admin access to a case. Raises 403 otherwise (IDOR guard)."""
+    """Enforce owner/member-or-admin access to a case. Raises 403 otherwise (IDOR guard)."""
     roles = getattr(request.state, "roles", None)
     if roles is None:
         roles = await _load_roles_for_user(session, user.id)
@@ -163,6 +173,8 @@ async def assert_case_access(
     if any(is_admin_role(role) for role in roles):
         return case
     if case.owner_id is not None and user.id == case.owner_id:
+        return case
+    if await _is_case_member(session, case, user):
         return case
     raise ApiHTTPException(
         403,

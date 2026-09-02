@@ -16,7 +16,6 @@ from app.analytics.communities import (
     summarise_communities,
 )
 from app.analytics.explanations import build_explanation
-from app.analytics.findings import AnalyticsContext, AnalyticsService
 from app.analytics.graph import Graph, build_graph
 from app.analytics.hypotheses import generate_hypotheses
 from app.analytics.network_dna import build_network_profile, tier_for
@@ -29,8 +28,6 @@ from app.analytics.strength import (
 )
 
 __all__ = [
-    "AnalyticsContext",
-    "AnalyticsService",
     "EvidenceStats",
     "Graph",
     "StrengthSignals",

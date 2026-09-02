@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 CaseStatus = Literal["open", "in_progress", "closed"]
+CaseMemberRole = Literal["collaborator", "viewer"]
 
 
 class CaseCreateRequest(BaseModel):
@@ -40,3 +41,19 @@ class CaseListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class CaseMemberAddRequest(BaseModel):
+    user_id: UUID
+    role: CaseMemberRole = "collaborator"
+
+
+class CaseMemberOut(BaseModel):
+    user_id: UUID
+    role: str
+    created_at: datetime
+
+
+class CaseMemberListResponse(BaseModel):
+    items: list[CaseMemberOut]
+    case_id: UUID

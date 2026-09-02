@@ -17,6 +17,9 @@ import type {
   AuditList,
   Case,
   CaseCreateRequest,
+  CaseList,
+  CaseMemberAddRequest,
+  CaseMemberListResponse,
   CaseUpdateRequest,
   CentralityEntry,
   Community,
@@ -33,6 +36,7 @@ import type {
   FindingStatusOut,
   GraphResponse,
   GraphStats,
+  GraphSyncResult,
   Hypothesis,
   IngestAccepted,
   IngestJobList,
@@ -42,11 +46,12 @@ import type {
   Priority,
   RelationshipList,
   RelationshipStrength,
+  ReviewList,
   TokenResponse,
   UserOut,
 } from "@/types/domain";
 import type { PageParams } from "@/types/domain";
-export type { PageParams };
+export type { PageParams, CaseMemberAddRequest };
 
 export interface LoginInput {
   username: string;
@@ -120,17 +125,21 @@ export interface ApiAdminUserService {
 }
 
 export interface ApiCaseService {
-  list(params?: CaseListParams): Promise<{ items: Case[]; total: number }>;
+  list(params?: CaseListParams): Promise<CaseList>;
   get(id: string): Promise<Case>;
   create(input: CaseCreateRequest): Promise<Case>;
   update(id: string, input: CaseUpdateRequest): Promise<Case>;
   archive(id: string): Promise<Case>;
+  listMembers(caseId: string): Promise<CaseMemberListResponse>;
+  addMember(caseId: string, input: CaseMemberAddRequest): Promise<CaseMemberListResponse>;
+  removeMember(caseId: string, userId: string): Promise<CaseMemberListResponse>;
 }
 
 export interface ApiEntityService {
   list(caseId: string, params?: EntityListParams): Promise<EntityList>;
   get(caseId: string, entityId: string): Promise<EntityDetail>;
   relationships(caseId: string, limit?: number): Promise<RelationshipList>;
+  reviewResolution(caseId: string): Promise<ReviewList>;
 }
 
 export interface ApiEvidenceService {
@@ -144,6 +153,8 @@ export interface ApiEvidenceService {
   provenance(caseId: string, evidenceId: string): Promise<EvidenceProvenanceResponse>;
   ingest(caseId: string, evidenceFileId: string): Promise<IngestAccepted>;
   jobs(caseId: string, params?: PageParams): Promise<IngestJobList>;
+  delete(caseId: string, evidenceId: string): Promise<void>;
+  retryGraphSync(caseId: string, jobId: string): Promise<GraphSyncResult>;
 }
 
 export interface ApiGraphService {

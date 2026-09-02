@@ -150,6 +150,33 @@ export interface CaseUpdateRequest {
   status?: WritableCaseStatus;
 }
 
+export interface CaseList {
+  items: Case[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/* ----------------------------- Case members ------------------------- */
+
+export type CaseMemberRole = "collaborator" | "viewer";
+
+export interface CaseMember {
+  user_id: string;
+  role: CaseMemberRole;
+  created_at: string;
+}
+
+export interface CaseMemberListResponse {
+  items: CaseMember[];
+  case_id: string;
+}
+
+export interface CaseMemberAddRequest {
+  user_id: string;
+  role: CaseMemberRole;
+}
+
 /* ------------------------------ Entities ---------------------------- */
 
 export interface EntityAlias {
@@ -329,6 +356,34 @@ export interface IngestJobList {
 export interface IngestAccepted {
   job: IngestionJob;
   duplicate: boolean;
+}
+
+export interface GraphSyncResult {
+  job_id: string;
+  graph_sync_status: GraphSyncStatus;
+  nodes_synced: number;
+  edges_synced: number;
+  error: string | null;
+}
+
+export type ReviewDecision = "auto_match" | "review";
+
+export interface ReviewCandidate {
+  match_id: string;
+  candidate_id: string;
+  candidate_value: string;
+  candidate_type: string;
+  target_entity_id: string | null;
+  target_value: string | null;
+  score: number;
+  decision: ReviewDecision;
+  signals: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ReviewList {
+  items: ReviewCandidate[];
+  total: number;
 }
 
 /* ----------------------------- Analytics ---------------------------- */

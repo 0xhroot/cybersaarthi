@@ -18,6 +18,9 @@ import type {
   AnalyticsRun,
   AuditEvent,
   Case,
+  CaseMember,
+  CaseMemberAddRequest,
+  CaseMemberListResponse,
   CaseUpdateRequest,
   CentralityEntry,
   Entity,
@@ -33,11 +36,13 @@ import type {
   FindingStatusOut,
   GraphStats,
   GraphResponse,
+  GraphSyncResult,
   IngestAccepted,
   IngestionJob,
   IngestJobList,
   NetworkProfile,
   RelationshipStrength,
+  ReviewList,
 } from "@/types/domain";
 import {
   CASE_ID_MAIN,
@@ -134,6 +139,15 @@ const casesState: Case[] = [...MOCK_CASES];
 const evidenceState: EvidenceList["items"] = [...MAIN_EVIDENCE];
 const findingsState: Finding[] = [...MAIN_FINDINGS];
 const jobsState = [...MAIN_JOBS];
+const membersState: Record<string, CaseMember[]> = seedMembers();
+
+function seedMembers(): Record<string, CaseMember[]> {
+  return Object.fromEntries(
+    MOCK_CASES
+      .filter((c) => c.owner_id)
+      .map((c) => [c.id, [{ user_id: c.owner_id!, role: "collaborator" as const, created_at: c.created_at }]]),
+  );
+}
 const auditState: AuditEvent[] = [...MAIN_AUDIT];
 const registeredState: Array<MockUserRecord & { created_at: string }> = [];
 
@@ -166,12 +180,12 @@ function requirePermission(permission: string): MockUserRecord {
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   ADMIN: [
     "case.read", "case.create", "case.update", "case.archive", "evidence.read",
-    "evidence.upload", "ingestion.run", "analytics.run", "findings.read",
+    "evidence.upload", "evidence.delete", "ingestion.run", "analytics.run", "findings.read",
     "findings.review", "findings.confirm", "findings.dismiss", "users.manage", "audit.read",
   ],
   INVESTIGATOR: [
     "case.read", "case.create", "case.update", "case.archive", "evidence.read",
-    "evidence.upload", "ingestion.run", "analytics.run", "findings.read",
+    "evidence.upload", "evidence.delete", "ingestion.run", "analytics.run", "findings.read",
     "findings.review", "findings.confirm", "findings.dismiss", "audit.read",
   ],
   ANALYST: [
@@ -194,7 +208,7 @@ function notFound(message: string): ApiError {
   return new ApiError({ status: 404, code: "NOT_FOUND", message });
 }
 
-/** Access rule matching the backend: owner or admin. */
+/** Access rule matching the backend: owner, member, or admin (member-aware). */
 function assertCaseAccess(caseId: string): Case {
   const caze = casesState.find((c) => c.id === caseId);
   if (!caze) throw notFound("case not found");
@@ -202,9 +216,22 @@ function assertCaseAccess(caseId: string): Case {
   if (!record) throw unauthorized();
   const isAdmin = roles.includes("ADMIN");
   if (!isAdmin && caze.owner_id !== record.id) {
-    throw new ApiError({ status: 403, code: "FORBIDDEN", message: "You do not have access to this case" });
+    const isMember = (membersState[caseId] ?? []).some((m) => m.user_id === record.id);
+    if (!isMember) {
+      throw new ApiError({ status: 403, code: "FORBIDDEN", message: "You do not have access to this case" });
+    }
   }
   return caze;
+}
+
+/** Backend mirror: only the case owner or an admin may manage membership. */
+function requireOwnerOrAdmin(caseId: string): void {
+  const caze = assertCaseAccess(caseId);
+  const { roles, record } = currentUser();
+  const isAdmin = roles.includes("ADMIN");
+  if (!isAdmin && caze.owner_id !== record?.id) {
+    throw new ApiError({ status: 403, code: "FORBIDDEN", message: "Only the case owner or an admin can manage members" });
+  }
 }
 
 function pushAudit(action: string, resourceType: string, caseId: string | null, meta: Record<string, unknown> | null): void {
@@ -234,6 +261,8 @@ export function resetMockState(): void {
   findingsState.push(...MAIN_FINDINGS);
   jobsState.length = 0;
   jobsState.push(...MAIN_JOBS);
+  for (const k of Object.keys(membersState)) delete membersState[k];
+  Object.assign(membersState, seedMembers());
   auditState.length = 0;
   auditState.push(...MAIN_AUDIT);
   registeredState.length = 0;
@@ -420,7 +449,12 @@ export const mockApi: Api = {
       await delay(MOCK_LATENCY);
       const user = requireAuth();
       const isAdmin = user.roles.includes("ADMIN");
-      let items = casesState.filter((c) => isAdmin || c.owner_id === user.id);
+      let items = casesState.filter(
+        (c) =>
+          isAdmin ||
+          c.owner_id === user.id ||
+          (membersState[c.id] ?? []).some((m) => m.user_id === user.id),
+      );
       if (params.search) {
         const q = params.search.toLowerCase();
         items = items.filter(
@@ -429,8 +463,9 @@ export const mockApi: Api = {
       }
       if (params.status) items = items.filter((c) => c.status === params.status);
       const start = params.offset ?? 0;
-      const end = start + (params.limit ?? 100);
-      return { items: items.slice(start, end), total: items.length };
+      const limit = params.limit ?? 100;
+      const end = start + limit;
+      return { items: items.slice(start, end), total: items.length, limit, offset: start };
     },
 
     async get(caseId: string) {
@@ -494,6 +529,40 @@ export const mockApi: Api = {
       pushAudit("case.archived", "case", caze.id, { from_status: from });
       return caze;
     },
+
+    async listMembers(caseId: string): Promise<CaseMemberListResponse> {
+      await delay(MOCK_LATENCY / 2);
+      requirePermission("case.read");
+      assertCaseAccess(caseId);
+      return { items: [...(membersState[caseId] ?? [])], case_id: caseId };
+    },
+
+    async addMember(caseId: string, input: CaseMemberAddRequest): Promise<CaseMemberListResponse> {
+      await delay(MOCK_LATENCY);
+      requirePermission("case.update");
+      requireOwnerOrAdmin(caseId);
+      const rows = (membersState[caseId] ??= []);
+      if (rows.some((m) => m.user_id === input.user_id)) {
+        throw new ApiError({ status: 409, code: "CONFLICT", message: "user is already a member of this case" });
+      }
+      const known = MOCK_USERS.some((u) => u.id === input.user_id) || registeredState.some((u) => u.id === input.user_id);
+      if (!known) throw notFound(`user ${input.user_id} not found`);
+      rows.push({ user_id: input.user_id, role: input.role, created_at: new Date().toISOString() });
+      pushAudit("case.member_added", "case", caseId, { member_id: input.user_id, role: input.role, member_count: rows.length });
+      return { items: [...rows], case_id: caseId };
+    },
+
+    async removeMember(caseId: string, userId: string): Promise<CaseMemberListResponse> {
+      await delay(MOCK_LATENCY);
+      requirePermission("case.update");
+      requireOwnerOrAdmin(caseId);
+      const rows = membersState[caseId] ?? [];
+      const idx = rows.findIndex((m) => m.user_id === userId);
+      if (idx === -1) throw notFound("member not found");
+      const [removed] = rows.splice(idx, 1);
+      pushAudit("case.member_removed", "case", caseId, { member_id: userId, role: removed.role });
+      return { items: [...rows], case_id: caseId };
+    },
   },
 
   entities: {
@@ -538,6 +607,41 @@ export const mockApi: Api = {
       const items =
         caseId === CASE_ID_MAIN ? MAIN_RELATIONSHIPS : caseId === CASE_ID_SECONDARY ? SECONDARY_CASE_DATA.relationships : [];
       return { items: items.slice(0, limit), total: items.length };
+    },
+
+    async reviewResolution(caseId: string): Promise<ReviewList> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      if (caseId === CASE_ID_MAIN) {
+        const items = [
+          {
+            match_id: "a1000000-0000-4000-8000-000000000001",
+            candidate_id: "a2000000-0000-4000-8000-000000000002",
+            candidate_value: "Rajesh Kumar",
+            candidate_type: "person",
+            target_entity_id: "a3000000-0000-4000-8000-000000000003",
+            target_value: "Rajesh Kumar",
+            score: 0.97,
+            decision: "auto_match" as const,
+            signals: { name_overlap: 1.0, phone_overlap: 1.0 },
+            created_at: new Date(Date.now() - 86_400_000).toISOString(),
+          },
+          {
+            match_id: "a1000000-0000-4000-8000-000000000004",
+            candidate_id: "a2000000-0000-4000-8000-000000000005",
+            candidate_value: "Arjun Mehta",
+            candidate_type: "person",
+            target_entity_id: null,
+            target_value: null,
+            score: 0.62,
+            decision: "review" as const,
+            signals: { name_partial: 1.0 },
+            created_at: new Date(Date.now() - 43_200_000).toISOString(),
+          },
+        ];
+        return { items, total: items.length };
+      }
+      return { items: [], total: 0 };
     },
   },
 
@@ -690,6 +794,41 @@ export const mockApi: Api = {
       const limit = params.limit ?? 50;
       const offset = params.offset ?? 0;
       return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+    },
+
+    async delete(caseId: string, evidenceId: string): Promise<void> {
+      await delay(MOCK_LATENCY);
+      requirePermission("evidence.delete");
+      assertCaseAccess(caseId);
+      const idx = evidenceState.findIndex((e) => e.id === evidenceId);
+      if (idx === -1) throw notFound("evidence not found");
+      const [item] = evidenceState.splice(idx, 1);
+      pushAudit("evidence.deleted", "evidence_file", caseId, { filename: item.original_filename });
+    },
+
+    async retryGraphSync(caseId: string, jobId: string): Promise<GraphSyncResult> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("ingestion.run");
+      assertCaseAccess(caseId);
+      const candidates =
+        caseId === CASE_ID_MAIN ? jobsState : caseId === CASE_ID_SECONDARY ? SECONDARY_CASE_DATA.jobsList : [];
+      const job = candidates.find((j) => j.id === jobId);
+      // IDOR guard: the job must belong to *this* case.
+      if (!job || job.case_id !== caseId) throw notFound(`job ${jobId} not found`);
+      job.graph_sync_status = "synced";
+      job.graph_error = null;
+      job.updated_at = new Date().toISOString();
+      pushAudit("ingestion.graph_sync_retried", "ingestion_job", caseId, {
+        nodes_synced: 14,
+        edges_synced: 18,
+      });
+      return {
+        job_id: job.id,
+        graph_sync_status: "synced",
+        nodes_synced: 14,
+        edges_synced: 18,
+        error: null,
+      };
     },
   },
 
