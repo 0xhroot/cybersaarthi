@@ -148,7 +148,9 @@ async def test_findings_are_run_versioned_current_vs_historical(
         await session.commit()
         assert inserted2 == 0
 
-        total = await session.scalar(select(func.count()).select_from(Finding))
+        total = await session.scalar(
+            select(func.count()).select_from(Finding).where(Finding.case_id == str(case_id))
+        )
         assert total == 1
         all_rows = (
             (await session.execute(select(Finding).where(Finding.case_id == str(case_id))))

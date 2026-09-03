@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.analytics.findings import AnalyticsService
 from app.api.errors import (
     CODE_CASE_ACCESS_DENIED,
+    CODE_CASE_READ_ONLY,
     CODE_INSUFFICIENT_PERMISSION,
     ApiHTTPException,
 )
@@ -195,6 +196,38 @@ async def get_case_or_404(
         raise HTTPException(status_code=404, detail=f"case {case_id} not found")
     user = await get_current_user(request, session)
     return await assert_case_access(request, case, user, session)
+
+
+READ_ONLY_CASE_STATUSES = ("closed", "archived")
+
+
+def assert_case_mutable(case: Case, *, allowed_statuses: tuple[str, ...] = ()) -> None:
+    """Centralized case-lifecycle guard: reject investigation mutations on
+    read-only cases (``closed`` / ``archived``).
+
+    Read-only statuses cannot accept any investigation mutation (evidence,
+    ingestion, analytics, graph, findings, membership). Lifecycle endpoints
+    that represent explicitly allowed *administrative* operations pass their
+    permitted statuses via ``allowed_statuses`` so only truly read-only cases
+    are rejected there.
+
+    Raises a stable 409 ``CASE_READ_ONLY`` so the client can act on the code
+    without parsing prose. The check happens *before* any DB write, so no
+    mutation can occur on a read-only case.
+    """
+    if case.status in allowed_statuses:
+        return
+    if case.status in READ_ONLY_CASE_STATUSES:
+        raise ApiHTTPException(
+            409,
+            CODE_CASE_READ_ONLY,
+            f"case is read-only (status '{case.status}')",
+        )
+
+
+def assert_case_investigation_mutable(case: Case) -> None:
+    """Reject investigation mutations on closed/archived cases."""
+    assert_case_mutable(case)
 
 
 # Repositories / services -------------------------------------------------

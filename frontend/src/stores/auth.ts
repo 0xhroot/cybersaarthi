@@ -14,7 +14,7 @@ interface AuthState {
   bootstrap: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   register: (input: { username: string; email: string; password: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   restore: () => void;
 }
 
@@ -91,9 +91,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  logout() {
-    authSession.clear();
-    set({ status: "anonymous", user: null, roles: [], permissions: [], error: null });
+  async logout() {
+    try {
+      // Revoke the server-side token first (the request helper reads the
+      // current bearer token before we clear the local session).
+      await api.auth.logout();
+    } catch {
+      // A logout must still complete locally even if the server is unreachable;
+      // the next request with the old token will surface a 401 as required.
+    } finally {
+      authSession.clear();
+      set({ status: "anonymous", user: null, roles: [], permissions: [], error: null });
+    }
   },
 }));
 

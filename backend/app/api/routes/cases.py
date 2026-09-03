@@ -16,9 +16,11 @@ from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
+    assert_case_mutable,
     get_case_or_404,
     require_permission,
 )
+from app.api.errors import CODE_CASE_READ_ONLY, ApiHTTPException
 from app.core import rbac
 from app.core.rbac import is_admin_role
 from app.db.postgres import get_db_session
@@ -81,12 +83,7 @@ async def _case_filters(
     cases they own or are a member of."""
     if any(is_admin_role(role) for role in user_roles):
         return []
-    member_ids = (
-        select(Case.id)
-        .select_from(CaseMember)
-        .where(CaseMember.user_id == user.id)
-        .scalar_subquery()
-    )
+    member_ids = select(CaseMember.case_id).where(CaseMember.user_id == user.id).scalar_subquery()
     return [or_(Case.owner_id == user.id, Case.id.in_(member_ids))]
 
 
@@ -187,14 +184,41 @@ async def update_case(
     case = await get_case_or_404(case_id, request, session)
     if payload.status == "archived":
         raise HTTPException(status_code=422, detail="use the archive endpoint to archive a case")
-    changes: dict[str, object] = {}
+
+    status_change = payload.status is not None and payload.status != case.status
+    content_changes: dict[str, object] = {}
     if payload.title is not None and payload.title != case.title:
-        changes["title"] = payload.title
+        content_changes["title"] = payload.title
     if "description" in payload.model_dump(exclude_unset=True):
         if payload.description != case.description:
-            changes["description"] = payload.description
-    if payload.status is not None and payload.status != case.status:
-        _assert_case_transition(case.status, payload.status)
+            content_changes["description"] = payload.description
+
+    # A closed case accepts only an explicit status transition (an administrative
+    # lifecycle operation that reopens it); content mutations are rejected.
+    if case.status == "closed" and content_changes:
+        raise ApiHTTPException(409, CODE_CASE_READ_ONLY, "case is read-only (status 'closed')")
+
+    # An archived case is terminal: no PATCH mutation is allowed at all.
+    if case.status == "archived":
+        raise ApiHTTPException(409, CODE_CASE_READ_ONLY, "case is read-only (status 'archived')")
+
+    changes: dict[str, object] = dict(content_changes)
+    if status_change:
+        if not payload.status:
+            raise ApiHTTPException(
+                409, CODE_CASE_READ_ONLY, "case is read-only (no status transition)"
+            )
+        # The transition validator already permits closed -> open / in_progress
+        # (an administrative reopen). Any *other* mutation on a read-only case
+        # was rejected above; a legal reopen is the one allowed PATCH lifecycle op.
+        if case.status == "closed":
+            allowed = _CASE_TRANSITIONS["closed"]
+            if payload.status not in allowed:
+                raise ApiHTTPException(
+                    409, CODE_CASE_READ_ONLY, "case is read-only (status 'closed')"
+                )
+        else:
+            _assert_case_transition(case.status, payload.status)
         changes["status"] = payload.status
     if not changes:
         return _case_out(case)
@@ -299,6 +323,7 @@ async def add_case_member(
 ) -> CaseMemberListResponse:
     """Grant a user access to a case (owner or admin only)."""
     case = await get_case_or_404(case_id, request, session)
+    assert_case_mutable(case)
     await _require_owner_or_admin(request, case, user, session)
     existing = await session.execute(
         select(CaseMember).where(
@@ -343,6 +368,7 @@ async def remove_case_member(
 ) -> CaseMemberListResponse:
     """Revoke a user's access to a case (owner or admin only)."""
     case = await get_case_or_404(case_id, request, session)
+    assert_case_mutable(case)
     await _require_owner_or_admin(request, case, user, session)
     member = await session.execute(
         select(CaseMember).where(

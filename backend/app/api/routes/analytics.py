@@ -19,6 +19,7 @@ from app.analytics import compute_priority
 from app.analytics.findings import AnalyticsService
 from app.analytics.priority import hypothesis_weight, pattern_weight
 from app.api.dependencies import (
+    assert_case_investigation_mutable,
     get_analytics_service,
     get_case_or_404,
     require_permission,
@@ -525,7 +526,8 @@ async def run_analytics(
     user: User = Depends(require_permission(rbac.PERM_ANALYTICS_RUN)),
 ) -> AnalyticsRunOut:
     """Persist a complete analytics run: metrics, communities, profiles, findings."""
-    await get_case_or_404(case_id, request, session)
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
     run = await service.run_analytics(case_id, actor_id=user.id)
     await record_audit(
         session,

@@ -29,6 +29,7 @@ export interface CytoGraphProps {
   edges: GraphEdge[];
   signature: string;
   focusNodeId?: string;
+  fitSignal?: number;
   hiddenEntityTypes?: Set<string>;
   hiddenRelationshipTypes?: Set<string>;
   onSelect: (selection: Selection) => void;
@@ -39,6 +40,7 @@ export function CytoGraph({
   edges,
   signature,
   focusNodeId,
+  fitSignal,
   hiddenEntityTypes,
   hiddenRelationshipTypes,
   onSelect,
@@ -191,7 +193,16 @@ export function CytoGraph({
         });
       }
     }
-  }, [focusNodeId, hiddenEntityTypes, hiddenRelationshipTypes, signature]);
+
+    // A real "Fit" action: re-project the viewport onto the currently visible
+    // graph elements, so filtered/hidden nodes are never brought back into view.
+    if (fitSignal != null && fitSignal > 0 && !focusNodeId) {
+      const visible = cy.elements(":visible");
+      if (visible.length) {
+        cy.fit(visible, 50);
+      }
+    }
+  }, [focusNodeId, fitSignal, hiddenEntityTypes, hiddenRelationshipTypes, signature]);
 
   return (
     <div

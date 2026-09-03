@@ -162,16 +162,30 @@ export default function AdminUsersPage() {
   const mutation = useAdminUserMutation();
   const busy = mutation.isPending;
   const [approving, setApproving] = useState<AdminUserOut | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  function showError(err: unknown, actionLabel: string) {
+    setActionError(`${actionLabel} failed: ${(err as Error)?.message ?? "unexpected error"}`);
+  }
 
   function handleAction(action: import("@/hooks/queries").AdminUserAction) {
+    setActionError(null);
     mutation.mutate(action, {
-      onError: () => undefined,
+      onSuccess: () => setActionError(null),
+      onError: (err) => showError(err, "Account action"),
     });
   }
 
   function handleApprove(role: Role) {
     if (!approving) return;
-    mutation.mutate({ type: "approve", userId: approving.id, role });
+    setActionError(null);
+    mutation.mutate(
+      { type: "approve", userId: approving.id, role },
+      {
+        onSuccess: () => setActionError(null),
+        onError: (err) => showError(err, "Approval"),
+      },
+    );
     setApproving(null);
   }
 
@@ -185,6 +199,15 @@ export default function AdminUsersPage() {
         title="Users & approvals"
         description="Approve registration requests, suspend accounts and assign roles. Actions are audit-logged."
       />
+
+      {actionError ? (
+        <div
+          role="alert"
+          className="mt-4 rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger"
+        >
+          {actionError}
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-border">
         <button

@@ -23,6 +23,7 @@ export default function GraphPage() {
   const stats = useGraphStats(caseId);
   const [selection, setSelection] = useState<Selection>(null);
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
+  const [fitSignal, setFitSignal] = useState(0);
   const [hiddenEntityTypes, setHiddenEntityTypes] = useState<Set<string>>(new Set());
   const [hiddenRelationshipTypes, setHiddenRelationshipTypes] = useState<Set<string>>(new Set());
 
@@ -51,6 +52,9 @@ export default function GraphPage() {
   const resetView = () => {
     setFocusNodeId(undefined);
     setSelection(null);
+    // Trigger an actual viewport fit in the graph component (unless a node is
+    // being focused, Fit wins and re-fits the currently visible elements).
+    setFitSignal((n) => n + 1);
   };
 
   const selectedNode = selection?.kind === "node" ? selection.entity : undefined;
@@ -109,6 +113,7 @@ export default function GraphPage() {
               edges={edges}
               signature={signature}
               focusNodeId={focusNodeId}
+              fitSignal={fitSignal}
               hiddenEntityTypes={hiddenEntityTypes}
               hiddenRelationshipTypes={hiddenRelationshipTypes}
               onSelect={setSelection}

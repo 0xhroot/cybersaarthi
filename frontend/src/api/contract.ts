@@ -106,6 +106,7 @@ export interface ApiAuthService {
   login(input: LoginInput): Promise<TokenResponse>;
   me(): Promise<MeResponse>;
   register(input: RegisterInput): Promise<RegisteredUserOut>;
+  logout(): Promise<void>;
 }
 
 export interface AdminUserListParams extends PageParams {

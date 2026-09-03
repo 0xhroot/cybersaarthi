@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
+    assert_case_investigation_mutable,
     get_case_or_404,
     get_evidence_repository,
     get_ingestion_service,
@@ -136,7 +137,8 @@ async def upload_evidence(
     user: User = Depends(require_permission(rbac.PERM_EVIDENCE_UPLOAD)),
 ) -> EvidenceCreateResponse:
     """Store an evidence file, deduplicated by content SHA-256."""
-    await get_case_or_404(case_id, request, session)
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
 
     try:
         data = await read_upload_with_cap(file, settings.EVIDENCE_MAX_SIZE_BYTES)
@@ -220,7 +222,8 @@ async def delete_evidence(
     reference it keep their provenance; the object is removed after the row is
     marked deleted. A repeat delete of the same file is a graceful no-op.
     """
-    await get_case_or_404(case_id, request, session)
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
     evidence = await get_evidence_or_404(case_id, evidence_id, evidence_repository)
     key = evidence.stored_key
     await evidence_repository.soft_delete_evidence(evidence_id)
@@ -353,7 +356,8 @@ async def create_ingest_job(
     (case, evidence), asking to ingest the same evidence a second time is
     reported as a ``duplicate`` rather than a fresh pipeline run.
     """
-    await get_case_or_404(case_id, request, session)
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
     already_queued = await evidence_repository.existing_job_for(case_id, payload.evidence_file_id)
     duplicate = already_queued is not None
     job = await ingestion.ingest(
@@ -407,7 +411,8 @@ async def retry_graph_sync(
     user: User = Depends(require_permission(rbac.PERM_INGESTION_RUN)),
 ) -> GraphSyncResult:
     """Re-run the Neo4j projection for an already-processed job."""
-    await get_case_or_404(case_id, request, session)
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
     job = await ingestion.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"job {job_id} not found")

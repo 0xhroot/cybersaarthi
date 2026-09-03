@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
+    assert_case_investigation_mutable,
     get_analytics_data_repository,
     get_case_or_404,
     get_current_user,
@@ -149,7 +150,8 @@ async def update_finding_status(
     Closed findings (DISMISSED/CONFIRMED) are immutable except by an explicitly
     authorized ADMIN. Same-status calls are idempotent no-ops.
     """
-    await get_case_or_404(case_id, request, session)
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
     roles = getattr(request.state, "roles", None) or []
     is_admin = any(rbac.is_admin_role(role) for role in roles)
     if payload.status not in _FINDING_STATUSES:

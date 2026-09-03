@@ -84,6 +84,12 @@ const authService: ApiAuthService = {
       body: { username: input.username, email: input.email, password: input.password },
     });
   },
+  async logout() {
+    await request<void>("/auth/logout", {
+      method: "POST",
+      headers: { Authorization: authSession.getToken() ? `Bearer ${authSession.getToken()}` : "" },
+    });
+  },
 };
 
 const userService: ApiAdminUserService = {

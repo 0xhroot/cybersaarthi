@@ -25,4 +25,12 @@ describe("adapter switching", () => {
     expect(mockMethods).toEqual(realMethods);
     expect(mockMethods).toContain("delete");
   });
+
+  it("exposes auth.logout on both mock and real adapters", async () => {
+    // Logout must revoke the server token; both adapters must surface it.
+    const { realApi } = await import("@/api/real");
+    expect(typeof api.auth.logout).toBe("function");
+    expect(typeof realApi.auth.logout).toBe("function");
+    expect(Object.keys(api.auth).sort()).toEqual(Object.keys(realApi.auth).sort());
+  });
 });

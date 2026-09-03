@@ -346,6 +346,15 @@ export const mockApi: Api = {
         created_at: record.created_at,
       };
     },
+
+    async logout() {
+      await delay(MOCK_LATENCY / 2);
+      if (!currentUser().record) throw unauthorized();
+      pushAudit("auth.logged_out", "user", null, {});
+      currentUserId = null;
+      currentRoles = [];
+      authSession.setPermissions([]);
+    },
   },
 
   users: {

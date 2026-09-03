@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "@/stores/auth";
 import { authSession } from "@/api/client/session";
 
@@ -33,11 +33,21 @@ describe("auth store", () => {
   it("logout clears the authenticated session", async () => {
     await useAuthStore.getState().login("viewer", "viewer-demo-password");
     expect(useAuthStore.getState().status).toBe("authenticated");
-    useAuthStore.getState().logout();
+    await useAuthStore.getState().logout();
     const state = useAuthStore.getState();
     expect(state.status).toBe("anonymous");
     expect(state.user).toBeNull();
     expect(state.permissions).toEqual([]);
+  });
+
+  it("logout calls the backend auth.logout (server-side revocation)", async () => {
+    const { api } = await import("@/api");
+    const spy = vi.spyOn(api.auth, "logout").mockResolvedValue(undefined);
+    await useAuthStore.getState().login("viewer", "viewer-demo-password");
+    await useAuthStore.getState().logout();
+    expect(spy).toHaveBeenCalled();
+    expect(useAuthStore.getState().status).toBe("anonymous");
+    spy.mockRestore();
   });
 
   it("registers a PENDING account without establishing a session", async () => {

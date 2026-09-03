@@ -281,8 +281,103 @@ async def test_case_status_transitions_are_state_machine_enforced(
         reopen_archived = await http_client.patch(
             f"{prefix}/cases/{case_id}", json={"status": "open"}
         )
-        assert reopen_archived.status_code == 422, reopen_archived.text
+        # Archived cases are read-only: any PATCH mutation is rejected with a
+        # stable CASE_READ_ONLY code (not merely an illegal-transition 422).
+        assert reopen_archived.status_code == 409, reopen_archived.text
+        assert reopen_archived.json()["error"]["code"] == "CASE_READ_ONLY"
     finally:
         async with factory() as session:
+            await session.execute(delete(Case).where(Case.id == case_id))
+            await session.commit()
+
+
+async def test_case_list_never_leaks_other_users_cases(
+    http_client, database: Database, user_factory
+) -> None:
+    """P0 regression: the case-LIST visibility predicate must not leak cases.
+
+    A non-member user (on any role that can list) must never see another
+    user's case through the real database query — not via the plain list, not
+    via search, and not via pagination totals. Admins and explicit members
+    must still see the case.
+    """
+    prefix = get_settings().API_V1_PREFIX
+    owner = await user_factory(role="INVESTIGATOR")
+    stranger = await user_factory(role="INVESTIGATOR")
+    member = await user_factory(role="INVESTIGATOR")
+    admin = await user_factory(role="ADMIN")
+
+    marker = uuid.uuid4().hex[:8]
+    case = Case(
+        id=uuid.uuid4(),
+        case_number=f"CS-{marker}",
+        title=f"P0-leak-probe-{marker}",
+        description="must be invisible to non-members",
+        status="open",
+        owner_id=owner.id,
+    )
+    factory = database.session_factory()
+    async with factory() as session:
+        session.add(case)
+        await session.commit()
+        case_id = case.id
+
+    def client(token: str) -> AsyncClient:
+        return _client(token)
+
+    try:
+        # Grant one explicit member (not the owner) access.
+        from app.models import CaseMember
+
+        async with factory() as session:
+            session.add(CaseMember(case_id=case_id, user_id=member.id, role="collaborator"))
+            await session.commit()
+
+        # 1/2/3. A stranger (authenticated, non-owner, non-member) must not see
+        # the case in the list.
+        async with client(stranger.token) as stranger_client:
+            listed = await stranger_client.get(f"{prefix}/cases")
+            assert listed.status_code == 200, listed.text
+            payload = listed.json()
+            assert all(item["id"] != str(case_id) for item in payload["items"])
+
+            # 4. Search must not surface it either.
+            by_title = await stranger_client.get(f"{prefix}/cases?search={marker}")
+            assert by_title.status_code == 200, by_title.text
+            search_payload = by_title.json()
+            assert search_payload["total"] == 0, search_payload
+            assert search_payload["items"] == []
+
+            # 5. Pagination/counts: a page that would include the case if leaked
+            # must not return it, and the total must exclude it.
+            paged = await stranger_client.get(f"{prefix}/cases?limit=200&offset=0")
+            assert paged.status_code == 200, paged.text
+            assert all(item["id"] != str(case_id) for item in paged.json()["items"])
+
+        # 7. An explicit member must see the case.
+        async with client(member.token) as member_client:
+            member_list = await member_client.get(f"{prefix}/cases?search={marker}")
+            assert member_list.status_code == 200, member_list.text
+            assert member_list.json()["total"] == 1, member_list.json()
+            assert member_list.json()["items"][0]["id"] == str(case_id)
+
+        # 6. An admin must still see the case.
+        async with client(admin.token) as admin_client:
+            admin_list = await admin_client.get(f"{prefix}/cases?search={marker}")
+            assert admin_list.status_code == 200, admin_list.text
+            assert any(item["id"] == str(case_id) for item in admin_list.json()["items"])
+
+        # The owner still sees their own case.
+        async with client(owner.token) as owner_client:
+            owner_list = await owner_client.get(f"{prefix}/cases?search={marker}")
+            assert owner_list.status_code == 200, owner_list.text
+            assert owner_list.json()["total"] == 1, owner_list.json()
+    finally:
+        from sqlalchemy import text
+
+        async with factory() as session:
+            await session.execute(
+                text("DELETE FROM case_members WHERE case_id = :cid"), {"cid": case_id}
+            )
             await session.execute(delete(Case).where(Case.id == case_id))
             await session.commit()
