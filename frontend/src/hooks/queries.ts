@@ -339,7 +339,7 @@ export function useUploadEvidence(caseId: string) {
         contents: input.file,
       }, input.dataSource),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: queryKeys.evidence(caseId) });
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.jobs(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
@@ -352,7 +352,7 @@ export function useIngestEvidence(caseId: string) {
   return useMutation({
     mutationFn: (evidenceFileId: string) => api.evidence.ingest(caseId, evidenceFileId),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: queryKeys.evidence(caseId) });
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.jobs(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.entities(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.graph(caseId) });
@@ -378,7 +378,7 @@ export function useDeleteEvidence(caseId: string) {
   return useMutation({
     mutationFn: (evidenceId: string) => api.evidence.delete(caseId, evidenceId),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: queryKeys.evidence(caseId) });
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.jobs(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
     },

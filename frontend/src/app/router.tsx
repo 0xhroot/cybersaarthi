@@ -71,7 +71,14 @@ export function AppRouter() {
     if (status === "idle") void bootstrap();
   }, [status, bootstrap]);
 
-  if (status === "idle") return <BootScreen />;
+  // While the session is being restored (idle) or validated (loading) we keep
+  // the boot screen in place and do NOT render <Routes>. This is what makes a
+  // hard refresh / direct navigation to a nested /app/* route work correctly:
+  // previously the "loading" state fell through to <RequireAuth> which
+  // redirected to /login before bootstrap settled, and the login page's
+  // automatic redirect then returned the user to the dashboard instead of the
+  // originally requested nested route.
+  if (status === "idle" || status === "loading") return <BootScreen />;
 
   return (
     <Suspense fallback={<PageSuspense />}>

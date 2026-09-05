@@ -42,6 +42,51 @@ describe("route guards", () => {
     expect(await screen.findByText(/Sign in to continue/i)).toBeInTheDocument();
   });
 
+  it("keeps a direct nested /app/* URL while the session is validating (no redirect to login)", async () => {
+    // Simulate a stored session whose /auth/me validation is still in flight.
+    authSession.setSession("valid-token", {
+      id: "u1",
+      username: "investigator",
+      email: "investigator@example.com",
+      status: "ACTIVE",
+      is_active: true,
+    });
+    useAuthStore.setState({
+      status: "loading",
+      user: null,
+      roles: [],
+      permissions: [],
+      error: null,
+    });
+
+    renderApp("/app/cases");
+    // Boot screen (brand + spinner) is shown; we must NOT have redirected to
+    // login (which is what previously dropped the requested nested route).
+    expect(screen.queryByText(/Sign in to continue/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Cyber")).toBeInTheDocument();
+    expect(screen.getByText("Saarthi")).toBeInTheDocument();
+  });
+
+  it("does not redirect the loading state away from an arbitrary nested route", async () => {
+    authSession.setSession("valid-token", {
+      id: "u1",
+      username: "investigator",
+      email: "investigator@example.com",
+      status: "ACTIVE",
+      is_active: true,
+    });
+    useAuthStore.setState({
+      status: "loading",
+      user: null,
+      roles: [],
+      permissions: [],
+      error: null,
+    });
+
+    renderApp("/app/cases/abc123/graph");
+    expect(screen.queryByText(/Sign in to continue/i)).not.toBeInTheDocument();
+  });
+
   it("renders the dashboard for an authenticated administrator", async () => {
     await useAuthStore.getState().login("admin", "admin-dev-password");
     expect(useAuthStore.getState().status).toBe("authenticated");

@@ -43,7 +43,11 @@ function statusTone(status: AccountStatus) {
 const ROLES: Role[] = ["ADMIN", "INVESTIGATOR", "ANALYST", "VIEWER"];
 
 function EmailCell({ email }: { email: string }) {
-  return <span className="hidden text-xs text-muted sm:table-cell">{email}</span>;
+  return (
+    <TD className="hidden md:table-cell">
+      <span className="text-xs text-muted">{email}</span>
+    </TD>
+  );
 }
 
 function ApproveDialog({
