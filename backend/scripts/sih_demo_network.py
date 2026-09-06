@@ -28,24 +28,72 @@ SIH_CASE_NUMBER = "SIH-2026-001"
 RNG_SEED = 26189
 
 PERSON_PREFIXES = (
-    "Rajesh", "Aisha", "Vikram", "Priya", "Imran", "Deepa", "Rohan", "Meera",
-    "Karan", "Sneha", "Arvind", "Ananya", "Farhan", "Divya", "Nikhil", "Pooja",
-    "Sanjay", "Ritu", "Aditya", "Kavita", "Manoj", "Shalini", "Ravi", "Nisha",
-    "Gaurav", "Tanvi", "Hari", "Asha",
+    "Rajesh",
+    "Aisha",
+    "Vikram",
+    "Priya",
+    "Imran",
+    "Deepa",
+    "Rohan",
+    "Meera",
+    "Karan",
+    "Sneha",
+    "Arvind",
+    "Ananya",
+    "Farhan",
+    "Divya",
+    "Nikhil",
+    "Pooja",
+    "Sanjay",
+    "Ritu",
+    "Aditya",
+    "Kavita",
+    "Manoj",
+    "Shalini",
+    "Ravi",
+    "Nisha",
+    "Gaurav",
+    "Tanvi",
+    "Hari",
+    "Asha",
 )
 SURNAMES = (
-    "Sharma", "Mehta", "Patel", "Rao", "Iyer", "Singh", "Reddy", "Nair", "Gupta",
-    "Das", "Joshi", "Khan", "Bose", "Menon", "Chopra", "Verma", "Pillai", "Agarwal",
+    "Sharma",
+    "Mehta",
+    "Patel",
+    "Rao",
+    "Iyer",
+    "Singh",
+    "Reddy",
+    "Nair",
+    "Gupta",
+    "Das",
+    "Joshi",
+    "Khan",
+    "Bose",
+    "Menon",
+    "Chopra",
+    "Verma",
+    "Pillai",
+    "Agarwal",
 )
 
 ORGANIZATIONS = (
-    "Nova Holding Ltd", "Vertex Infotech", "Bluepeak Exports", "Saffron Trading Co",
-    "Orion Shipping", "Crimson Textiles", "Summit Logistics", "Eagle Freight",
-    "Zephyr Agro", "Marina Oil Trading", "Delta Impex", "Phoenix Cargo",
+    "Nova Holding Ltd",
+    "Vertex Infotech",
+    "Bluepeak Exports",
+    "Saffron Trading Co",
+    "Orion Shipping",
+    "Crimson Textiles",
+    "Summit Logistics",
+    "Eagle Freight",
+    "Zephyr Agro",
+    "Marina Oil Trading",
+    "Delta Impex",
+    "Phoenix Cargo",
 )
 
-CITIES = ("Mumbai", "Delhi", "Bengaluru", "Chennai", "Kolkata", "Hyderabad",
-          "Ahmedabad", "Jaipur")
+CITIES = ("Mumbai", "Delhi", "Bengaluru", "Chennai", "Kolkata", "Hyderabad", "Ahmedabad", "Jaipur")
 
 
 @dataclass
@@ -66,37 +114,60 @@ class Network:
 
 
 def _rng() -> random.Random:
-    return random.Random(RNG_SEED)
+    # Deterministic synthetic demo data, NOT cryptography. Seed fixed for
+    # reproducible demonstrations. (S311 is a crypto-only warning.)
+    return random.Random(RNG_SEED)  # noqa: S311
 
 
-def _make_person(rng: random.Random, idx: int, org: str, city: str,
-                 tier: str = "member") -> Person:
+def _make_person(rng: random.Random, idx: int, org: str, city: str, tier: str = "member") -> Person:
     prefix = PERSON_PREFIXES[idx % len(PERSON_PREFIXES)]
     surname = SURNAMES[(idx * 7 + 3) % len(SURNAMES)]
     name = f"{prefix} {surname}"
     phone = f"+91-{9000000000 + (idx * 31) % 900000000}"
     account = f"AC-{1000 + idx}" if idx % 2 == 0 else None
     vehicle = f"MH01{idx:04d}AA" if idx % 3 == 0 else None
-    return Person(name=name, phone=phone, org=org, city=city,
-                  account=account, vehicle=vehicle, tier=tier)
+    return Person(
+        name=name, phone=phone, org=org, city=city, account=account, vehicle=vehicle, tier=tier
+    )
 
 
 def build_network() -> Network:
     rng = _rng()
     net = Network()
 
-    hub_a = Person("Suresh Gupta", "+91-9000000001", "Nova Holding Ltd", "Mumbai",
-                   "AC-990001", "MH01BOSS01", "hub")
-    bridge = Person("Vijay Singh", "+91-9000000002", "Vertex Infotech", "Delhi",
-                    "AC-990002", None, "bridge")
-    hub_b = Person("Anita Nair", "+91-9000000003", "Bluepeak Exports", "Bengaluru",
-                   "AC-990003", None, "hub")
+    hub_a = Person(
+        "Suresh Gupta",
+        "+91-9000000001",
+        "Nova Holding Ltd",
+        "Mumbai",
+        "AC-990001",
+        "MH01BOSS01",
+        "hub",
+    )
+    bridge = Person(
+        "Vijay Singh", "+91-9000000002", "Vertex Infotech", "Delhi", "AC-990002", None, "bridge"
+    )
+    hub_b = Person(
+        "Anita Nair", "+91-9000000003", "Bluepeak Exports", "Bengaluru", "AC-990003", None, "hub"
+    )
     ring = [
-        Person("Ramesh Iyer", "+91-9000000004", "Nova Holding Ltd", "Mumbai", "AC-990004", None, "core"),
+        Person(
+            "Ramesh Iyer", "+91-9000000004", "Nova Holding Ltd", "Mumbai", "AC-990004", None, "core"
+        ),
         Person("Lata Devi", "+91-9000000005", "Nova Holding Ltd", "Mumbai", None, None, "core"),
-        Person("Omkar Joshi", "+91-9000000006", "Nova Holding Ltd", "Mumbai", "AC-990005", None, "core"),
+        Person(
+            "Omkar Joshi", "+91-9000000006", "Nova Holding Ltd", "Mumbai", "AC-990005", None, "core"
+        ),
         Person("Nalini Das", "+91-9000000007", "Bluepeak Exports", "Bengaluru", None, None, "core"),
-        Person("Kunal Bose", "+91-9000000008", "Bluepeak Exports", "Bengaluru", "AC-990006", None, "core"),
+        Person(
+            "Kunal Bose",
+            "+91-9000000008",
+            "Bluepeak Exports",
+            "Bengaluru",
+            "AC-990006",
+            None,
+            "core",
+        ),
     ]
     net.persons = [hub_a, bridge, hub_b, *ring]
 
@@ -121,7 +192,7 @@ def build_network() -> Network:
 
     core_names = [p.name for p in ring]
     for i, a in enumerate(core_names):
-        for b in core_names[i + 1:]:
+        for b in core_names[i + 1 :]:
             link(a, b)
     for core in core_names:
         link(hub_a.name, core)
@@ -138,7 +209,12 @@ def build_network() -> Network:
         "Bluepeak Exports": hub_b.name,
     }
     for p in net.persons:
-        if p.tier == "member" and p.name not in ("Nalini Das", "Kunal Bose", "Lata Devi", "Omkar Joshi"):
+        if p.tier == "member" and p.name not in (
+            "Nalini Das",
+            "Kunal Bose",
+            "Lata Devi",
+            "Omkar Joshi",
+        ):
             rep = community_seeds.get(p.org)
             if rep and p.name != rep and rng.random() < 0.4:
                 link(p.name, rep)
@@ -166,33 +242,42 @@ def build_transfers_json(net: Network) -> bytes:
     for _ in range(len(accounts) * 2):
         src = rng.choice(accounts)
         dst = rng.choice([a for a in accounts if a != src])
-        records.append({
-            "from_account": src,
-            "to_account": dst,
-            "amount": rng.randint(5000, 900000),
-            "date": f"2026-0{rng.randint(1, 8)}-{rng.randint(1, 28):02d}",
-        })
+        records.append(
+            {
+                "from_account": src,
+                "to_account": dst,
+                "amount": rng.randint(5000, 900000),
+                "date": f"2026-0{rng.randint(1, 8)}-{rng.randint(1, 28):02d}",
+            }
+        )
     return json.dumps(records, ensure_ascii=False, indent=2).encode("utf-8")
 
 
 def build_associations_txt(net: Network) -> bytes:
     rng = _rng()
     sentences: list[str] = []
-    verbs = ("was seen meeting with", "was recorded visiting", "held a meeting with",
-             "was in contact with", "was observed with", "was travelling with",
-             "was noted dining with", "was co-located with")
+    verbs = (
+        "was seen meeting with",
+        "was recorded visiting",
+        "held a meeting with",
+        "was in contact with",
+        "was observed with",
+        "was travelling with",
+        "was noted dining with",
+        "was co-located with",
+    )
     for a, bs in net.links.items():
         for b in sorted(bs):
             if rng.random() < 0.5:
                 sentences.append(
-                    f"{a} {rng.choice(verbs)} {b} on {rng.randint(1, 20):02d}/0{rng.randint(1,8)} "
+                    f"{a} {rng.choice(verbs)} {b} on {rng.randint(1, 20):02d}/0{rng.randint(1, 8)} "
                     f"near {rng.choice(CITIES)}."
                 )
     for p in net.persons[:100]:
         loc = rng.choice(CITIES)
         sentences.append(
             f"Call detail records show device {p.phone} was registered at "
-            f"{loc} cell towers on {rng.randint(1,20):02d}/0{rng.randint(1,8)}."
+            f"{loc} cell towers on {rng.randint(1, 20):02d}/0{rng.randint(1, 8)}."
         )
     return ("\n".join(sentences) + "\n").encode("utf-8")
 
@@ -210,8 +295,12 @@ def expected_entity_tally(net: Network) -> dict[str, int]:
         "account": len(accounts),
         "organization": len(orgs),
         "location": len(locations),
-        "total": len(net.persons) + len(phones) + len(vehicles) + len(accounts)
-        + len(orgs) + len(locations),
+        "total": len(net.persons)
+        + len(phones)
+        + len(vehicles)
+        + len(accounts)
+        + len(orgs)
+        + len(locations),
     }
 
 
