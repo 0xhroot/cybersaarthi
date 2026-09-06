@@ -87,13 +87,17 @@ jobs:
           asyncio.run(main())
           PY
 
-      - name: Unit tests (Redis-backed)
-        run: uv run pytest tests/unit -q
-
+      # Use a fresh database that has the schema applied before running the
+      # Redis-backed unit tests: several of them (ingestion/analytics job
+      # state-machine tests) write rows to Postgres, which requires the target
+      # tables to exist.
       - name: Apply migrations on fresh database
         env:
           POSTGRES_HOST: localhost
         run: uv run alembic upgrade head
+
+      - name: Unit tests (Redis-backed)
+        run: uv run pytest tests/unit -q
 
       - name: Verify migrations match models (alembic check)
         env:
