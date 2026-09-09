@@ -55,6 +55,7 @@
 - [Solution](#solution)
 - [Why CyberSaarthi?](#why-cybersaarthi)
 - [Key Features](#key-features)
+- [Application Screenshots](#application-screenshots)
 - [Investigator Workflow](#investigator-workflow)
 - [Architecture](#architecture)
 - [Data Model](#data-model)
@@ -239,6 +240,75 @@ flowchart LR
 - Per-case IDOR and visibility guards
 - Audit logging and security headers
 - Input validation with strict error envelopes
+
+---
+
+## Application Screenshots
+
+> Screenshots are captured from the running CyberSaarthi application (`vite dev`, mock API
+> disabled) against the seeded SIH demo dataset — **real UI, no mocked or generated imagery**.
+
+### Investigation Dashboard
+
+The sign-in flow lands an investigator directly in a live workspace showing case-state
+summary, recent activity and one-click case creation.
+
+![CyberSaarthi Login](docs/screenshots/01-login.png)
+_The sign-in screen with the seeded evaluation credentials._
+
+![CyberSaarthi Investigation Dashboard](docs/screenshots/02-dashboard.png)
+_Investigation workspace — open/in-progress case summary and quick case creation._
+
+![CyberSaarthi Case List](docs/screenshots/03-cases.png)
+_Case management: every investigation the signed-in profile can access._
+
+![CyberSaarthi Case Overview](docs/screenshots/04-case-details.png)
+_Case record — synthetic evidence traceable through the entire pipeline._
+
+### Case & Victim Intelligence
+
+<details>
+<summary>Victim intelligence · Evidence · Criminal/person intelligence (expand)</summary>
+
+![CyberSaarthi Victim Intelligence](docs/screenshots/05-victim-intelligence.png)
+_Single-view victim profile: incident, loss amount, classification and investigator notes._
+
+![CyberSaarthi Evidence & Provenance](docs/screenshots/06-evidence.png)
+_Evidence vault with checksums and per-file ingestion status — every extractable fact traces to a stored file._
+
+![CyberSaarthi Criminal Intelligence](docs/screenshots/07-criminal-intelligence.png)
+_Entity-resolution view: persons, phones, accounts, vehicles and organisations with aliases._
+
+</details>
+
+### Criminal Network Graph
+
+<details>
+<summary>Graph investigation · Analytics (expand)</summary>
+
+![CyberSaarthi Criminal Network Graph](docs/screenshots/08-graph.png)
+_Relationship canvas — Cytoscape rendering of every entity and link in the seeded dataset._
+
+![CyberSaarthi Graph Analytics](docs/screenshots/09-analytics.png)
+_Centrality and community analytics computed from the case graph._
+
+</details>
+
+### IoT Intelligence & Audit Trail
+
+<details>
+<summary>IoT devices/events · Timeline audit trail (expand)</summary>
+
+![CyberSaarthi IoT Devices & Events](docs/screenshots/10-iot.png)
+_Registered devices and their telemetry events in the IoT subsystem._
+
+![CyberSaarthi Timeline / Audit Trail](docs/screenshots/11-timeline-audit.png)
+_Chronological audit trail of every state change on the case._
+
+![CyberSaarthi Investigation Workflow](docs/screenshots/12-investigation-workflow.png)
+_The evidence → analytics → finding pipeline — the full explainable investigation workflow end to end._
+
+</details>
 
 ---
 
@@ -471,7 +541,7 @@ any real system, it is **never "100% secure"**.
 | Layer | Technology | Version |
 |---|---|---|
 | Language (frontend) | TypeScript | 5.7 |
-| Frontend framework | React + Vite | 19 / 6 |
+| Frontend framework | Vite + React 19 UI | 19 / 6 |
 | UI layer | React Router 7 · TanStack Query · Zustand · Tailwind CSS 4 · Radix UI · Cytoscape (graph) | — |
 | Language (backend) | Python | 3.12 |
 | API framework | FastAPI + Uvicorn | 0.141 / 0.52 |
@@ -895,9 +965,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer guide,
 
 ## Team
 
-*Team details to be added.*
+CyberSaarthi is developed by a small, focused team covering security engineering, backend
+systems, frontend and data — with every layer of the platform documented throughout this README.
 
-CyberSaarthi is a project prepared for submission under the **Smart India Hackathon**.
+This project is prepared for submission under the **Smart India Hackathon**.
 
 ---
 

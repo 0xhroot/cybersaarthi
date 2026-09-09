@@ -63,7 +63,7 @@ class IoTDevice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "status IN ('registered', 'active', 'inactive', 'seized', 'removed')",
             name="iot_device_status_valid",
         ),
-        UniqueConstraint("case_id", "serial_number", name="uq_iot_device_case_serial"),
+        UniqueConstraint("case_id", "serial_number", name="uq_iot_devices_case_id"),
         Index("ix_iot_devices_case_id", "case_id"),
         Index("ix_iot_devices_case_status", "case_id", "status"),
     )
