@@ -1,0 +1,172 @@
+# Frontend API contract (Phase 5)
+
+The base path for every route is `/api/v1`. All endpoints return JSON.
+Authentication uses `Authorization: Bearer <token>`; tokens are short-lived
+(`expires_in` seconds). On `401` the client should re-authenticate. Errors use
+the platform envelope:
+
+```json
+{ "error": { "code": "FORBIDDEN", "message": "permission 'case.read' required" } }
+```
+
+Stable error codes: `INVALID_CREDENTIALS`, `ACCOUNT_PENDING`,
+`ACCOUNT_SUSPENDED`, `ACCOUNT_REJECTED`, `INSUFFICIENT_PERMISSION`,
+`CASE_ACCESS_DENIED`, `DUPLICATE_USERNAME`, `DUPLICATE_EMAIL`.
+
+## Authentication
+
+| Method & path | Auth | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `POST /auth/login` | public | `{username, password}` (username may be an email) | `200` `TokenResponse` | `401` `INVALID_CREDENTIALS`/bad creds; `429` throttled; `403` `ACCOUNT_PENDING`/`ACCOUNT_SUSPENDED`/`ACCOUNT_REJECTED` |
+| `POST /auth/logout` | bearer | — | `204` (revokes the token when revocation is enabled) | `401` |
+| `POST /auth/register` | public | `{username, email, password}` | `201` `RegisteredUserOut` (account starts `PENDING`, `roles: []`) | `409` `DUPLICATE_USERNAME`/`DUPLICATE_EMAIL`; `422` validation |
+| `GET /auth/me` | bearer | — | `200` `{user, roles, permissions}` | `401` |
+
+`TokenResponse`: `{access_token, token_type: "bearer", expires_in, user}`.
+`user`: `{id, username, email, status, is_active}` where `status` is one of
+`PENDING` / `ACTIVE` / `SUSPENDED` / `REJECTED` and `is_active` is the derived
+boolean `status == "ACTIVE"`.
+
+Registration is public self-service; the caller may NOT supply a `role` (any
+sent value is ignored, never trusted). The account is unusable until an
+administrator approves it and assigns a role.
+
+## Admin: user management
+
+All endpoints require `PERM_USERS_MANAGE`; non-admins get `403`
+`INSUFFICIENT_PERMISSION`.
+
+| Method & path | Body | Success |
+| --- | --- | --- |
+| `GET /admin/users` | `?limit=&offset=&status=&search=` | `200` `{items, total, limit, offset}` (`AdminUserOut` list) |
+| `GET /admin/users/pending` | `?limit=&offset=` | `200` `AdminUserList` (PENDING only) |
+| `GET /admin/users/{id}` | — | `200` `AdminUserOut` |
+| `POST /admin/users/{id}/approve` | `{role}` | `200` `AdminUserOut` (ACTIVE + exactly one role) |
+| `POST /admin/users/{id}/reject` | — | `200` `AdminUserOut` (REJECTED) |
+| `POST /admin/users/{id}/suspend` | — | `200` `AdminUserOut` (SUSPENDED) |
+| `POST /admin/users/{id}/activate` | — | `200` `AdminUserOut` (ACTIVE) |
+| `PATCH /admin/users/{id}/role` | `{role}` | `200` `AdminUserOut` |
+
+`AdminUserOut`: `{id, username, email, status, is_active, roles, created_at, updated_at}`.
+The backend forbids an admin from changing/suspending/rejecting their own
+account and from demoting the sole remaining active `ADMIN`.
+
+## Cases
+
+| Method & path | Auth | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `GET /cases` | `case.read` | — | `200` `{items, total, limit, offset}` (own cases only) | `401` |
+| `POST /cases` | `case.create` | `{title, description?}` | `201` `CaseOut` | `401`/`403`/`422` |
+| `GET /cases/{id}` | access | — | `200` `CaseOut` | `401`/`403`/`404` |
+| `PATCH /cases/{id}` | `case.update` + access | `{title?, description?, status?}` | `200` | `401`/`403`/`404`/`422` |
+| `POST /cases/{id}/archive` | `case.archive` + access | — | `200` | `401`/`403`/`404` |
+
+`CaseOut`: `{id, case_number, title, description, status, owner_id, created_at, updated_at}`.
+`status`: `open` / `in_progress` / `closed` (writable states). **Reads** may also
+return `archived` — a read-only terminal state set via the archive endpoint.
+Clients must **never send `archived`** on create or update; the API rejects it
+with `422`.
+
+Access semantics: 404 for a missing case; 403 for a case you do not own (unless
+`ADMIN`); 401 with no/invalid credentials.
+
+## Findings
+
+| Method & path | Auth | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `GET /cases/{id}/findings` | access | `?run_id=&limit=&offset=` | `200` `{items, total, limit, offset}` |
+| `GET /cases/{id}/findings/stats` | access | `?run_id=` | `200` `by_type/by_severity/by_status` |
+| `GET /cases/{id}/findings/{fid}` | access | — | `200` `FindingOut` (explainable) |
+| `PATCH /cases/{id}/findings/{fid}/status` | per-target perm + access | `{status, reason?}` | `200` `FindingStatusOut` |
+
+Per-target permissions for the status endpoint: `REVIEWED` → `findings.review`;
+`DISMISSED` → `findings.dismiss`; `CONFIRMED` → `findings.confirm`. Errors:
+`403` (missing permission), `422` (invalid status or illegal non-admin
+transition), `404` (missing finding). Same-status calls are idempotent no-ops
+(no audit row). Closed findings are immutable except for `ADMIN`.
+
+## Evidence & ingestion
+
+| Method & path | Auth | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `POST /cases/{id}/evidence` | `evidence.upload` + access | multipart `file`, `data_source?`, `metadata?` | `201` | `409` duplicate sha256; `413` too large; `400` undetectable format |
+| `GET /cases/{id}/evidence` | access | `?limit=&offset=` | `200` `{items, total, limit, offset}` |
+| `GET /cases/{id}/evidence/{eid}` | access | — | `200` `EvidenceDetailResponse` |
+| `DELETE /cases/{id}/evidence/{eid}` | `evidence.delete` + access | — | `204` (cascades source records, nulls ingestion-job refs, deletes the object) | `401`/`403`/`404` |
+| `GET /cases/{id}/evidence/{eid}/provenance` | access | — | `200` `EvidenceProvenanceResponse` |
+| `POST /cases/{id}/ingest` | `ingestion.run` + access | `{evidence_file_id, metadata?}` | `200` `{job, duplicate}` |
+| `GET /cases/{id}/ingest-jobs` | access | — | `200` `{items, total}` |
+
+`EvidenceProvenanceResponse`: `{evidence, record_count, records_by_status,
+entity_count, relationship_count, finding_count, related_entity_ids,
+related_relationship_ids, finding_ids}`.
+
+## Analytics
+
+| Method & path | Auth | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `GET /cases/{id}/analytics/summary` | access | — | `200` live recompute |
+| `GET /cases/{id}/analytics/centrality` | access | — | `200` |
+| `GET /cases/{id}/analytics/communities` | access | — | `200` |
+| `GET /cases/{id}/analytics/patterns` | access | — | `200` |
+| `GET /cases/{id}/analytics/hypotheses` | access | — | `200` |
+| `POST /cases/{id}/analytics/run` | `analytics.run` + access | — | `201` run snapshot |
+| `GET /cases/{id}/analytics/runs` | access | — | `200` `{items, total}` |
+
+## Entities & graph
+
+`GET /cases/{id}/entities`, `GET /cases/{id}/entities/{eid}`,
+`GET /cases/{id}/relationships`, `GET /cases/{id}/graph`,
+`GET /cases/{id}/graph/stats`, `GET /cases/{id}/graph/entity/{eid}`,
+`GET /cases/{id}/resolution/review` — all `case.read`-independent (any
+authenticated access holder), `200` with paginated/entity payloads, `401/403/404`
+matrix as above.
+
+## Audit log
+
+| Method & path | Auth | Query | Success |
+| --- | --- | --- | --- |
+| `GET /audit-logs` | `audit.read` | `case_id`, `actor_id`, `action`, `resource_type`, `limit` (≤200), `offset` | `200` `{items, total, limit, offset}` |
+
+`items[].metadata_` carries event-specific fields (e.g. `finding.status_changed`
+→ `{from, to, reason}`). The log is append-only; there is no write or delete
+endpoint. `VIEWER`/`ANALYST` get `403`.
+
+## Security headers & correlation
+
+Every response carries:
+
+- `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, `X-XSS-Protection: 1; mode=block`,
+  `Cross-Origin-Opener-Policy: same-origin`,
+  `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()`
+- In `production` the backend additionally sets `Strict-Transport-Security`
+  (HSTS) and a restrictive `Content-Security-Policy` (`default-src 'none'`).
+- `x-request-id` — send `X-Request-Id`/`X-Correlation-Id` to correlate a
+  request across backend logs; the server generates one if absent and echoes it
+  unchanged (including on error responses).
+
+## Summaries by role
+
+| Role | Can do |
+| --- | --- |
+| `ADMIN` | everything incl. `/admin/users`, `/audit-logs`, override of closed findings |
+| `INVESTIGATOR` | everything except user management |
+| `ANALYST` | read cases/evidence, run analytics, review findings (not confirm/dismiss) |
+| `VIEWER` | read cases/evidence/findings only |
+
+## Notes for the frontend
+
+1. List `total` is the full (filtered) count; paginate with `offset`/`limit`.
+2. Never rely on `archived` as a PATCHable status.
+3. Findings `status` after a run is always `NEW`; surfaces must render review
+   actions by permission and disable them for closed statuses.
+4. On `401` (expired token) clear credentials and redirect to login.
+5. Show the echoed `x-request-id` in error logs to match backend traces.
+6. Gate UIs on the `roles`/`permissions` from `/auth/me`, never on a stored
+   `role` sent to `/auth/register` (it is not trusted).
+7. Treat `PENDING` accounts as "created, awaiting approval": show the approval
+   screen and block sign-in; `ACCOUNT_PENDING` / `ACCOUNT_SUSPENDED` /
+   `ACCOUNT_REJECTED` are recoverable, surfaced as friendly messages at login.
+8. Registering must not establish a session; navigate to the pending/approval
+   screen instead.

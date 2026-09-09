@@ -1,0 +1,200 @@
+CyberSaarthi — Audit raw test results
+Audit date: 2026-08-30  |  Target commit: ce6b3b8 (HEAD main)
+
+============================================================
+1. BACKEND TEST SUITE (Docker stack running; all services healthy)
+============================================================
+$ docker compose exec -T backend pytest -p no:cacheprovider --tb=short -q
+........................................................................ [ 29%]
+........................................................................ [ 58%]
+........................................................................ [ 88%]
+.............................                                            [100%]
+245 passed in 37.05s
+
+Collect-only: 245 tests collected in 0.71s
+Breakdown (top files):
+  26 tests/unit/test_normalization
+  24 tests/unit/test_analytics_algorithms
+  23 tests/api/test_access_control
+  21 tests/unit/test_findings_service
+  16 tests/unit/test_extraction
+  13 tests/unit/test_parsing
+  11 tests/unit/test_relationships
+  10 tests/unit/test_validation
+   9 tests/unit/test_rbac
+   9 tests/unit/test_auth_tokens
+   8 tests/api/test_analytics_api
+   7 tests/api/test_auth_api
+   6 tests/unit/test_resolution
+   6 tests/unit/test_config
+   6 tests/api/test_findings_api
+   5 tests/unit/test_throttle
+   4 tests/unit/test_security
+   4 tests/api/test_health
+   4 tests/api/test_cases_api
+   4 tests/api/test_audit_api
+   3 tests/unit/test_readiness
+   3 tests/integration/test_postgres
+   3 tests/integration/test_entity_pipeline
+   3 tests/api/test_readiness
+   3 tests/api/test_provenance_api
+   3 tests/api/test_observability
+   2 tests/unit/test_errors
+   2 tests/integration/test_storage
+   2 tests/integration/test_redis
+   2 tests/integration/test_neo4j
+  20 (remaining files, unit/api/e2e)
+
+============================================================
+2. BACKEND QUALITY GATES
+============================================================
+$ ruff check .                ->  All checks passed!
+$ ruff format --check .       ->  144 files already formatted
+$ mypy app                    ->  Success: no issues found in 96 source files
+
+$ alembic check               ->  No new upgrade operations detected.
+$ alembic heads               ->  cc19f4d2b003 (head)
+$ alembic current             ->  cc19f4d2b003 (head)
+
+============================================================
+3. FRONTEND GATES
+============================================================
+$ npm run lint                ->  0 problems
+$ npx tsc -p tsconfig.app.json --noEmit -> clean (exit 0)
+$ npm run test                ->  Test Files 8 passed (8) / Tests 27 passed (27)
+$ npm run build               ->  built in 3.27s (35 JS assets)
+
+Bundle largest assets (raw / gzip):
+  index-A5WSLjQS.js        462 KB / ~150 KB
+  graph-CWhVDbHb.js        443 KB / ~145 KB  (cytoscape, isolated to graph page)
+  proxy-B6diEX4M.js        122 KB / ~ 41 KB
+  total JS (all assets)          / ~384 KB gzip
+  CSS 52 KB, Inter fonts 8 files ~210 KB
+
+$ npm audit                  ->  found 0 vulnerabilities
+
+============================================================
+4. API SMOKE / AUTH MATRIX (live, /api/v1)
+============================================================
+GET  /health                         200   8ms
+GET  /ready                          200  14ms
+GET  /cases (no token)               401
+POST /auth/login (wrong pw)          401 generic "invalid username or password"
+GET  /cases (garbage token)          401
+GET  /cases/{uuid-not-exists}        404
+GET  /cases/not-a-uuid               422
+POST /cases {"status":"archived"}    422 "use the archive endpoint to archive a case"
+POST /cases valid                    201
+POST /auth/register (admin) ANALYST  201
+GET  other-user's case (ANALYST)     403   (IDOR guarded)
+GET  demo case entities (ANALYST)    403
+GET  /audit-logs (ANALYST)           403
+PATCH finding status (unowned)       403
+PATCH finding NEW->DISMISSED (admin) 200
+POST evidence (5MB+ bin)             413
+POST evidence (traversal name)       stored_key sanitized to '.._.._evil.csv'
+POST evidence (duplicate sha)        409 CONFLICT
+POST evidence -> status              "stored"
+POST ingest (bad csv)                422 generic validation error
+POST /cases/{id}/analytics/run       run snapshot persisted (55 findings, all NEW)
+GET /analytics/priorities x2         byte-identical response (deterministic)
+Throttle: 5 wrong logins -> 429 on 6th (correct-but-relocked) / 429 429
+
+Security headers observed: x-content-type-options: nosniff;
+  x-frame-options: DENY; referrer-policy: no-referrer; x-xss-protection: 1; mode=block
+CORS preflight (http://localhost:5173) -> 200
+OpenAPI endpoint count: 42
+
+============================================================
+5. PERFORMANCE BASELINE (demo case: 45 entities / 86 rels)
+============================================================
+GET /cas.*/entities                19ms  11.7KB
+GET /cas.*/relationships?limit=500 16ms  26.8KB
+GET /cas.*/graph                   20ms  30.0KB
+GET /cas.*/graph/stats             19ms     356B
+GET /cas.*/analytics/summary       61ms     561B
+GET /cas.*/analytics/centrality    44ms    7.1KB
+GET /cas.*/analytics/communities   42ms    2.8KB
+GET /cas.*/analytics/network-dna   42ms   91.0KB
+GET /cas.*/analytics/priorities    45ms   11.3KB
+GET /cas.*/analytics/strength      45ms   89.8KB
+GET /cas.*/analytics/patterns      42ms   21.6KB
+GET /cas.*/analytics/hypotheses    42ms   32.6KB
+
+Synthetic case (1500 entities / 3000 edges, live; deleted after probe):
+  entities?limit=50  12ms; relationships 20ms(136KB); graph 181ms(874KB);
+  graph/stats 164ms;
+  analytics/* -> 500 RecursionError after ~6.8s each
+  origin: backend/app/analytics/graph.py:122 dfs (articulation_points)
+  ==> exceeds default Python recursion depth (~1000) despite node cap 2000
+
+docker stats (steady state):
+  backend 151.7 MiB | postgres 53.0 MiB | minio 128.2 MiB |
+  redis 8.9 MiB | neo4j 822.2 MiB
+
+============================================================
+6. DATA STORES
+============================================================
+PostgreSQL (live): 1 case / 5 users / 45 entities / 86 relationships /
+  5 evidence_files / 0 findings / 0 analytics_runs / 280 audit_logs
+Neo4j (cypher-shell):
+  MATCH (n:Entity) RETURN count(n)                       = 597
+  MATCH (n:Entity) RETURN count(DISTINCT n.case_id)      = 61
+  MATCH ()-[r]->() RETURN count(r)                       = 1058
+  case-scoped (demo case): nodes 45, edges 86  -> MATCHES PostgreSQL
+  constraints: entity_id_unique, entity_key_unique (node)
+  indexes: entity_case_index, entity_id_unique, entity_key_unique + lookup
+MinIO bucket list (boto3): 66 objects; after audit cleanup 5 objects
+  tied to live evidence rows => ~60 orphans (case ids not in PostgreSQL)
+Redis: no keys at rest (throttle keys expire / cleared after test)
+
+============================================================
+9b. ERROR-RECOVERY / RESILIENCE (live; non-destructive; restored)
+============================================================
+docker compose restart backend  -> ready 200 after boot
+  docker logs: alembic upgrade head re-ran on start; uvicorn listening
+docker compose stop redis:
+  GET /api/v1/ready     -> 503   (degraded reported correctly)
+  GET /api/v1/health    -> 200   (liveness unaffected)
+  GET /api/v1/cases     -> 401   (auth and case path unaffected)
+  6x POST /auth/login wrong  -> 401 401 401 401 401 401  (NO 429)
+    ==> throttle FAIL-OPEN CONFIRMED LIVE (finding A06)
+docker compose start redis     -> ready 200 again; 6/6 services healthy
+
+Coverage: pytest-cov NOT installed in backend image
+          -> backend code coverage NOT VERIFIED.
+
+============================================================
+11. SECRETS / DEPENDENCIES
+============================================================
+Secret regex scan of working tree and full git history: none found.
+  (only false positives: '----' comments, test password 'int-test-password',
+   'phase4-test-password!')
+.env is git-ignored at repo root; .env.example is tracked.
+pip-audit: NOT INSTALLED in container -> backend CVE status NOT VERIFIED.
+npm audit (frontend deps): 0 vulnerabilities.
+Deps pinned exactly (==) in backend/pyproject.toml; spaCy model fetched from
+GitHub wheel URL without hash pin (supply-chain note). MIT license.
+
+============================================================
+12. CROSS-PLATFORM
+============================================================
+entrypoint.sh: POSIX shell script, LF, ASCII. All scripts LF.
+No CRLF found. Makefile POSIX targets -> Windows needs WSL/Git Bash.
+(cross-platform: OK as designed; make not native on Windows cmd)
+
+============================================================
+13. CONTAINER / DEVOPS
+============================================================
+docker compose ps: 6 services, all Up (backend healthy).
+docker compose build backend: OK (cached) 1.4s.
+entrypoint runs `alembic upgrade head` before start (verified in logs and file).
+Non-root appuser (uid 1000) in API image. Dev tooling installed in prod image.
+
+============================================================
+NOTE
+============================================================
+Migrations upgrade chain (e308 -> 081a -> f31f -> a4b9 -> cc19) is linear to
+head and verified via `alembic check/heads/current` on the live upgraded DB.
+FULL downgrade/re-upgrade cycle was NOT re-run (would mutate the live demo
+volume); assessed statically only.
