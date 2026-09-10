@@ -55,6 +55,11 @@ class Entity(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     context: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+    merged_into_id: Mapped[str | None] = mapped_column(
+        ForeignKey("entities.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
 
     def __repr__(self) -> str:
         return f"<Entity id={self.id} type={self.entity_type!r} value={self.display_value!r}>"

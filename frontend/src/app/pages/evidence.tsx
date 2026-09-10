@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { useParams } from "react-router-dom";
-import { Upload, FileSearch, Workflow, Database, Trash2, RefreshCw } from "lucide-react";
+import { Upload, FileSearch, Workflow, Database, Trash2, RefreshCw, RotateCcw } from "lucide-react";
 import {
   useEvidence,
   useEvidenceDetail,
@@ -11,6 +11,8 @@ import {
   useUploadEvidence,
   useDeleteEvidence,
   useRetryGraphSync,
+  useCollections,
+  useRestoreEvidence,
 } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
 import { PageContainer, PageHeader } from "@/components/layout/page";
@@ -64,20 +66,25 @@ export default function EvidencePage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<string>("CSV_Journals");
+  const [collectionId, setCollectionId] = useState<string>("none");
   const [picked, setPicked] = useState<File | null>(null);
+  const [lastDeleted, setLastDeleted] = useState<{ id: string; filename: string } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const canUpload = useCan("evidence.upload");
   const canIngest = useCan("ingestion.run");
   const canDelete = useCan("evidence.delete");
+  const canRestore = useCan("evidence.restore");
 
   const evidence = useEvidence(caseId, { limit: 50 });
   const jobs = useIngestJobs(caseId);
+  const collections = useCollections(caseId);
   const detail = useEvidenceDetail(caseId, selectedId);
   const provenance = useProvenance(caseId, selectedId);
   const upload = useUploadEvidence(caseId);
   const ingest = useIngestEvidence(caseId);
   const remove = useDeleteEvidence(caseId);
+  const restore = useRestoreEvidence(caseId);
   const retrySync = useRetryGraphSync(caseId);
 
   const onPick = (e: ChangeEvent<HTMLInputElement>) => {
@@ -89,10 +96,18 @@ export default function EvidencePage() {
   const submitUpload = async () => {
     if (!picked) return;
     try {
-      await upload.mutateAsync({ file: picked, dataSource });
-      toast({ title: "Evidence stored", description: `${picked.name} uploaded and checksummed.` });
+      await upload.mutateAsync({
+        file: picked,
+        dataSource,
+        collectionId: collectionId === "none" ? undefined : collectionId,
+      });
+      toast({
+        title: "Evidence stored",
+        description: `${picked.name} uploaded and checksummed${collectionId !== "none" ? " into a sealed collection" : ""}.`,
+      });
       setUploadOpen(false);
       setPicked(null);
+      setCollectionId("none");
     } catch (err) {
       toast({ title: "Upload failed", description: (err as Error).message });
     }
@@ -111,11 +126,24 @@ export default function EvidencePage() {
     if (!deleteTarget) return;
     try {
       await remove.mutateAsync(deleteTarget);
-      toast({ title: "Evidence deleted", description: "The record was removed from the case." });
+      const record = evidence.data?.items?.find((e) => e.id === deleteTarget);
+      setLastDeleted({ id: deleteTarget, filename: record?.original_filename ?? "record" });
+      toast({ title: "Evidence deleted", description: "The record was moved to the recycle bin." });
       setDeleteTarget(null);
       if (selectedId === deleteTarget) setSelectedId(null);
     } catch (err) {
       toast({ title: "Delete failed", description: (err as Error).message });
+    }
+  };
+
+  const restoreDeleted = async () => {
+    if (!lastDeleted) return;
+    try {
+      await restore.mutateAsync(lastDeleted.id);
+      setLastDeleted(null);
+      toast({ title: "Evidence restored", description: `${lastDeleted.filename} returned to the case evidence list.` });
+    } catch (err) {
+      toast({ title: "Restore failed", description: (err as Error).message });
     }
   };
 
@@ -175,6 +203,22 @@ export default function EvidencePage() {
           </div>
         </CardContent></Card>
       </div>
+
+      {lastDeleted && canRestore ? (
+        <div className="mt-4">
+          <Card>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3">
+              <p className="min-w-0 flex-1 truncate text-xs text-foreground">
+                <RotateCcw className="mr-1.5 inline size-3.5 text-info" />
+                <span className="font-medium">{lastDeleted.filename}</span> is in the recycle bin — restore to bring it back with its checksum intact.
+              </p>
+              <Button size="sm" variant="secondary" disabled={restore.isPending} onClick={() => void restoreDeleted()}>
+                <RotateCcw className="size-3.5" /> Restore
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       {failedSyncJobs.length > 0 && canIngest ? (
         <div className="mt-4">
@@ -363,6 +407,23 @@ export default function EvidencePage() {
                   {DATA_SOURCES.map((ds) => <SelectItem key={ds.value} value={ds.value}>{ds.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Collection <span className="text-dim">(optional)</span></Label>
+              <Select value={collectionId} onValueChange={setCollectionId}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No collection</SelectItem>
+                  {(collections.data?.items ?? []).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} — {c.status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-dim">
+                Placing the record in a sealed collection locks it against edits and ties it to the collection manifest.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>File</Label>

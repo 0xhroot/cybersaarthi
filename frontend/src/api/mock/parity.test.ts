@@ -14,6 +14,12 @@ const SERVICE_KEYS = [
   "timeline",
   "users",
   "admin",
+  "collections",
+  "fieldDevices",
+  "reports",
+  "hypotheses",
+  "search",
+  "importPackages",
 ] as const;
 
 type Services = { [K in (typeof SERVICE_KEYS)[number]]: object };

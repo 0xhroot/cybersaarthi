@@ -4,10 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import uuid
+from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -45,6 +59,10 @@ from app.services.validation import (
 )
 
 router = APIRouter(prefix="/cases", tags=["evidence"])
+
+RECYCLE_PREFIX = "recycle/"
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_stem(filename: str) -> str:
@@ -131,6 +149,7 @@ async def upload_evidence(
     file: UploadFile = File(...),
     data_source: str = Form(default="csv"),
     metadata: str = Form(default=None),
+    collection_id: uuid.UUID | None = Form(default=None),
     settings: Settings = Depends(get_settings),
     session: AsyncSession = Depends(get_db_session),
     evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
@@ -161,6 +180,12 @@ async def upload_evidence(
     metadata_json = _parse_metadata(metadata)
 
     source = await evidence_repository.get_or_create_data_source(data_source or fmt.value)
+    if collection_id is not None:
+        from app.services.collections import get_collection
+
+        collection = await get_collection(session, collection_id)
+        if collection is None or str(collection.case_id) != str(case_id):
+            raise HTTPException(status_code=404, detail=f"collection {collection_id} not found")
     object_key = (
         f"cases/{case_id}/evidence/{uuid.uuid4()}/{_safe_stem(file.filename or 'evidence')}"
     )
@@ -179,6 +204,7 @@ async def upload_evidence(
             file_size=len(data),
             sha256=sha256,
             metadata_json=metadata_json,
+            collection_id=collection_id,
         )
         await record_audit(
             session,
@@ -216,17 +242,20 @@ async def delete_evidence(
     evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
     user: User = Depends(require_permission(rbac.PERM_EVIDENCE_DELETE)),
 ) -> None:
-    """Soft-delete an evidence file, then remove its object from the bucket.
+    """Soft-delete an evidence file, then move its object to the recycle area.
 
     The row is retained (``deleted_at`` set) so findings and relationships that
-    reference it keep their provenance; the object is removed after the row is
-    marked deleted. A repeat delete of the same file is a graceful no-op.
+    reference it keep their provenance; the object joins a hidden ``recycle/``
+    prefix so the recycle-bin restore path can bring both the metadata and the
+    content back. A repeat delete of the same file is a graceful no-op.
     """
     case = await get_case_or_404(case_id, request, session)
     assert_case_investigation_mutable(case)
     evidence = await get_evidence_or_404(case_id, evidence_id, evidence_repository)
-    key = evidence.stored_key
+    live_key = evidence.stored_key
+    recycle_key = f"{RECYCLE_PREFIX}{live_key}"
     await evidence_repository.soft_delete_evidence(evidence_id)
+    evidence.stored_key = recycle_key
     await record_audit(
         session,
         actor_id=user.id,
@@ -237,7 +266,79 @@ async def delete_evidence(
         metadata={"filename": evidence.original_filename},
     )
     await session.commit()
-    await asyncio.to_thread(request.app.state.storage.delete, key)
+    await asyncio.to_thread(request.app.state.storage.move, live_key, recycle_key)
+
+
+class EvidenceRestoreResponse(BaseModel):
+    id: uuid.UUID
+    case_id: uuid.UUID
+    original_filename: str
+    restored: bool
+    content_restored: bool
+
+
+@router.post(
+    "/{case_id}/evidence/{evidence_id}/restore",
+    response_model=EvidenceRestoreResponse,
+)
+async def restore_evidence(
+    case_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
+    user: User = Depends(require_permission(rbac.PERM_EVIDENCE_RESTORE)),
+) -> EvidenceRestoreResponse:
+    """Recycle-bin restore: metadata always; content when the recycle copy exists."""
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
+    evidence = await evidence_repository.get_evidence(evidence_id)
+    if evidence is None or str(evidence.case_id) != str(case_id):
+        raise HTTPException(status_code=404, detail=f"evidence {evidence_id} not found")
+    if not evidence.is_deleted:
+        raise HTTPException(status_code=409, detail="evidence is not in the recycle bin")
+
+    storage = request.app.state.storage
+    recycle_key = evidence.stored_key if evidence.stored_key else ""
+    content_restored = False
+    if recycle_key and recycle_key.startswith(RECYCLE_PREFIX):
+        live_key = recycle_key[len(RECYCLE_PREFIX) :]
+        if storage.exists(recycle_key):
+            await asyncio.to_thread(storage.move, recycle_key, live_key)
+            evidence.stored_key = live_key
+            content_restored = True
+    await evidence_repository.restore_evidence(evidence_id)
+    await record_audit(
+        session,
+        actor_id=user.id,
+        action="evidence.restored",
+        resource_type="evidence_file",
+        resource_id=evidence_id,
+        case_id=case_id,
+        metadata={"filename": evidence.original_filename, "content_restored": content_restored},
+    )
+    from app.services.timeline import record_event
+
+    await record_event(
+        session=session,
+        case_id=case_id,
+        occurred_at=evidence.updated_at or evidence.created_at,
+        kind="evidence_restored",
+        title=f"Evidence '{evidence.original_filename}' restored",
+        evidence_file_id=evidence_id,
+        actor_user_id=user.id,
+        payload={"content_restored": content_restored},
+    )
+    await session.commit()
+    return EvidenceRestoreResponse(
+        id=evidence.id,
+        case_id=evidence.case_id
+        if isinstance(evidence.case_id, uuid.UUID)
+        else uuid.UUID(str(evidence.case_id)),
+        original_filename=evidence.original_filename,
+        restored=True,
+        content_restored=content_restored,
+    )
 
 
 async def get_evidence_or_404(
@@ -343,6 +444,8 @@ async def create_ingest_job(
     case_id: uuid.UUID,
     payload: IngestRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
+    async_mode: bool = Query(default=False, alias="async"),
     session: AsyncSession = Depends(get_db_session),
     ingestion: IngestionService = Depends(get_ingestion_service),
     evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
@@ -350,16 +453,48 @@ async def create_ingest_job(
 ) -> IngestAcceptedResponse:
     """Run the full ingestion pipeline for one evidence file.
 
-    Ingestion executes synchronously in this API request (single-worker local
-    mode) and is idempotent: PostgreSQL unique constraints make re-running a
-    job a no-op, so a retry is always safe. Because a job is uniquely keyed by
-    (case, evidence), asking to ingest the same evidence a second time is
-    reported as a ``duplicate`` rather than a fresh pipeline run.
+    By default ingestion executes synchronously in this API request (single-
+    worker local mode) and is idempotent: PostgreSQL unique constraints make
+    re-running a job a no-op, so a retry is always safe. Because a job is
+    uniquely keyed by (case, evidence), asking to ingest the same evidence a
+    second time is reported as a ``duplicate`` rather than a fresh pipeline run.
+
+    Pass ``?async=true`` to enqueue the same pipeline on a background task and
+    return immediately (202 semantics); job progress stays observable through
+    ``GET /ingest-jobs``.
     """
     case = await get_case_or_404(case_id, request, session)
     assert_case_investigation_mutable(case)
     already_queued = await evidence_repository.existing_job_for(case_id, payload.evidence_file_id)
     duplicate = already_queued is not None
+
+    if async_mode:
+        background_tasks.add_task(
+            _run_async_ingest,
+            request.app,
+            case_id,
+            payload.evidence_file_id,
+            payload.metadata,
+            actor_id=user.id,
+        )
+        job = await _submit_pending_job(
+            evidence_repository=evidence_repository,
+            case_id=case_id,
+            evidence_file_id=payload.evidence_file_id,
+            actor_id=user.id,
+        )
+        await record_audit(
+            session,
+            actor_id=user.id,
+            action="ingestion.job_queued_async",
+            resource_type="ingestion_job",
+            resource_id=job.id,
+            case_id=case_id,
+            metadata={"evidence_file_id": str(payload.evidence_file_id)},
+        )
+        await session.commit()
+        return IngestAcceptedResponse(job=_to_job_response(job), duplicate=duplicate)
+
     job = await ingestion.ingest(
         case_id=case_id,
         evidence_file_id=payload.evidence_file_id,
@@ -377,6 +512,76 @@ async def create_ingest_job(
     )
     await session.commit()
     return IngestAcceptedResponse(job=_to_job_response(job), duplicate=duplicate)
+
+
+async def _submit_pending_job(
+    *,
+    evidence_repository: EvidenceRepository,
+    case_id: uuid.UUID,
+    evidence_file_id: uuid.UUID,
+    actor_id: uuid.UUID | None,
+) -> IngestionJob:
+    existing = await evidence_repository.existing_job_for(case_id, evidence_file_id)
+    if existing is not None:
+        return existing
+    return await evidence_repository.create_job(
+        case_id=case_id,
+        evidence_file_id=evidence_file_id,
+        status="running",
+        actor_id=actor_id,
+    )
+
+
+async def _run_async_ingest(
+    app: FastAPI,
+    case_id: uuid.UUID,
+    evidence_file_id: uuid.UUID,
+    metadata: dict[str, Any] | None,
+    actor_id: uuid.UUID | None,
+) -> None:
+    """Background worker: own DB session, own service instance, idempotent job."""
+    from app.core.config import get_settings
+    from app.db.postgres import Database
+    from app.repositories.entity_repository import EntityRepository
+    from app.repositories.relationship_repository import RelationshipRepository
+    from app.services.graph_sync import GraphSyncService
+    from app.services.ingestion import IngestionService as IngestSvc
+
+    settings = get_settings()
+    database: Database = app.state.database
+    graph_store = app.state.graph_store
+    factory = database.session_factory()
+    async with factory() as session:
+        svc = IngestSvc(
+            session=session,
+            evidence_repository=EvidenceRepository(session),
+            entity_repository=EntityRepository(session),
+            relationship_repository=RelationshipRepository(session),
+            storage=app.state.storage,
+            graph_sync=GraphSyncService(graph_store, settings),
+            settings=settings,
+        )
+        try:
+            await svc.ingest(
+                case_id=case_id,
+                evidence_file_id=evidence_file_id,
+                metadata=metadata,
+                actor_id=actor_id,
+            )
+            await session.commit()
+        except Exception:
+            logger.exception("async ingestion failed", extra={"case_id": str(case_id)})
+            await session.rollback()
+            await record_audit(
+                session,
+                actor_id=actor_id,
+                action="ingestion.async_failed",
+                resource_type="ingestion_job",
+                resource_id=evidence_file_id,
+                case_id=case_id,
+                metadata={"evidence_file_id": str(evidence_file_id)},
+            )
+            await session.commit()
 
 
 @router.get("/{case_id}/ingest-jobs", response_model=IngestJobListResponse)

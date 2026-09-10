@@ -8,12 +8,14 @@ export type Permission =
   | "evidence.read"
   | "evidence.upload"
   | "evidence.delete"
+  | "evidence.restore"
   | "ingestion.run"
   | "analytics.run"
   | "findings.read"
   | "findings.review"
   | "findings.confirm"
   | "findings.dismiss"
+  | "entity.merge"
   | "users.manage"
   | "audit.read";
 
@@ -25,12 +27,14 @@ export const ALL_PERMISSIONS: Permission[] = [
   "evidence.read",
   "evidence.upload",
   "evidence.delete",
+  "evidence.restore",
   "ingestion.run",
   "analytics.run",
   "findings.read",
   "findings.review",
   "findings.confirm",
   "findings.dismiss",
+  "entity.merge",
   "users.manage",
   "audit.read",
 ];

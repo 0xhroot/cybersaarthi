@@ -862,6 +862,277 @@ export interface AuditList {
   offset: number;
 }
 
+/* ----------------------------- Field collections ----------------------------- */
+
+export type CollectionStatus = "open" | "sealed";
+
+export interface Collection {
+  id: string;
+  case_id: string;
+  name: string;
+  description: string | null;
+  status: CollectionStatus;
+  sealed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CollectionCreateRequest {
+  name: string;
+  description?: string | null;
+}
+
+export interface CollectionUpdateRequest {
+  name?: string | null;
+  description?: string | null;
+}
+
+export interface CollectionList {
+  items: Collection[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/* ------------------------------ Field devices ------------------------------ */
+
+export type FieldDevicePlatform =
+  | "android_mobile"
+  | "esp32"
+  | "raspberry_pi"
+  | "tablet"
+  | "laptop"
+  | "other";
+
+export type FieldDeviceStatus = "pending" | "approved" | "revoked";
+
+export type FieldDeviceSignatureAlgorithm = "RSA-SHA256" | "Ed25519";
+
+export interface FieldDevice {
+  id: string;
+  case_id: string;
+  platform: string;
+  serial: string;
+  model: string | null;
+  firmware_version: string | null;
+  signature_algorithm: string;
+  status: string;
+  approved_by: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+}
+
+export interface DeviceRegisterRequest {
+  platform: string;
+  serial: string;
+  model?: string | null;
+  firmware_version?: string | null;
+  public_key: string;
+  signature_algorithm?: string;
+}
+
+export interface DeviceVerifyRequest {
+  data: string;
+  signature: string;
+}
+
+export interface DeviceVerifyResponse {
+  valid: boolean;
+}
+
+export interface DeviceList {
+  items: FieldDevice[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/* -------------------------------- Reports -------------------------------- */
+
+export type ReportStatus = "pending" | "ready" | "failed";
+
+export type ReportFormat = "json" | "csv" | "pdf";
+
+export interface Report {
+  id: string;
+  case_id: string;
+  report_type: string;
+  format: string;
+  title: string;
+  status: ReportStatus;
+  byte_size: number | null;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+export interface ReportGenerateRequest {
+  report_type: string;
+  format?: string;
+  title?: string | null;
+}
+
+export interface ReportList {
+  items: Report[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/* ------------------------- Investigation hypotheses ------------------------- */
+
+export type InvestigationHypothesisStatus =
+  | "proposed"
+  | "under_review"
+  | "supported"
+  | "contradicted"
+  | "dismissed"
+  | "concluded";
+
+export interface InvestigationHypothesis {
+  id: string;
+  case_id: string;
+  kind: string;
+  status: InvestigationHypothesisStatus;
+  title: string;
+  statement: string;
+  confidence: number | null;
+  supporting_evidence: string[] | null;
+  contradicting_evidence: string[] | null;
+  related_entities: string[] | null;
+  related_relationships: string[] | null;
+  evidence_weight: number;
+  notes: string | null;
+  submitted_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestigationHypothesisCreateRequest {
+  kind?: string;
+  title: string;
+  statement: string;
+  confidence?: number | null;
+  notes?: string | null;
+}
+
+export interface InvestigationHypothesisList {
+  items: InvestigationHypothesis[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface HypothesisLinkEvidenceRequest {
+  evidence_id: string;
+  support?: boolean;
+}
+
+/* -------------------------------- Timeline -------------------------------- */
+
+export type TimelineEventKind =
+  | "case_created"
+  | "case_status_changed"
+  | "case_archived"
+  | "evidence_uploaded"
+  | "evidence_ingested"
+  | "evidence_restored"
+  | "collection_created"
+  | "collection_sealed"
+  | "device_registered"
+  | "device_approved"
+  | "device_revoked"
+  | "hypothesis_created"
+  | "hypothesis_status_changed"
+  | "finding_created"
+  | "finding_status_changed"
+  | "entity_merged"
+  | "match_accepted"
+  | "match_rejected"
+  | "analytics_run"
+  | "report_generated";
+
+export interface TimelineEvent {
+  id: string;
+  case_id: string;
+  occurred_at: string;
+  kind: string;
+  title: string;
+  description: string | null;
+  entity_id: string | null;
+  evidence_file_id: string | null;
+  collection_id: string | null;
+  device_id: string | null;
+  actor_user_id: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface TimelineEventList {
+  items: TimelineEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface TimelineEventCreateRequest {
+  occurred_at: string;
+  kind: string;
+  title: string;
+  description?: string | null;
+  entity_id?: string | null;
+  evidence_file_id?: string | null;
+  collection_id?: string | null;
+  device_id?: string | null;
+  payload?: Record<string, unknown> | null;
+}
+
+/* -------------------------------- Search -------------------------------- */
+
+export interface SearchResult {
+  kind: string;
+  id: string;
+  title: string;
+  subtitle: string | null;
+  url: string;
+}
+
+export interface SearchResponse {
+  items: SearchResult[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/* ----------------------------- Import packages ----------------------------- */
+
+export interface ImportAccepted {
+  case_id: string;
+  device_serial: string;
+  imported_evidence_count: number;
+  evidence_ids: string[];
+  collection_name: string | null;
+}
+
+/* ------------------------------ Resolution API ------------------------------ */
+
+export type EntityMergeRequest = {
+  primary_entity_id: string;
+  merge_entity_id: string;
+};
+
+export interface ReviewDecisionResponse {
+  match_id: string;
+  status: string;
+}
+
+export interface EvidenceRestoreResponse {
+  id: string;
+  case_id: string;
+  original_filename: string;
+  restored: boolean;
+  content_restored: boolean;
+}
+
 /* ---------------------------- Pagination ---------------------------- */
 
 export interface PageParams {

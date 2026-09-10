@@ -72,6 +72,16 @@ class EvidenceRepository:
             await self._session.flush()
         return evidence
 
+    async def restore_evidence(self, evidence_file_id: uuid.UUID) -> EvidenceFile | None:
+        """Clear deleted_at to bring a soft-deleted evidence file back."""
+        evidence = await self.get_evidence(evidence_file_id)
+        if evidence is None:
+            return None
+        if evidence.deleted_at is not None:
+            evidence.deleted_at = None
+            await self._session.flush()
+        return evidence
+
     async def get_by_sha(self, case_id: uuid.UUID, sha256: str) -> EvidenceFile | None:
         result = await self._session.execute(
             select(EvidenceFile).where(
@@ -92,6 +102,7 @@ class EvidenceRepository:
         file_size: int,
         sha256: str,
         metadata_json: dict[str, object] | None,
+        collection_id: uuid.UUID | None = None,
     ) -> EvidenceFile:
         evidence = EvidenceFile(
             case_id=str(case_id),
@@ -102,6 +113,7 @@ class EvidenceRepository:
             file_size=file_size,
             sha256=sha256,
             metadata_json=metadata_json,
+            collection_id=str(collection_id) if collection_id else None,
         )
         self._session.add(evidence)
         await self._session.flush()

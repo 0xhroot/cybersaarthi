@@ -269,4 +269,170 @@ describe("mock adapter", () => {
     expect(review.items.length).toBeGreaterThan(0);
     expect(review.items.every((c) => c.candidate_value.length > 0)).toBe(true);
   });
+
+  it("returns the real timeline event feed and records new events on it", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const feed = await mockApi.timeline.events(MAIN_CASE_ID);
+    expect(feed.total).toBeGreaterThan(0);
+    expect(feed.items[0]).toHaveProperty("kind");
+    expect(feed.items[0]).toHaveProperty("occurred_at");
+
+    const created = await mockApi.timeline.create(MAIN_CASE_ID, {
+      occurred_at: new Date().toISOString(),
+      kind: "finding_created",
+      title: "Investigator re-opened review",
+    });
+    expect(created.title).toContain("re-opened");
+    expect(created.actor_user_id).toBeTruthy();
+
+    const after = await mockApi.timeline.events(MAIN_CASE_ID);
+    expect(after.total).toBe(feed.total + 1);
+    expect(after.items[0].id).toBe(created.id);
+  });
+
+  it("accepts and rejects resolution review matches", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const review = await mockApi.entities.reviewResolution(MAIN_CASE_ID);
+    const matchId = review.items[0].match_id;
+
+    // Analyst can view but not decide.
+    await signIn("analyst", "analyst-demo-password");
+    await expect(
+      mockApi.entities.acceptMatch(MAIN_CASE_ID, matchId),
+    ).rejects.toMatchObject({ status: 403 });
+
+    await signIn("investigator", "investigator-dev-password");
+    const decided = await mockApi.entities.rejectMatch(MAIN_CASE_ID, matchId);
+    expect(decided.status).toBe("rejected");
+  });
+
+  it("merges a duplicate entity into the surviving primary", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const entities = await mockApi.entities.list(MAIN_CASE_ID, { limit: 200 });
+    const [primary, duplicate] = entities.items.filter((e) => e.status === "active").slice(0, 2);
+    expect(primary).toBeTruthy();
+    expect(duplicate).toBeTruthy();
+
+    await signIn("viewer", "viewer-demo-password");
+    await expect(
+      mockApi.entities.mergeEntities(MAIN_CASE_ID, {
+        primary_entity_id: primary!.id,
+        merge_entity_id: duplicate!.id,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    await signIn("investigator", "investigator-dev-password");
+    const merged = await mockApi.entities.mergeEntities(MAIN_CASE_ID, {
+      primary_entity_id: primary!.id,
+      merge_entity_id: duplicate!.id,
+    });
+    expect(merged.id).toBe(primary!.id);
+    expect(merged.status).toBe("active");
+  });
+
+  it("creates and seals collections, locking them against edits", async () => {
+    await signIn("admin", "admin-dev-password");
+    const created = await mockApi.collections.create(MAIN_CASE_ID, { name: "Tower B phones" });
+    expect(created.status).toBe("open");
+
+    const sealed = await mockApi.collections.seal(MAIN_CASE_ID, created.id);
+    expect(sealed.status).toBe("sealed");
+    expect(sealed.sealed_at).toBeTruthy();
+
+    await expect(
+      mockApi.collections.update(MAIN_CASE_ID, created.id, { description: "late edit" }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("moves deleted evidence to the recycle bin and restores it back", async () => {
+    await signIn("admin", "admin-dev-password");
+    const before = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 50 });
+    const target = before.items[0];
+
+    await mockApi.evidence.delete(MAIN_CASE_ID, target.id);
+    const afterDelete = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 50 });
+    expect(afterDelete.items.some((e) => e.id === target.id)).toBe(false);
+
+    await signIn("analyst", "analyst-demo-password");
+    await expect(
+      mockApi.evidence.restore(MAIN_CASE_ID, target.id),
+    ).rejects.toMatchObject({ status: 403 });
+
+    await signIn("admin", "admin-dev-password");
+    const restored = await mockApi.evidence.restore(MAIN_CASE_ID, target.id);
+    expect(restored.id).toBe(target.id);
+    expect(restored.restored).toBe(true);
+
+    const afterRestore = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 50 });
+    expect(afterRestore.items.some((e) => e.id === target.id)).toBe(true);
+  });
+
+  it("registers, approves and revokes a field device with admin-only approval", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const registered = await mockApi.fieldDevices.register(MAIN_CASE_ID, {
+      platform: "android_mobile",
+      serial: `SN-TEST-${Math.floor(Math.random() * 1e6)}`,
+      model: "Pixel 9",
+      public_key: "AAAAB3NzaC1yc2E...dc6SGFs",
+    });
+    expect(registered.status).toBe("pending");
+
+    await signIn("analyst", "analyst-demo-password");
+    await expect(
+      mockApi.fieldDevices.approve(MAIN_CASE_ID, registered.id),
+    ).rejects.toMatchObject({ status: 403 });
+
+    await signIn("admin", "admin-dev-password");
+    const approved = await mockApi.fieldDevices.approve(MAIN_CASE_ID, registered.id);
+    expect(approved.status).toBe("approved");
+    expect(approved.approved_by).toBeTruthy();
+
+    const revoked = await mockApi.fieldDevices.revoke(MAIN_CASE_ID, registered.id);
+    expect(revoked.status).toBe("revoked");
+  });
+
+  it("generates a report and downloads it as a blob", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const report = await mockApi.reports.generate(MAIN_CASE_ID, {
+      report_type: "case_summary",
+      format: "json",
+    });
+    expect(report.status).toBe("ready");
+
+    const list = await mockApi.reports.list(MAIN_CASE_ID);
+    expect(list.items.length).toBeGreaterThan(0);
+
+    const { blob, filename } = await mockApi.reports.download(MAIN_CASE_ID, report.id);
+    expect(blob.size).toBeGreaterThan(0);
+    expect(filename).toContain("case_summary");
+  });
+
+  it("records investigation hypotheses and advances their status", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const created = await mockApi.hypotheses.create(MAIN_CASE_ID, {
+      title: "Funds moved through the recovered account",
+      statement: "The stolen amount passed through account X within hours of the theft.",
+    });
+    expect(created.status).toBe("proposed");
+
+    const updated = await mockApi.hypotheses.updateStatus(MAIN_CASE_ID, created.id, "under_review");
+    expect(updated.status).toBe("under_review");
+
+    const list = await mockApi.hypotheses.list(MAIN_CASE_ID);
+    expect(list.items.some((h) => h.id === created.id)).toBe(true);
+  });
+
+  it("searches case content and accepts a signed import package", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const result = await mockApi.search.search(MAIN_CASE_ID, { q: "Mumbai" });
+    expect(result.total).toBeGreaterThan(0);
+
+    const accepted = await mockApi.importPackages.submitPackage(MAIN_CASE_ID, {
+      manifest: new File(['{"schema_version": 1}'], "manifest.json", { type: "application/json" }),
+      signature: new File(["signature-bytes"], "manifest.json.sig", { type: "application/octet-stream" }),
+      files: [new File(["payload"], "chunk_001.bin", { type: "application/octet-stream" })],
+    });
+    expect(accepted.imported_evidence_count).toBe(1);
+    expect(accepted.evidence_ids.length).toBe(1);
+  });
 });

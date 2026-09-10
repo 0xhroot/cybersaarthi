@@ -13,7 +13,6 @@ import type {
   AnalyticsRun,
   AnalyticsRunList,
   AnalyticsSummary,
-  AuditEvent,
   AuditList,
   Case,
   CaseCreateRequest,
@@ -22,14 +21,25 @@ import type {
   CaseMemberListResponse,
   CaseUpdateRequest,
   CentralityEntry,
+  Collection,
+  CollectionCreateRequest,
+  CollectionList,
+  CollectionUpdateRequest,
   Community,
+  DeviceList,
+  DeviceRegisterRequest,
+  DeviceVerifyRequest,
+  DeviceVerifyResponse,
   EntityDetail,
   EntityEgoGraph,
   EntityList,
+  EntityMergeRequest,
   EvidenceCreateResponse,
   EvidenceDetail,
   EvidenceList,
   EvidenceProvenanceResponse,
+  EvidenceRestoreResponse,
+  FieldDevice,
   Finding,
   FindingList,
   FindingStats,
@@ -38,8 +48,13 @@ import type {
   GraphStats,
   GraphSyncResult,
   Hypothesis,
+  HypothesisLinkEvidenceRequest,
+  ImportAccepted,
   IngestAccepted,
   IngestJobList,
+  InvestigationHypothesis,
+  InvestigationHypothesisCreateRequest,
+  InvestigationHypothesisList,
   IoTDevice,
   IoTDeviceCreateRequest,
   IoTDeviceList,
@@ -54,7 +69,15 @@ import type {
   Priority,
   RelationshipList,
   RelationshipStrength,
+  Report,
+  ReportGenerateRequest,
+  ReportList,
+  ReviewDecisionResponse,
   ReviewList,
+  SearchResponse,
+  TimelineEvent,
+  TimelineEventCreateRequest,
+  TimelineEventList,
   TokenResponse,
   UserOut,
   Victim,
@@ -153,6 +176,9 @@ export interface ApiEntityService {
   get(caseId: string, entityId: string): Promise<EntityDetail>;
   relationships(caseId: string, limit?: number): Promise<RelationshipList>;
   reviewResolution(caseId: string): Promise<ReviewList>;
+  acceptMatch(caseId: string, matchId: string): Promise<ReviewDecisionResponse>;
+  rejectMatch(caseId: string, matchId: string): Promise<ReviewDecisionResponse>;
+  mergeEntities(caseId: string, input: EntityMergeRequest): Promise<EntityDetail>;
 }
 
 export interface ApiEvidenceService {
@@ -162,11 +188,13 @@ export interface ApiEvidenceService {
     caseId: string,
     file: UploadFile,
     dataSource?: string,
+    options?: { collectionId?: string },
   ): Promise<EvidenceCreateResponse>;
   provenance(caseId: string, evidenceId: string): Promise<EvidenceProvenanceResponse>;
   ingest(caseId: string, evidenceFileId: string): Promise<IngestAccepted>;
   jobs(caseId: string, params?: PageParams): Promise<IngestJobList>;
   delete(caseId: string, evidenceId: string): Promise<void>;
+  restore(caseId: string, evidenceId: string): Promise<EvidenceRestoreResponse>;
   retryGraphSync(caseId: string, jobId: string): Promise<GraphSyncResult>;
 }
 
@@ -239,14 +267,90 @@ export interface ApiIoTService {
   recordEvent(caseId: string, input: IoTEventCreateRequest): Promise<IoTEvent>;
 }
 
-export type ApiTimelineEvent = Pick<AuditEvent, "id" | "action" | "case_id"> & {
-  metadata_: Record<string, unknown> | null;
-  created_at: string;
-  actor_id: string | null;
-};
+/* ---------------------------- Collections ---------------------------- */
+
+export interface CollectionListParams extends PageParams {
+  status?: string;
+}
+
+export interface ApiCollectionService {
+  list(caseId: string, params?: CollectionListParams): Promise<CollectionList>;
+  get(caseId: string, collectionId: string): Promise<Collection>;
+  create(caseId: string, input: CollectionCreateRequest): Promise<Collection>;
+  update(caseId: string, collectionId: string, input: CollectionUpdateRequest): Promise<Collection>;
+  seal(caseId: string, collectionId: string): Promise<Collection>;
+  delete(caseId: string, collectionId: string): Promise<void>;
+}
+
+/* ------------------------------ Field devices ------------------------------ */
+
+export interface DeviceListParams extends PageParams {
+  status?: string;
+}
+
+export interface ApiFieldDeviceService {
+  list(caseId: string, params?: DeviceListParams): Promise<DeviceList>;
+  register(caseId: string, input: DeviceRegisterRequest): Promise<FieldDevice>;
+  approve(caseId: string, deviceId: string): Promise<FieldDevice>;
+  revoke(caseId: string, deviceId: string): Promise<FieldDevice>;
+  verifyKey(caseId: string, deviceId: string, input: DeviceVerifyRequest): Promise<DeviceVerifyResponse>;
+}
+
+/* --------------------------------- Reports -------------------------------- */
+
+export interface ReportListParams extends PageParams {
+  report_type?: string;
+}
+
+export interface ApiReportService {
+  list(caseId: string, params?: ReportListParams): Promise<ReportList>;
+  get(caseId: string, reportId: string): Promise<Report>;
+  generate(caseId: string, input: ReportGenerateRequest): Promise<Report>;
+  download(caseId: string, reportId: string): Promise<{ blob: Blob; filename: string }>;
+}
+
+/* ------------------------- Investigation hypotheses ------------------------- */
+
+export interface InvestigationHypothesisListParams extends PageParams {
+  kind?: string;
+  status?: string;
+}
+
+export interface ApiHypothesisService {
+  list(caseId: string, params?: InvestigationHypothesisListParams): Promise<InvestigationHypothesisList>;
+  get(caseId: string, hypothesisId: string): Promise<InvestigationHypothesis>;
+  create(caseId: string, input: InvestigationHypothesisCreateRequest): Promise<InvestigationHypothesis>;
+  updateStatus(caseId: string, hypothesisId: string, status: string): Promise<InvestigationHypothesis>;
+  linkEvidence(
+    caseId: string,
+    hypothesisId: string,
+    input: HypothesisLinkEvidenceRequest,
+  ): Promise<InvestigationHypothesis>;
+  delete(caseId: string, hypothesisId: string): Promise<void>;
+}
+
+/* ---------------------------------- Search -------------------------------- */
+
+export interface SearchParams extends PageParams {
+  q: string;
+}
+
+export interface ApiSearchService {
+  search(caseId: string, params: SearchParams): Promise<SearchResponse>;
+}
+
+/* ------------------------------ Import packages ------------------------------ */
+
+export interface ApiImportService {
+  submitPackage(
+    caseId: string,
+    payload: { manifest: File; signature: File; files: File[] },
+  ): Promise<ImportAccepted>;
+}
 
 export interface ApiTimelineService {
-  events(caseId: string, limit?: number): Promise<ApiTimelineEvent[]>;
+  events(caseId: string, params?: { limit?: number; kind?: string }): Promise<TimelineEventList>;
+  create(caseId: string, input: TimelineEventCreateRequest): Promise<TimelineEvent>;
 }
 
 export interface Api {
@@ -263,4 +367,10 @@ export interface Api {
   victims: ApiVictimService;
   iot: ApiIoTService;
   timeline: ApiTimelineService;
+  collections: ApiCollectionService;
+  fieldDevices: ApiFieldDeviceService;
+  reports: ApiReportService;
+  hypotheses: ApiHypothesisService;
+  search: ApiSearchService;
+  importPackages: ApiImportService;
 }

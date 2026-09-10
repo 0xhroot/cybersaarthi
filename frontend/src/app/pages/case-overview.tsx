@@ -342,17 +342,17 @@ export default function CaseOverviewPage() {
           <CardContent>
             {timeline.isLoading ? (
               <Skeleton className="h-24" />
-            ) : (timeline.data ?? []).length === 0 ? (
+            ) : (timeline.data?.items ?? []).length === 0 ? (
               <p className="py-4 text-center text-xs text-dim">
-                Timeline is only visible to roles with audit access.
+                No timeline activity recorded on this case yet.
               </p>
             ) : (
               <div className="divide-y divide-border">
-                {(timeline.data ?? []).slice(0, 5).map((e) => (
+                {(timeline.data?.items ?? []).slice(0, 5).map((e) => (
                   <div key={e.id} className="flex items-start gap-3 py-2">
                     <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent/70" />
-                    <p className="min-w-0 flex-1 truncate text-sm text-foreground">{e.action}</p>
-                    <span className="shrink-0 text-[11px] text-dim">{timeAgoShort(e.created_at)}</span>
+                    <p className="min-w-0 flex-1 truncate text-sm text-foreground">{e.title}</p>
+                    <span className="shrink-0 text-[11px] text-dim">{timeAgoShort(e.occurred_at)}</span>
                   </div>
                 ))}
               </div>

@@ -21,6 +21,8 @@ dependencies = [
     "rapidfuzz==3.14.5",
     "charset-normalizer==3.5.1",
     "python-multipart==0.0.32",
+    "cryptography==50.0.1",
+    "fpdf2==2.8.8",
 ]
 
 [project.optional-dependencies]

@@ -155,6 +155,7 @@ async def http_client(api_user: ApiUser):
     app.state.graph_store = GraphStore(settings)
     app.state.cache = Cache(settings)
     app.state.storage = Storage(settings)
+    app.state.settings = settings
 
     headers = {"Authorization": f"Bearer {api_user.token}"}
     transport = httpx.ASGITransport(app=app)

@@ -1,15 +1,45 @@
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Link } from "react-router-dom";
-import { Lightbulb, AlertTriangle } from "lucide-react";
-import { useHypotheses } from "@/hooks/queries";
+import { Lightbulb, AlertTriangle, Plus } from "lucide-react";
+import {
+  useHypotheses,
+  useInvestigationHypotheses,
+  useCreateInvestigationHypothesis,
+  useUpdateInvestigationHypothesisStatus,
+} from "@/hooks/queries";
+import { useCan } from "@/lib/permissions";
 import { PageContainer, PageHeader } from "@/components/layout/page";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge } from "@/components/status";
 import { RELATIONSHIP_TYPE_META } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input, Label, Textarea } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/loading";
 import { ErrorState } from "@/components/ui/error-state";
-import type { RelationshipType } from "@/types/domain";
+import { toast } from "@/components/ui/toast";
+import { timeAgoShort } from "@/lib/utils";
+import type { RelationshipType, InvestigationHypothesisStatus } from "@/types/domain";
+
+const STATUS_META: Record<InvestigationHypothesisStatus, { label: string; tone: "info" | "high" | "success" | "critical" | "neutral" }> = {
+  proposed: { label: "Proposed", tone: "info" },
+  under_review: { label: "Under review", tone: "high" },
+  supported: { label: "Supported", tone: "success" },
+  contradicted: { label: "Contradicted", tone: "critical" },
+  dismissed: { label: "Dismissed", tone: "neutral" },
+  concluded: { label: "Concluded", tone: "success" },
+};
+
+const STATUS_ORDER: InvestigationHypothesisStatus[] = [
+  "proposed",
+  "under_review",
+  "supported",
+  "contradicted",
+  "dismissed",
+  "concluded",
+];
 
 function signalName(signal: Record<string, unknown>): string {
   return String(signal.name ?? signal.label ?? signal.description ?? "signal");
@@ -23,6 +53,39 @@ function signalMessage(signal: Record<string, unknown>): string | null {
 export default function HypothesesPage() {
   const { caseId = "" } = useParams();
   const hypotheses = useHypotheses(caseId);
+  const investigation = useInvestigationHypotheses(caseId);
+  const create = useCreateInvestigationHypothesis(caseId);
+  const setStatus = useUpdateInvestigationHypothesisStatus(caseId);
+  const canReview = useCan("findings.review");
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [statement, setStatement] = useState("");
+
+  const submitCreate = async () => {
+    if (!title.trim() || !statement.trim()) {
+      toast({ title: "Incomplete hypothesis", description: "Add both a title and a statement." });
+      return;
+    }
+    try {
+      await create.mutateAsync({ title: title.trim(), statement: statement.trim() });
+      toast({ title: "Hypothesis recorded", description: "It will be tracked until supported, contradicted or dismissed." });
+      setFormOpen(false);
+      setTitle("");
+      setStatement("");
+    } catch (err) {
+      toast({ title: "Could not add hypothesis", description: (err as Error).message });
+    }
+  };
+
+  const submitStatus = async (hypothesisId: string, status: InvestigationHypothesisStatus) => {
+    try {
+      await setStatus.mutateAsync({ hypothesisId, status });
+      toast({ title: "Status updated", description: `Hypothesis marked ${STATUS_META[status].label.toLowerCase()}.` });
+    } catch (err) {
+      toast({ title: "Status update failed", description: (err as Error).message });
+    }
+  };
 
   return (
     <PageContainer>
@@ -36,13 +99,98 @@ export default function HypothesesPage() {
         <CardContent className="flex items-start gap-3">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-high" />
           <p className="text-xs leading-relaxed text-muted">
-            Hypotheses propose a plausible link and show the evidence behind it. They are <strong>not findings</strong> —
-            nothing here is treated as fact until confirmed against source records and reviewed by an analyst.
+            Hypotheses propose a plausible link and show the evidence behind it. They are <strong>not findings</strong> — nothing
+            here is treated as fact until confirmed against source records and reviewed by an analyst.
           </p>
         </CardContent>
       </Card>
 
       <div className="mt-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Investigation hypotheses</h2>
+            <p className="text-[11px] text-dim">Actively tracked hypotheses about who did what — review keeps them honest.</p>
+          </div>
+          {canReview ? (
+            <Button size="sm" variant="secondary" onClick={() => setFormOpen(!formOpen)}>
+              <Plus className="size-4" /> Add hypothesis
+            </Button>
+          ) : null}
+        </div>
+
+        {canReview && formOpen ? (
+          <Card className="mb-3">
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Title</Label>
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Theft was committed using the recovered SIM account" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Statement</Label>
+                <Textarea value={statement} onChange={(e) => setStatement(e.target.value)} rows={2} placeholder="One falsifiable statement the team can chase or refute." />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setFormOpen(false)}>Cancel</Button>
+                <Button size="sm" disabled={create.isPending} onClick={() => void submitCreate()}>
+                  {create.isPending ? "Recording…" : "Record hypothesis"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {investigation.isLoading ? (
+          <div className="space-y-2">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
+        ) : investigation.isError ? (
+          <Card><ErrorState error={investigation.error} onRetry={() => void investigation.refetch()} /></Card>
+        ) : (investigation.data?.items ?? []).length === 0 ? (
+          <Card><CardContent className="py-6 text-center text-xs text-dim">
+            No investigation hypotheses yet. {canReview ? "Use “Add hypothesis” to open one." : "Ask an investigator to record one."}
+          </CardContent></Card>
+        ) : (
+          <div className="space-y-2">
+            {(investigation.data?.items ?? []).map((h) => (
+              <Card key={h.id}>
+                <CardContent className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{h.title}</span>
+                    <Badge tone={STATUS_META[h.status].tone}>{STATUS_META[h.status].label}</Badge>
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted">{h.statement}</p>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border pt-2 text-[10px] text-dim">
+                    <span>weight <span className="tabular text-foreground/70">{h.evidence_weight}</span></span>
+                    <span>support <span className="tabular text-foreground/70">{h.supporting_evidence?.length ?? 0}</span></span>
+                    <span>against <span className="tabular text-foreground/70">{h.contradicting_evidence?.length ?? 0}</span></span>
+                    <span className="min-w-0 flex-1 truncate">{h.submitted_by ? `by ${h.submitted_by}` : "no submitter"}</span>
+                    <span>{timeAgoShort(h.updated_at)}</span>
+                    {canReview ? (
+                      <Select
+                        value={h.status}
+                        onValueChange={(value) => void submitStatus(h.id, value as InvestigationHypothesisStatus)}
+                      >
+                        <SelectTrigger className="h-7 w-36 text-[11px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STATUS_ORDER.map((s) => (
+                            <SelectItem key={s} value={s}>{STATUS_META[s].label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-foreground">Analytics hypotheses</h2>
+          <p className="text-[11px] text-dim">Candidate explanations assembled automatically from weaker signals in the graph.</p>
+        </div>
         {hypotheses.isLoading ? (
           <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28" />)}</div>
         ) : hypotheses.isError ? (

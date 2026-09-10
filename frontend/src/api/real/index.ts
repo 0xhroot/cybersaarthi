@@ -1,5 +1,6 @@
 import { request } from "@/api/client/http";
 import { authSession } from "@/api/client/session";
+import { apiConfig } from "@/config/env";
 import type {
   AdminUserListParams,
   Api,
@@ -8,16 +9,27 @@ import type {
   ApiAuditService,
   ApiAuthService,
   ApiCaseService,
+  ApiCollectionService,
   ApiEntityService,
   ApiEvidenceService,
+  ApiFieldDeviceService,
   ApiFindingService,
   ApiGraphService,
+  ApiHypothesisService,
+  ApiImportService,
   ApiIoTService,
+  ApiReportService,
+  ApiSearchService,
   ApiTimelineService,
   ApiVictimService,
   CaseListParams,
+  CollectionListParams,
+  DeviceListParams,
+  InvestigationHypothesisListParams,
   RegisterInput,
   RegisteredUserOut,
+  ReportListParams,
+  SearchParams,
 } from "@/api/contract";
 import type {
   AdminUserList,
@@ -30,14 +42,21 @@ import type {
   CaseList,
   CaseMemberListResponse,
   CentralityEntry,
+  Collection,
+  CollectionList,
   Community,
+  DeviceList,
+  DeviceVerifyResponse,
   EntityDetail,
   EntityEgoGraph,
   EntityList,
+  EntityMergeRequest,
   EvidenceCreateResponse,
   EvidenceDetail,
   EvidenceList,
   EvidenceProvenanceResponse,
+  EvidenceRestoreResponse,
+  FieldDevice,
   Finding,
   FindingList,
   FindingStats,
@@ -46,8 +65,11 @@ import type {
   GraphStats,
   GraphSyncResult,
   Hypothesis,
+  ImportAccepted,
   IngestAccepted,
   IngestJobList,
+  InvestigationHypothesis,
+  InvestigationHypothesisList,
   IoTDevice,
   IoTDeviceList,
   IoTDeviceStats,
@@ -59,7 +81,13 @@ import type {
   Priority,
   RelationshipList,
   RelationshipStrength,
+  Report,
+  ReportList,
+  ReviewDecisionResponse,
   ReviewList,
+  SearchResponse,
+  TimelineEvent,
+  TimelineEventList,
   TokenResponse,
   Victim,
   VictimList,
@@ -211,6 +239,24 @@ const entityService: ApiEntityService = {
   reviewResolution(caseId) {
     return request<ReviewList>(`/cases/${caseId}/resolution/review`);
   },
+  acceptMatch(caseId, matchId) {
+    return request<ReviewDecisionResponse>(
+      `/cases/${caseId}/resolution/matches/${matchId}/accept`,
+      { method: "POST", body: {} },
+    );
+  },
+  rejectMatch(caseId, matchId) {
+    return request<ReviewDecisionResponse>(
+      `/cases/${caseId}/resolution/matches/${matchId}/reject`,
+      { method: "POST", body: {} },
+    );
+  },
+  mergeEntities(caseId, input: EntityMergeRequest) {
+    return request<EntityDetail>(`/cases/${caseId}/entities/merge`, {
+      method: "POST",
+      body: input,
+    });
+  },
 };
 
 const evidenceService: ApiEvidenceService = {
@@ -222,10 +268,13 @@ const evidenceService: ApiEvidenceService = {
   get(caseId, evidenceId) {
     return request<EvidenceDetail>(`/cases/${caseId}/evidence/${evidenceId}`);
   },
-  async upload(caseId, file, dataSource = "csv") {
+  async upload(caseId, file, dataSource = "csv", options) {
     const formData = new FormData();
     formData.append("file", new File([file.contents], file.name, { type: file.type }));
     formData.append("data_source", dataSource);
+    if (options?.collectionId) {
+      formData.append("collection_id", options.collectionId);
+    }
     return request<EvidenceCreateResponse>(`/cases/${caseId}/evidence`, {
       method: "POST",
       formData,
@@ -251,6 +300,12 @@ const evidenceService: ApiEvidenceService = {
     return request<void>(`/cases/${caseId}/evidence/${evidenceId}`, {
       method: "DELETE",
     });
+  },
+  restore(caseId, evidenceId) {
+    return request<EvidenceRestoreResponse>(
+      `/cases/${caseId}/evidence/${evidenceId}/restore`,
+      { method: "POST", body: {} },
+    );
   },
   retryGraphSync(caseId, jobId) {
     return request<GraphSyncResult>(`/cases/${caseId}/ingest/${jobId}/retry-graph-sync`, {
@@ -354,24 +409,201 @@ const auditService: ApiAuditService = {
 
 const timelineService: ApiTimelineService = {
   /**
-   * Case timeline is derived from the append-only audit log. VIEWER/ANALYST
-   * cannot read audit (the API 403s), so for those roles we surface an empty
-   * timeline rather than failing the whole case view.
+   * Case timeline is the first-class TimelineEvent feed (one row per recorded
+   * transition: evidence uploaded, collections sealed, devices approved,
+   * hypotheses upset, reports generated). Every reader of the case can list it
+   * (PERM_CASE_READ), so unlike the old audit-derived feed there is no role
+   * fallback to an empty list.
    */
-  async events(caseId, limit = 100) {
-    const permissions = authSession.permissions ?? [];
-    if (!permissions.includes("audit.read")) {
-      return [];
+  events(caseId, params = {}) {
+    return request<TimelineEventList>(
+      `/cases/${caseId}/timeline${buildQuery({
+        limit: params.limit ?? 200,
+        ...(params.kind ? { kind: params.kind } : {}),
+      })}`,
+    );
+  },
+  create(caseId, input) {
+    return request<TimelineEvent>(`/cases/${caseId}/timeline`, {
+      method: "POST",
+      body: input,
+    });
+  },
+};
+
+const collectionService: ApiCollectionService = {
+  list(caseId, params: CollectionListParams = {}) {
+    return request<CollectionList>(
+      `/cases/${caseId}/collections${buildQuery({
+        limit: params.limit ?? 100,
+        offset: params.offset ?? 0,
+        ...(params.status ? { status: params.status } : {}),
+      })}`,
+    );
+  },
+  get(caseId, collectionId) {
+    return request<Collection>(`/cases/${caseId}/collections/${collectionId}`);
+  },
+  create(caseId, input) {
+    return request<Collection>(`/cases/${caseId}/collections`, {
+      method: "POST",
+      body: input,
+    });
+  },
+  update(caseId, collectionId, input) {
+    return request<Collection>(`/cases/${caseId}/collections/${collectionId}`, {
+      method: "PATCH",
+      body: input,
+    });
+  },
+  seal(caseId, collectionId) {
+    return request<Collection>(`/cases/${caseId}/collections/${collectionId}/seal`, {
+      method: "POST",
+      body: {},
+    });
+  },
+  delete(caseId, collectionId) {
+    return request<void>(`/cases/${caseId}/collections/${collectionId}`, {
+      method: "DELETE",
+    });
+  },
+};
+
+const fieldDeviceService: ApiFieldDeviceService = {
+  list(caseId, params: DeviceListParams = {}) {
+    return request<DeviceList>(
+      `/cases/${caseId}/devices${buildQuery({
+        limit: params.limit ?? 100,
+        offset: params.offset ?? 0,
+        ...(params.status ? { status: params.status } : {}),
+      })}`,
+    );
+  },
+  register(caseId, input) {
+    return request<FieldDevice>(`/cases/${caseId}/devices`, {
+      method: "POST",
+      body: input,
+    });
+  },
+  approve(caseId, deviceId) {
+    return request<FieldDevice>(`/cases/${caseId}/devices/${deviceId}/approve`, {
+      method: "POST",
+      body: {},
+    });
+  },
+  revoke(caseId, deviceId) {
+    return request<FieldDevice>(`/cases/${caseId}/devices/${deviceId}/revoke`, {
+      method: "POST",
+      body: {},
+    });
+  },
+  verifyKey(caseId, deviceId, input) {
+    return request<DeviceVerifyResponse>(`/cases/${caseId}/devices/${deviceId}/verify-key`, {
+      method: "POST",
+      body: input,
+    });
+  },
+};
+
+const reportService: ApiReportService = {
+  list(caseId, params: ReportListParams = {}) {
+    return request<ReportList>(
+      `/cases/${caseId}/reports${buildQuery({
+        limit: params.limit ?? 100,
+        offset: params.offset ?? 0,
+        ...(params.report_type ? { report_type: params.report_type } : {}),
+      })}`,
+    );
+  },
+  get(caseId, reportId) {
+    return request<Report>(`/cases/${caseId}/reports/${reportId}`);
+  },
+  generate(caseId, input) {
+    return request<Report>(`/cases/${caseId}/reports`, {
+      method: "POST",
+      body: input,
+    });
+  },
+  async download(caseId, reportId) {
+    const token = authSession.getToken();
+    const url = `/cases/${caseId}/reports/${reportId}/download`;
+    const response = await fetch(`${apiConfig.apiUrl}/api/v1${url}`, {
+      headers: { Authorization: token ? `Bearer ${token}` : "" },
+    });
+    if (!response.ok) {
+      throw new Error(`Download failed (HTTP ${response.status}).`);
     }
-    const audit = await auditService.list({ case_id: caseId, limit });
-    return audit.items.map((event) => ({
-      id: event.id,
-      action: event.action,
-      case_id: event.case_id,
-      actor_id: event.actor_id,
-      metadata_: event.metadata_,
-      created_at: event.created_at,
-    }));
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    const fallback = match?.[1] ?? `report-${reportId}.json`;
+    return { blob, filename: fallback };
+  },
+};
+
+const hypothesisService: ApiHypothesisService = {
+  list(caseId, params: InvestigationHypothesisListParams = {}) {
+    return request<InvestigationHypothesisList>(
+      `/cases/${caseId}/hypotheses${buildQuery({
+        limit: params.limit ?? 100,
+        offset: params.offset ?? 0,
+        ...(params.kind ? { kind: params.kind } : {}),
+        ...(params.status ? { status: params.status } : {}),
+      })}`,
+    );
+  },
+  get(caseId, hypothesisId) {
+    return request<InvestigationHypothesis>(`/cases/${caseId}/hypotheses/${hypothesisId}`);
+  },
+  create(caseId, input) {
+    return request<InvestigationHypothesis>(`/cases/${caseId}/hypotheses`, {
+      method: "POST",
+      body: input,
+    });
+  },
+  updateStatus(caseId, hypothesisId, status) {
+    return request<InvestigationHypothesis>(
+      `/cases/${caseId}/hypotheses/${hypothesisId}/status`,
+      { method: "PATCH", body: { status } },
+    );
+  },
+  linkEvidence(caseId, hypothesisId, input) {
+    return request<InvestigationHypothesis>(
+      `/cases/${caseId}/hypotheses/${hypothesisId}/evidence`,
+      { method: "POST", body: input },
+    );
+  },
+  delete(caseId, hypothesisId) {
+    return request<void>(`/cases/${caseId}/hypotheses/${hypothesisId}`, {
+      method: "DELETE",
+    });
+  },
+};
+
+const searchService: ApiSearchService = {
+  search(caseId, params: SearchParams) {
+    return request<SearchResponse>(
+      `/cases/${caseId}/search${buildQuery({
+        q: params.q,
+        limit: params.limit ?? 50,
+        offset: params.offset ?? 0,
+      })}`,
+    );
+  },
+};
+
+const importService: ApiImportService = {
+  submitPackage(caseId, payload) {
+    const formData = new FormData();
+    formData.append("manifest", new File([payload.manifest], payload.manifest.name, { type: payload.manifest.type }));
+    formData.append("manifest_signature", new File([payload.signature], payload.signature.name, { type: payload.signature.type }));
+    for (const file of payload.files) {
+      formData.append("files", new File([file], file.name, { type: file.type }));
+    }
+    return request<ImportAccepted>(`/cases/${caseId}/import/packages`, {
+      method: "POST",
+      formData,
+    });
   },
 };
 
@@ -475,4 +707,10 @@ export const realApi: Api = {
   victims: victimService,
   iot: iotService,
   timeline: timelineService,
+  collections: collectionService,
+  fieldDevices: fieldDeviceService,
+  reports: reportService,
+  hypotheses: hypothesisService,
+  search: searchService,
+  importPackages: importService,
 };

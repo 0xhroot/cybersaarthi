@@ -1,15 +1,17 @@
-"""Routes: entity and resolution queries."""
+"""Routes: entity and resolution queries + review actions + merge."""
 
 from __future__ import annotations
 
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_case_or_404, get_entity_query_service
+from app.api.dependencies import get_case_or_404, get_entity_query_service, require_permission
+from app.core import rbac
 from app.db.postgres import get_db_session
-from app.models import Entity
+from app.models import Entity, User
 from app.schemas.entity import (
     EntityAliasOut,
     EntityDetailOut,
@@ -20,6 +22,8 @@ from app.schemas.entity import (
     ReviewCandidateOut,
     ReviewListResponse,
 )
+from app.services import audit as audit_svc
+from app.services import resolve_review as rr_svc
 from app.services.entity_service import EntityQueryService
 
 router = APIRouter(prefix="/cases", tags=["entities"])
@@ -127,3 +131,108 @@ async def list_review_matches(
     rows = await service.review_matches_detailed(case_id)
     items = [ReviewCandidateOut(**row) for row in rows]
     return ReviewListResponse(items=items, total=len(items))
+
+
+class ReviewDecisionResponse(BaseModel):
+    match_id: str
+    status: str
+
+
+@router.post(
+    "/{case_id}/resolution/matches/{match_id}/accept",
+    response_model=ReviewDecisionResponse,
+)
+async def accept_match(
+    case_id: uuid.UUID,
+    match_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_FINDINGS_REVIEW)),
+) -> ReviewDecisionResponse:
+    from app.api.dependencies import assert_case_investigation_mutable
+
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
+    match = await rr_svc.accept_match(session=session, case_id=case_id, match_id=match_id)
+    await audit_svc.record_audit(
+        session,
+        actor_id=user.id,
+        action="match.accepted",
+        resource_type="entity_match",
+        resource_id=match.id,
+        case_id=case_id,
+        metadata={"score": match.score},
+    )
+    await session.commit()
+    return ReviewDecisionResponse(match_id=str(match.id), status=match.status)
+
+
+@router.post(
+    "/{case_id}/resolution/matches/{match_id}/reject",
+    response_model=ReviewDecisionResponse,
+)
+async def reject_match(
+    case_id: uuid.UUID,
+    match_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_FINDINGS_REVIEW)),
+) -> ReviewDecisionResponse:
+    from app.api.dependencies import assert_case_investigation_mutable
+
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
+    match = await rr_svc.reject_match(session=session, case_id=case_id, match_id=match_id)
+    await audit_svc.record_audit(
+        session,
+        actor_id=user.id,
+        action="match.rejected",
+        resource_type="entity_match",
+        resource_id=match.id,
+        case_id=case_id,
+        metadata={"score": match.score},
+    )
+    await session.commit()
+    return ReviewDecisionResponse(match_id=str(match.id), status=match.status)
+
+
+class EntityMergeRequest(BaseModel):
+    primary_entity_id: uuid.UUID
+    merge_entity_id: uuid.UUID
+
+
+@router.post(
+    "/{case_id}/entities/merge",
+    response_model=EntityOut,
+)
+async def merge_entities(
+    case_id: uuid.UUID,
+    body: EntityMergeRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_ENTITY_MERGE)),
+) -> EntityOut:
+    from app.api.dependencies import assert_case_investigation_mutable
+
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
+    merged_into = await rr_svc.merge_entities(
+        session=session,
+        case_id=case_id,
+        primary_entity_id=body.primary_entity_id,
+        merge_entity_id=body.merge_entity_id,
+    )
+    await audit_svc.record_audit(
+        session,
+        actor_id=user.id,
+        action="entity.merged",
+        resource_type="entity",
+        resource_id=merged_into.id,
+        case_id=case_id,
+        metadata={
+            "primary_id": str(body.primary_entity_id),
+            "merge_id": str(body.merge_entity_id),
+        },
+    )
+    await session.commit()
+    return _to_entity_out(merged_into)

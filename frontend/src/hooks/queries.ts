@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
-import type { AdminUserListParams, CaseListParams, CaseMemberAddRequest, EntityListParams, FindingListParams, AuditParams, VictimListParams, IoTDeviceListParams, IoTEventListParams } from "@/api/contract";
-import type { CaseStatus, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest } from "@/types/domain";
+import type { AdminUserListParams, CaseListParams, CaseMemberAddRequest, EntityListParams, FindingListParams, AuditParams, VictimListParams, IoTDeviceListParams, IoTEventListParams, InvestigationHypothesisListParams } from "@/api/contract";
+import type { CaseStatus, CollectionCreateRequest, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest, DeviceRegisterRequest, HypothesisLinkEvidenceRequest, ReportGenerateRequest, InvestigationHypothesisCreateRequest } from "@/types/domain";
 
 const MINUTE = 60_000;
 
@@ -41,6 +41,11 @@ export const queryKeys = {
   iotDevice: (caseId: string, id: string) => ["iot", caseId, "devices", id] as const,
   iotDeviceStats: (caseId: string, id: string) => ["iot", caseId, "devices", id, "stats"] as const,
   iotEvents: (caseId: string, params?: IoTEventListParams) => ["iot", caseId, "events", params] as const,
+  collections: (caseId: string) => ["collections", caseId] as const,
+  fieldDevices: (caseId: string) => ["field-devices", caseId] as const,
+  reports: (caseId: string) => ["reports", caseId] as const,
+  investigationHypotheses: (caseId: string, params?: InvestigationHypothesisListParams) => ["hypotheses", caseId, params] as const,
+  search: (caseId: string, q: string) => ["search", caseId, q] as const,
 };
 
 export function useCases(params?: CaseListParams) {
@@ -337,13 +342,13 @@ export function useArchiveCase(caseId: string) {
 export function useUploadEvidence(caseId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { file: File; dataSource?: string }) =>
+    mutationFn: (input: { file: File; dataSource?: string; collectionId?: string }) =>
       api.evidence.upload(caseId, {
         name: input.file.name,
         type: input.file.type,
         size: input.file.size,
         contents: input.file,
-      }, input.dataSource),
+      }, input.dataSource, { collectionId: input.collectionId }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
@@ -654,6 +659,247 @@ export function useRecordIoTEvent(caseId: string) {
       void qc.invalidateQueries({ queryKey: queryKeys.iotDevices(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.iotDevice(caseId, result.device_id) });
       void qc.invalidateQueries({ queryKey: queryKeys.iotDeviceStats(caseId, result.device_id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/* ------------------------- Collections & devices ------------------------- */
+
+export function useCollections(caseId: string) {
+  return useQuery({
+    queryKey: queryKeys.collections(caseId),
+    queryFn: () => api.collections.list(caseId),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateCollection(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CollectionCreateRequest) => api.collections.create(caseId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.collections(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useSealCollection(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (collectionId: string) => api.collections.seal(caseId, collectionId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.collections(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useFieldDevices(caseId: string) {
+  return useQuery({
+    queryKey: queryKeys.fieldDevices(caseId),
+    queryFn: () => api.fieldDevices.list(caseId),
+    staleTime: 30_000,
+  });
+}
+
+export function useRegisterFieldDevice(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: DeviceRegisterRequest) => api.fieldDevices.register(caseId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.fieldDevices(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useApproveFieldDevice(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (deviceId: string) => api.fieldDevices.approve(caseId, deviceId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.fieldDevices(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useRevokeFieldDevice(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (deviceId: string) => api.fieldDevices.revoke(caseId, deviceId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.fieldDevices(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+// Resolution review (accept / reject / merge).
+
+export function useAcceptMatch(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (matchId: string) => api.entities.acceptMatch(caseId, matchId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["resolution", caseId, "review"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.entities(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useRejectMatch(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (matchId: string) => api.entities.rejectMatch(caseId, matchId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["resolution", caseId, "review"] });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useMergeEntities(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { primaryEntityId: string; mergeEntityId: string }) =>
+      api.entities.mergeEntities(caseId, {
+        primary_entity_id: input.primaryEntityId,
+        merge_entity_id: input.mergeEntityId,
+      }),
+    onSuccess: (_result, variables) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.entities(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.entity(caseId, variables.primaryEntityId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.graph(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+// Evidence restore.
+
+export function useRestoreEvidence(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (evidenceId: string) => api.evidence.restore(caseId, evidenceId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/* -------------------------------- Reports -------------------------------- */
+
+export function useReports(caseId: string) {
+  return useQuery({
+    queryKey: queryKeys.reports(caseId),
+    queryFn: () => api.reports.list(caseId),
+    staleTime: 30_000,
+  });
+}
+
+export function useGenerateReport(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReportGenerateRequest) => api.reports.generate(caseId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.reports(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/* ------------------------- Investigation hypotheses ------------------------- */
+
+export function useInvestigationHypotheses(caseId: string) {
+  return useQuery({
+    queryKey: queryKeys.investigationHypotheses(caseId),
+    queryFn: () => api.hypotheses.list(caseId),
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateInvestigationHypothesis(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: InvestigationHypothesisCreateRequest) => api.hypotheses.create(caseId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.investigationHypotheses(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useUpdateInvestigationHypothesisStatus(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hypothesisId, status }: { hypothesisId: string; status: string }) =>
+      api.hypotheses.updateStatus(caseId, hypothesisId, status),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.investigationHypotheses(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useLinkEvidenceToHypothesis(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hypothesisId, input }: { hypothesisId: string; input: HypothesisLinkEvidenceRequest }) =>
+      api.hypotheses.linkEvidence(caseId, hypothesisId, input),
+    onSuccess: (_result, variables) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.investigationHypotheses(caseId) });
+      void variables;
+    },
+  });
+}
+
+export function useDeleteInvestigationHypothesis(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (hypothesisId: string) => api.hypotheses.delete(caseId, hypothesisId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.investigationHypotheses(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/* --------------------------------- Search -------------------------------- */
+
+export function useCaseSearch(caseId: string, query: string) {
+  return useQuery({
+    queryKey: queryKeys.search(caseId, query),
+    queryFn: () => api.search.search(caseId, { q: query, limit: 50 }),
+    enabled: query.trim().length >= 2,
+    staleTime: 30_000,
+  });
+}
+
+export function useSubmitImportPackage(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { manifest: File; signature: File; files: File[] }) =>
+      api.importPackages.submitPackage(caseId, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
     },
   });

@@ -1,17 +1,28 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Search, Users } from "lucide-react";
-import { useEntities, useReviewResolution } from "@/hooks/queries";
+import { Search, Users, Merge, Check, X } from "lucide-react";
+import { useEntities, useReviewResolution, useAcceptMatch, useRejectMatch, useMergeEntities } from "@/hooks/queries";
+import { useCan } from "@/lib/permissions";
 import { useDebounce } from "@/hooks/ui";
 import { PageContainer, PageHeader } from "@/components/layout/page";
 import { Card, CardContent } from "@/components/ui/card";
 import { EntityTypeBadge, EntityStatusBadge } from "@/components/status";
-import { Input } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/loading";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { toast } from "@/components/ui/toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatPercent } from "@/lib/utils";
 import type { EntityType } from "@/types/domain";
 
@@ -42,6 +53,53 @@ export default function EntitiesPage() {
 
   const review = useReviewResolution(caseId);
 
+  const canMerge = useCan("entity.merge");
+  const canReview = useCan("findings.review");
+
+  const acceptMatch = useAcceptMatch(caseId);
+  const rejectMatch = useRejectMatch(caseId);
+  const mergeEntities = useMergeEntities(caseId);
+
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergePrimary, setMergePrimary] = useState("");
+  const [mergeDuplicate, setMergeDuplicate] = useState("");
+
+  const mergeOptions = (entities.data?.items ?? []).filter((e) => e.status === "active");
+
+  const submitAccept = async (matchId: string) => {
+    try {
+      await acceptMatch.mutateAsync(matchId);
+      toast({ title: "Match accepted", description: "The candidate was linked to the primary entity." });
+    } catch (err) {
+      toast({ title: "Action failed", description: (err as Error).message });
+    }
+  };
+
+  const submitReject = async (matchId: string) => {
+    try {
+      await rejectMatch.mutateAsync(matchId);
+      toast({ title: "Match rejected", description: "The candidate was dismissed." });
+    } catch (err) {
+      toast({ title: "Action failed", description: (err as Error).message });
+    }
+  };
+
+  const submitMerge = async () => {
+    if (!mergePrimary || !mergeDuplicate) {
+      toast({ title: "Choose both entities", description: "Select the surviving and duplicate entities to merge." });
+      return;
+    }
+    try {
+      await mergeEntities.mutateAsync({ primaryEntityId: mergePrimary, mergeEntityId: mergeDuplicate });
+      toast({ title: "Entities merged", description: "The duplicate folded into the primary and the graph was updated." });
+      setMergeOpen(false);
+      setMergePrimary("");
+      setMergeDuplicate("");
+    } catch (err) {
+      toast({ title: "Merge failed", description: (err as Error).message });
+    }
+  };
+
   useEffect(() => {
     const next = new URLSearchParams(params);
     if (debounced) next.set("q", debounced);
@@ -58,9 +116,16 @@ export default function EntitiesPage() {
         eyebrow="Knowledge graph"
         title="Entities"
         description="Who and what participates in this network — people, telephones, vehicles, accounts and more."
-        actions={<div className="flex items-center gap-2 text-xs text-dim">
-          <Users className="size-4" />
-          {entities.data?.total ?? "…"} entities
+        actions={<div className="flex items-center gap-2">
+          {canMerge ? (
+            <Button variant="secondary" size="sm" onClick={() => setMergeOpen(true)}>
+              <Merge className="size-4" /> Merge entities
+            </Button>
+          ) : null}
+          <div className="flex items-center gap-2 text-xs text-dim">
+            <Users className="size-4" />
+            {entities.data?.total ?? "…"} entities
+          </div>
         </div>}
       />
 
@@ -168,6 +233,30 @@ export default function EntitiesPage() {
                       </p>
                     </div>
                     <EntityTypeBadge value={c.candidate_type as EntityType} />
+                    {canReview ? (
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Accept match"
+                          aria-label="Accept match"
+                          disabled={acceptMatch.isPending || rejectMatch.isPending}
+                          onClick={() => void submitAccept(c.match_id)}
+                        >
+                          <Check className="size-4 text-success" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Reject match"
+                          aria-label="Reject match"
+                          disabled={acceptMatch.isPending || rejectMatch.isPending}
+                          onClick={() => void submitReject(c.match_id)}
+                        >
+                          <X className="size-4 text-critical" />
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -175,6 +264,45 @@ export default function EntitiesPage() {
           </Card>
         </div>
       ) : null}
+
+      <Dialog open={mergeOpen} onOpenChange={setMergeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Merge entities</DialogTitle>
+            <DialogDescription>Fold one duplicate entity into a surviving primary. Their relationships are combined and the graph re-synced.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label>Primary entity (survives)</Label>
+              <Select value={mergePrimary} onValueChange={setMergePrimary}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Choose primary…" /></SelectTrigger>
+                <SelectContent>
+                  {mergeOptions.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>{e.display_value} · {e.entity_type}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Duplicate entity (merged away)</Label>
+              <Select value={mergeDuplicate} onValueChange={setMergeDuplicate}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Choose duplicate…" /></SelectTrigger>
+                <SelectContent>
+                  {mergeOptions.filter((e) => e.id !== mergePrimary).map((e) => (
+                    <SelectItem key={e.id} value={e.id}>{e.display_value} · {e.entity_type}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setMergeOpen(false)}>Cancel</Button>
+            <Button variant="danger" disabled={mergeEntities.isPending} onClick={() => void submitMerge()}>
+              {mergeEntities.isPending ? "Merging…" : "Merge entities"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageContainer>
   );
 }

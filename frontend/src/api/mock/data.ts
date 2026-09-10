@@ -11,10 +11,12 @@ import type {
   AuditEvent,
   Case,
   CentralityEntry,
+  Collection,
   Community,
   Entity,
   EntityDetail,
   EvidenceListItem,
+  FieldDevice,
   Finding,
   FindingStats,
   GraphEdge,
@@ -22,11 +24,14 @@ import type {
   GraphStats,
   Hypothesis,
   IngestionJob,
+  InvestigationHypothesis,
   NetworkProfile,
   Pattern,
   Priority,
   Relationship,
   RelationshipStrength,
+  Report,
+  TimelineEvent,
 } from "@/types/domain";
 
 export type IdGenerator = (seed: number) => string;
@@ -1356,5 +1361,207 @@ export function summaryForCase(caseId: string): {
     exact_graph: true,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Field collections / devices / reports / hypotheses / timeline       */
+/* The real timeline feed replaced the audit-derived events, so the   */
+/* mock seeds a first-class TimelineEvent list here as well.          */
+/* ------------------------------------------------------------------ */
+
+export const MAIN_COLLECTIONS: Collection[] = [
+  {
+    id: uid(2001),
+    case_id: CASE_ID_MAIN,
+    name: "TechSecure CDRs — Q1 burst",
+    description: "Call detail records captured during the February burst window.",
+    status: "sealed",
+    sealed_at: iso(4, 2),
+    created_at: iso(6),
+    updated_at: iso(4, 2),
+  },
+  {
+    id: uid(2002),
+    case_id: CASE_ID_MAIN,
+    name: "Banking SUM extracts",
+    description: "Financial SUM extracts awaiting ingestion.",
+    status: "open",
+    sealed_at: null,
+    created_at: iso(2),
+    updated_at: iso(1),
+  },
+];
+
+export const MAIN_DEVICES: FieldDevice[] = [
+  {
+    id: uid(2101),
+    case_id: CASE_ID_MAIN,
+    platform: "android_mobile",
+    serial: "ANDROID-8F3A-0001",
+    model: "Motorola Moto G54",
+    firmware_version: "1.4.2",
+    signature_algorithm: "RSA-SHA256",
+    status: "approved",
+    approved_by: USER_ADMIN_ID,
+    last_seen_at: iso(0, 6),
+    created_at: iso(9),
+  },
+  {
+    id: uid(2102),
+    case_id: CASE_ID_MAIN,
+    platform: "raspberry_pi",
+    serial: "PI-7C22-0002",
+    model: "Raspberry Pi 5",
+    firmware_version: "0.9.0",
+    signature_algorithm: "Ed25519",
+    status: "pending",
+    approved_by: null,
+    last_seen_at: iso(0, 2),
+    created_at: iso(0, 6),
+  },
+  {
+    id: uid(2103),
+    case_id: CASE_ID_MAIN,
+    platform: "tablet",
+    serial: "TAB-11D4-0003",
+    model: "Samsung Galaxy Tab S9",
+    firmware_version: "1.2.0",
+    signature_algorithm: "RSA-SHA256",
+    status: "revoked",
+    approved_by: USER_INVESTIGATOR_ID,
+    last_seen_at: iso(3),
+    created_at: iso(11),
+  },
+];
+
+export const MAIN_REPORTS: Report[] = [
+  {
+    id: uid(2201),
+    case_id: CASE_ID_MAIN,
+    report_type: "case_summary",
+    format: "pdf",
+    title: "Case Summary - Case",
+    status: "ready",
+    byte_size: 48271,
+    failure_reason: null,
+    created_at: iso(1, 3),
+  },
+  {
+    id: uid(2202),
+    case_id: CASE_ID_MAIN,
+    report_type: "evidence_manifest",
+    format: "json",
+    title: "Evidence Manifest - Case",
+    status: "ready",
+    byte_size: 184203,
+    failure_reason: null,
+    created_at: iso(0, 20),
+  },
+];
+
+export const MAIN_REGISTERED_HYPOTHESES: InvestigationHypothesis[] = [
+  {
+    id: uid(2301),
+    case_id: CASE_ID_MAIN,
+    kind: "hypothesis",
+    status: "under_review",
+    title: "Single operator behind the TechSecure cell",
+    statement:
+      "The identifier cell, the burst call pattern and the matching fund movement share one operator controlling the SIMs and the bank accounts.",
+    confidence: 0.74,
+    supporting_evidence: ["E-0001", "E-0004"],
+    contradicting_evidence: null,
+    related_entities: [KEY_ENTITY_IDS["Rajesh Kumar"] ?? "", KEY_ENTITY_IDS["+91-90000-11111"] ?? ""],
+    related_relationships: [uid(300), uid(305)],
+    evidence_weight: 82,
+    notes: "Recorded after the Q1 burst review; under external-subscriber cross-check.",
+    submitted_by: USER_ANALYST_ID,
+    created_at: iso(2, 5),
+    updated_at: iso(0, 8),
+  },
+  {
+    id: uid(2302),
+    case_id: CASE_ID_MAIN,
+    kind: "hypothesis",
+    status: "proposed",
+    title: "Vehicle fleet shares the account controller",
+    statement: "Two of the vehicles in the network are registered to names used on accounts in the same transfer chain.",
+    confidence: 0.41,
+    supporting_evidence: null,
+    contradicting_evidence: null,
+    related_entities: [KEY_ENTITY_IDS["MH12AB1234"] ?? ""],
+    related_relationships: [uid(309)],
+    evidence_weight: 14,
+    notes: null,
+    submitted_by: USER_INVESTIGATOR_ID,
+    created_at: iso(0, 12),
+    updated_at: iso(0, 12),
+  },
+];
+
+interface TimelineSeed {
+  id: number;
+  kind: string;
+  title: string;
+  description?: string | null;
+  caseKey: string;
+  entityKey?: string;
+  evidenceKey?: string;
+  collectionKey?: string;
+  deviceKey?: string;
+  daysAgo: number;
+  hoursAgo?: number;
+  actor?: string;
+  payload?: Record<string, unknown>;
+}
+
+const TIMELINE_SEEDS: TimelineSeed[] = [
+  { id: 1, kind: "case_created", title: "Case opened: Operation Paper Citadel", caseKey: CASE_ID_MAIN, daysAgo: 12, actor: "investigator" },
+  { id: 2, kind: "device_registered", title: "Device 'ANDROID-8F3A-0001' registered", caseKey: CASE_ID_MAIN, deviceKey: "did_2101", daysAgo: 9, actor: "investigator", payload: { platform: "android_mobile" } },
+  { id: 3, kind: "device_approved", title: "Device 'ANDROID-8F3A-0001' approved", caseKey: CASE_ID_MAIN, deviceKey: "did_2101", daysAgo: 8, actor: "admin" },
+  { id: 4, kind: "collection_created", title: "Collection 'TechSecure CDRs — Q1 burst' created", caseKey: CASE_ID_MAIN, collectionKey: "cid_2001", daysAgo: 6, actor: "investigator" },
+  { id: 5, kind: "evidence_uploaded", title: "Evidence 'call_journals_feb.csv' uploaded", caseKey: CASE_ID_MAIN, evidenceKey: "eid_2", daysAgo: 6, actor: "investigator" },
+  { id: 6, kind: "collection_sealed", title: "Collection 'TechSecure CDRs — Q1 burst' sealed", caseKey: CASE_ID_MAIN, collectionKey: "cid_2001", daysAgo: 4, actor: "investigator" },
+  { id: 7, kind: "evidence_ingested", title: "Evidence 'call_journals_feb.csv' ingested", caseKey: CASE_ID_MAIN, evidenceKey: "eid_2", daysAgo: 4, actor: "system" },
+  { id: 8, kind: "analytics_run", title: "Analytics run #1 completed", caseKey: CASE_ID_MAIN, daysAgo: 3, actor: "analyst", payload: { findings: 8 } },
+  { id: 9, kind: "match_accepted", title: "Resolution accepted: Rajesh Kumar", caseKey: CASE_ID_MAIN, daysAgo: 2, actor: "analyst" },
+  { id: 10, kind: "hypothesis_created", title: "Hypothesis: Single operator behind the TechSecure cell", caseKey: CASE_ID_MAIN, daysAgo: 2, actor: "analyst" },
+  { id: 11, kind: "device_registered", title: "Device 'PI-7C22-0002' registered", caseKey: CASE_ID_MAIN, deviceKey: "did_2102", daysAgo: 0, hoursAgo: 6, actor: "investigator" },
+  { id: 12, kind: "evidence_uploaded", title: "Evidence 'financial_sum_q1.csv' uploaded", caseKey: CASE_ID_MAIN, evidenceKey: "eid_3", daysAgo: 0, hoursAgo: 5, actor: "investigator" },
+  { id: 13, kind: "report_generated", title: "Report 'Case Summary - Case' generated", caseKey: CASE_ID_MAIN, daysAgo: 0, hoursAgo: 3, actor: "analyst", payload: { report_type: "case_summary", format: "pdf" } },
+];
+
+const COLLECTION_ID_VIA_KEY: Record<string, string> = {
+  cid_2001: MAIN_COLLECTIONS[0].id,
+  cid_2002: MAIN_COLLECTIONS[1].id,
+};
+
+const DEVICE_ID_VIA_KEY: Record<string, string> = {
+  did_2101: MAIN_DEVICES[0].id,
+  did_2102: MAIN_DEVICES[1].id,
+  did_2103: MAIN_DEVICES[2].id,
+};
+
+const EVIDENCE_ID_VIA_KEY: Record<string, string> = {
+  eid_0: MAIN_EVIDENCE[0]?.id ?? "",
+  eid_1: MAIN_EVIDENCE[1]?.id ?? "",
+  eid_2: MAIN_EVIDENCE[2]?.id ?? "",
+  eid_3: MAIN_EVIDENCE[3]?.id ?? "",
+};
+
+export const MAIN_TIMELINE_EVENTS: TimelineEvent[] = TIMELINE_SEEDS.map((seed) => ({
+  id: uid(3000 + seed.id),
+  case_id: seed.caseKey,
+  occurred_at: iso(seed.daysAgo, seed.hoursAgo ?? 0, seed.id * 7),
+  kind: seed.kind,
+  title: seed.title,
+  description: seed.description ?? null,
+  entity_id: seed.entityKey ? KEY_ENTITY_IDS[seed.entityKey] ?? null : null,
+  evidence_file_id: seed.evidenceKey ? EVIDENCE_ID_VIA_KEY[seed.evidenceKey] ?? null : null,
+  collection_id: seed.collectionKey ? COLLECTION_ID_VIA_KEY[seed.collectionKey] ?? null : null,
+  device_id: seed.deviceKey ? DEVICE_ID_VIA_KEY[seed.deviceKey] ?? null : null,
+  actor_user_id: seed.actor ? ACTOR_ID[seed.actor] ?? null : null,
+  payload: seed.payload ?? null,
+  created_at: iso(seed.daysAgo, seed.hoursAgo ?? 0, seed.id * 7),
+}));
 
 export const MOCK_SHA_GRACE = true;

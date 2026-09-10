@@ -1,14 +1,18 @@
 import type {
   Api,
-  ApiTimelineEvent,
   AdminUserListParams,
   AuditParams,
   CaseListParams,
+  CollectionListParams,
+  DeviceListParams,
   EntityListParams,
   FindingListParams,
+  InvestigationHypothesisListParams,
   LoginInput,
   RegisterInput,
   RegisteredUserOut,
+  ReportListParams,
+  SearchParams,
   UploadFile,
   VictimListParams,
   IoTDeviceListParams,
@@ -26,13 +30,22 @@ import type {
   CaseMemberListResponse,
   CaseUpdateRequest,
   CentralityEntry,
+  Collection,
+  CollectionList,
+  CollectionUpdateRequest,
+  DeviceList,
+  DeviceVerifyResponse,
   Entity,
   EntityDetail,
   EntityEgoGraph,
+  EntityMergeRequest,
   EvidenceCreateResponse,
   EvidenceDetail,
   EvidenceList,
+  EvidenceListItem,
   EvidenceProvenanceResponse,
+  EvidenceRestoreResponse,
+  FieldDevice,
   Finding,
   FindingList,
   FindingStats,
@@ -40,12 +53,21 @@ import type {
   GraphStats,
   GraphResponse,
   GraphSyncResult,
+  ImportAccepted,
   IngestAccepted,
   IngestionJob,
   IngestJobList,
+  InvestigationHypothesis,
+  InvestigationHypothesisList,
   NetworkProfile,
   RelationshipStrength,
+  Report,
+  ReportList,
+  ReviewDecisionResponse,
   ReviewList,
+  SearchResponse,
+  TimelineEvent,
+  TimelineEventList,
   Victim,
   VictimCreateRequest,
   VictimList,
@@ -67,7 +89,9 @@ import {
   KEY_ENTITY_IDS,
   MAIN_AUDIT,
   MAIN_CENTRALITY,
+  MAIN_COLLECTIONS,
   MAIN_COMMUNITIES,
+  MAIN_DEVICES,
   MAIN_ENTITIES,
   MAIN_ENTITY_DETAILS,
   MAIN_EVIDENCE,
@@ -79,9 +103,12 @@ import {
   MAIN_NETWORK_PROFILES,
   MAIN_PATTERNS,
   MAIN_PRIORITIES,
+  MAIN_REGISTERED_HYPOTHESES,
   MAIN_RELATIONSHIPS,
   MAIN_RELATIONSHIP_STRENGTH,
+  MAIN_REPORTS,
   MAIN_RUNS,
+  MAIN_TIMELINE_EVENTS,
   MOCK_CASES,
   SECONDARY_CASE_DATA,
   CLOSED_CASE_GRAPH,
@@ -267,6 +294,13 @@ function seedMembers(): Record<string, CaseMember[]> {
 const auditState: AuditEvent[] = [...MAIN_AUDIT];
 const registeredState: Array<MockUserRecord & { created_at: string }> = [];
 
+const collectionsState: Collection[] = [...MAIN_COLLECTIONS];
+const devicesState: FieldDevice[] = [...MAIN_DEVICES];
+const reportsState: Report[] = [...MAIN_REPORTS];
+const hypothesesState: InvestigationHypothesis[] = [...MAIN_REGISTERED_HYPOTHESES];
+const timelineState: TimelineEvent[] = [...MAIN_TIMELINE_EVENTS];
+const recycleState: Array<EvidenceListItem & { case_id: string }> = [];
+
 const victimState: Victim[] = [
   {
     id: uid(5010),
@@ -389,13 +423,13 @@ function requirePermission(permission: string): MockUserRecord {
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   ADMIN: [
     "case.read", "case.create", "case.update", "case.archive", "evidence.read",
-    "evidence.upload", "evidence.delete", "ingestion.run", "analytics.run", "findings.read",
-    "findings.review", "findings.confirm", "findings.dismiss", "users.manage", "audit.read",
+    "evidence.upload", "evidence.delete", "evidence.restore", "ingestion.run", "analytics.run", "findings.read",
+    "findings.review", "findings.confirm", "findings.dismiss", "entity.merge", "users.manage", "audit.read",
   ],
   INVESTIGATOR: [
     "case.read", "case.create", "case.update", "case.archive", "evidence.read",
-    "evidence.upload", "evidence.delete", "ingestion.run", "analytics.run", "findings.read",
-    "findings.review", "findings.confirm", "findings.dismiss", "audit.read",
+    "evidence.upload", "evidence.delete", "evidence.restore", "ingestion.run", "analytics.run", "findings.read",
+    "findings.review", "findings.confirm", "findings.dismiss", "entity.merge", "audit.read",
   ],
   ANALYST: [
     "case.read", "evidence.read", "analytics.run", "findings.read", "findings.review",
@@ -475,6 +509,17 @@ export function resetMockState(): void {
   auditState.length = 0;
   auditState.push(...MAIN_AUDIT);
   registeredState.length = 0;
+  collectionsState.length = 0;
+  collectionsState.push(...MAIN_COLLECTIONS);
+  devicesState.length = 0;
+  devicesState.push(...MAIN_DEVICES);
+  reportsState.length = 0;
+  reportsState.push(...MAIN_REPORTS);
+  hypothesesState.length = 0;
+  hypothesesState.push(...MAIN_REGISTERED_HYPOTHESES);
+  timelineState.length = 0;
+  timelineState.push(...MAIN_TIMELINE_EVENTS);
+  recycleState.length = 0;
   currentUserId = null;
   currentRoles = [];
   authSession.clear();
@@ -861,6 +906,98 @@ export const mockApi: Api = {
       }
       return { items: [], total: 0 };
     },
+
+    async acceptMatch(caseId: string, matchId: string): Promise<ReviewDecisionResponse> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("findings.review");
+      assertCaseAccess(caseId);
+      if (caseId !== CASE_ID_MAIN) throw notFound("match not found");
+      const known = ["a1000000-0000-4000-8000-000000000001", "a1000000-0000-4000-8000-000000000004"];
+      if (!known.includes(matchId)) throw notFound("match not found");
+      pushAudit("match.accepted", "entity_match", caseId, { score: 0.9 });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: new Date().toISOString(),
+        kind: "match_accepted",
+        title: `Resolution accepted for match ${matchId.slice(0, 8)}`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: null,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: new Date().toISOString(),
+      });
+      return { match_id: matchId, status: "accepted" };
+    },
+
+    async rejectMatch(caseId: string, matchId: string): Promise<ReviewDecisionResponse> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("findings.review");
+      assertCaseAccess(caseId);
+      if (caseId !== CASE_ID_MAIN) throw notFound("match not found");
+      const known = ["a1000000-0000-4000-8000-000000000001", "a1000000-0000-4000-8000-000000000004"];
+      if (!known.includes(matchId)) throw notFound("match not found");
+      pushAudit("match.rejected", "entity_match", caseId, { score: 0.62 });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: new Date().toISOString(),
+        kind: "match_rejected",
+        title: `Resolution rejected for match ${matchId.slice(0, 8)}`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: null,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: new Date().toISOString(),
+      });
+      return { match_id: matchId, status: "rejected" };
+    },
+
+    async mergeEntities(caseId: string, input: EntityMergeRequest): Promise<EntityDetail> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("entity.merge");
+      assertCaseAccess(caseId);
+      const entities = entitiesFor(caseId);
+      const primary = entities.find((e) => e.id === input.primary_entity_id);
+      if (!primary) throw notFound("primary entity not found");
+      const duplicate = entities.find((e) => e.id === input.merge_entity_id);
+      if (!duplicate) throw notFound("merge entity not found");
+      if (input.primary_entity_id === input.merge_entity_id) {
+        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "cannot merge an entity into itself" });
+      }
+      pushAudit("entity.merged", "entity", caseId, {
+        primary_id: input.primary_entity_id,
+        merge_id: input.merge_entity_id,
+      });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: new Date().toISOString(),
+        kind: "entity_merged",
+        title: `Entity '${primary.display_value}' merged with '${duplicate.display_value}'`,
+        description: null,
+        entity_id: primary.id,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: null,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: new Date().toISOString(),
+      });
+      const detail = MAIN_ENTITY_DETAILS[primary.display_value] ?? MAIN_ENTITY_DETAILS[primary.canonical_value];
+      return {
+        ...primary,
+        status: "active",
+        aliases: detail?.aliases ?? [],
+        context: detail?.context ?? null,
+      };
+    },
   },
 
   evidence: {
@@ -903,11 +1040,17 @@ export const mockApi: Api = {
       };
     },
 
-    async upload(caseId: string, file: UploadFile, _dataSource = "csv") {
+    async upload(caseId: string, file: UploadFile, _dataSource = "csv", _options?: { collectionId?: string }) {
       void _dataSource;
       await delay(MOCK_LATENCY * 2);
       requirePermission("evidence.upload");
       assertCaseAccess(caseId);
+      const collectionName = _options?.collectionId
+        ? collectionsState.find((c) => c.id === _options.collectionId && c.case_id === caseId)?.name
+        : undefined;
+      if (_options?.collectionId && !collectionName) {
+        throw new ApiError({ status: 404, code: "NOT_FOUND", message: "collection not found" });
+      }
       let hash = 0x811c9dc5;
       const seed = `${file.name}:${file.size}`;
       for (let i = 0; i < seed.length; i++) {
@@ -940,7 +1083,26 @@ export const mockApi: Api = {
         record_count: null,
         created_at: created,
       });
-      pushAudit("evidence.uploaded", "evidence_file", caseId, { filename: file.name, format: item.format });
+      pushAudit("evidence.uploaded", "evidence_file", caseId, {
+        filename: file.name,
+        format: item.format,
+        ...(collectionName ? { collection: collectionName } : {}),
+      });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: created,
+        kind: "evidence_uploaded",
+        title: `Evidence '${file.name}' uploaded`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: id,
+        collection_id: _options?.collectionId ?? null,
+        device_id: null,
+        actor_user_id: currentUser().record?.id ?? null,
+        payload: { format: item.format },
+        created_at: created,
+      });
       return item;
     },
 
@@ -1021,7 +1183,47 @@ export const mockApi: Api = {
       const idx = evidenceState.findIndex((e) => e.id === evidenceId);
       if (idx === -1) throw notFound("evidence not found");
       const [item] = evidenceState.splice(idx, 1);
+      // Backend mirror: deletion moves the record to the recycle bin so a
+      // restore can bring both the metadata and the content back.
+      recycleState.push({ ...item, case_id: caseId });
       pushAudit("evidence.deleted", "evidence_file", caseId, { filename: item.original_filename });
+    },
+
+    async restore(caseId: string, evidenceId: string): Promise<EvidenceRestoreResponse> {
+      await delay(MOCK_LATENCY);
+      requirePermission("evidence.restore");
+      assertCaseAccess(caseId);
+      const idx = recycleState.findIndex((e) => e.id === evidenceId);
+      if (idx === -1) throw notFound("evidence not in the recycle bin");
+      const [item] = recycleState.splice(idx, 1);
+      if (item.case_id !== caseId) throw notFound("evidence not in the recycle bin");
+      evidenceState.push({ ...item });
+      pushAudit("evidence.restored", "evidence_file", caseId, {
+        filename: item.original_filename,
+        content_restored: true,
+      });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: new Date().toISOString(),
+        kind: "evidence_restored",
+        title: `Evidence '${item.original_filename}' restored`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: item.id,
+        collection_id: null,
+        device_id: null,
+        actor_user_id: currentUser().record?.id ?? null,
+        payload: { content_restored: true },
+        created_at: new Date().toISOString(),
+      });
+      return {
+        id: item.id,
+        case_id: caseId,
+        original_filename: item.original_filename,
+        restored: true,
+        content_restored: true,
+      };
     },
 
     async retryGraphSync(caseId: string, jobId: string): Promise<GraphSyncResult> {
@@ -1489,24 +1691,528 @@ export const mockApi: Api = {
   },
 
   timeline: {
-    async events(caseId: string, limit = 100): Promise<ApiTimelineEvent[]> {
+    async events(caseId: string, params = {}): Promise<TimelineEventList> {
       await delay(MOCK_LATENCY);
-      const { record } = currentUser();
-      if (!record) throw unauthorized();
-      const permissions = resolvedPermissions(record.roles);
-      if (!permissions.includes("audit.read")) return [];
-      const items = [...auditState]
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
-        .filter((e) => e.case_id === caseId)
-        .slice(0, limit);
-      return items.map((e) => ({
-        id: e.id,
-        action: e.action,
-        case_id: e.case_id,
-        actor_id: e.actor_id,
-        metadata_: e.metadata_,
-        created_at: e.created_at,
-      }));
+      assertCaseAccess(caseId);
+      let items = [...timelineState].filter((e) => e.case_id === caseId);
+      if (params.kind) items = items.filter((e) => e.kind === params.kind);
+      items.sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+      const limit = params.limit ?? 200;
+      return { items: items.slice(0, limit), total: items.length, limit, offset: 0 };
+    },
+
+    async create(caseId: string, input) {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("case.update");
+      assertCaseAccess(caseId);
+      const created = new Date().toISOString();
+      const event: TimelineEvent = {
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: input.occurred_at,
+        kind: input.kind,
+        title: input.title,
+        description: input.description ?? null,
+        entity_id: input.entity_id ?? null,
+        evidence_file_id: input.evidence_file_id ?? null,
+        collection_id: input.collection_id ?? null,
+        device_id: input.device_id ?? null,
+        actor_user_id: user?.id ?? null,
+        payload: input.payload ?? null,
+        created_at: created,
+      };
+      timelineState.unshift(event);
+      pushAudit("timeline.event_recorded", "timeline_event", caseId, { kind: event.kind, title: event.title });
+      return event;
+    },
+  },
+
+  collections: {
+    async list(caseId: string, params: CollectionListParams = {}): Promise<CollectionList> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      let items = collectionsState.filter((c) => c.case_id === caseId);
+      if (params.status) items = items.filter((c) => c.status === params.status);
+      items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const limit = params.limit ?? 100;
+      const offset = params.offset ?? 0;
+      return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+    },
+
+    async get(caseId: string, collectionId: string): Promise<Collection> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      const c = collectionsState.find((x) => x.id === collectionId && x.case_id === caseId);
+      if (!c) throw notFound("collection not found");
+      return c;
+    },
+
+    async create(caseId: string, input): Promise<Collection> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("case.update");
+      assertCaseAccess(caseId);
+      const now = new Date().toISOString();
+      const created: Collection = {
+        id: uid(2400 + collectionsState.length),
+        case_id: caseId,
+        name: input.name,
+        description: input.description ?? null,
+        status: "open",
+        sealed_at: null,
+        created_at: now,
+        updated_at: now,
+      };
+      collectionsState.push(created);
+      pushAudit("collection.created", "collection", caseId, { name: created.name });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: now,
+        kind: "collection_created",
+        title: `Collection '${created.name}' created`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: created.id,
+        device_id: null,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: now,
+      });
+      return created;
+    },
+
+    async update(caseId: string, collectionId: string, input: CollectionUpdateRequest): Promise<Collection> {
+      await delay(MOCK_LATENCY);
+      requirePermission("case.update");
+      assertCaseAccess(caseId);
+      const c = collectionsState.find((x) => x.id === collectionId && x.case_id === caseId);
+      if (!c) throw notFound("collection not found");
+      if (c.status === "sealed") {
+        throw new ApiError({ status: 409, code: "CONFLICT", message: "sealed collections cannot be modified" });
+      }
+      if (input.name !== undefined && input.name !== null) c.name = input.name;
+      if (input.description !== undefined && input.description !== null) c.description = input.description;
+      c.updated_at = new Date().toISOString();
+      return c;
+    },
+
+    async seal(caseId: string, collectionId: string): Promise<Collection> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("case.update");
+      assertCaseAccess(caseId);
+      const c = collectionsState.find((x) => x.id === collectionId && x.case_id === caseId);
+      if (!c) throw notFound("collection not found");
+      if (c.status === "sealed") return c;
+      c.status = "sealed";
+      c.sealed_at = new Date().toISOString();
+      c.updated_at = c.sealed_at;
+      pushAudit("collection.sealed", "collection", caseId, { name: c.name });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: c.sealed_at,
+        kind: "collection_sealed",
+        title: `Collection '${c.name}' sealed`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: c.id,
+        device_id: null,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: c.sealed_at,
+      });
+      return c;
+    },
+
+    async delete(caseId: string, collectionId: string): Promise<void> {
+      await delay(MOCK_LATENCY);
+      requirePermission("case.update");
+      assertCaseAccess(caseId);
+      const idx = collectionsState.findIndex((x) => x.id === collectionId && x.case_id === caseId);
+      if (idx === -1) throw notFound("collection not found");
+      const [c] = collectionsState.splice(idx, 1);
+      pushAudit("collection.deleted", "collection", caseId, { name: c.name });
+    },
+  },
+
+  fieldDevices: {
+    async list(caseId: string, params: DeviceListParams = {}): Promise<DeviceList> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      let items = devicesState.filter((d) => d.case_id === caseId);
+      if (params.status) items = items.filter((d) => d.status === params.status);
+      items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const limit = params.limit ?? 100;
+      const offset = params.offset ?? 0;
+      return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+    },
+
+    async register(caseId: string, input): Promise<FieldDevice> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("case.update");
+      assertCaseAccess(caseId);
+      const now = new Date().toISOString();
+      const device: FieldDevice = {
+        id: uid(2500 + devicesState.length),
+        case_id: caseId,
+        platform: input.platform,
+        serial: input.serial,
+        model: input.model ?? null,
+        firmware_version: input.firmware_version ?? null,
+        signature_algorithm: input.signature_algorithm ?? "RSA-SHA256",
+        status: "pending",
+        approved_by: null,
+        last_seen_at: null,
+        created_at: now,
+      };
+      devicesState.push(device);
+      pushAudit("device.registered", "field_device", caseId, { serial: device.serial, platform: device.platform });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: now,
+        kind: "device_registered",
+        title: `Device '${device.serial}' registered`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: device.id,
+        actor_user_id: user.id,
+        payload: { platform: device.platform },
+        created_at: now,
+      });
+      return device;
+    },
+
+    async approve(caseId: string, deviceId: string): Promise<FieldDevice> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("users.manage");
+      assertCaseAccess(caseId);
+      const d = devicesState.find((x) => x.id === deviceId && x.case_id === caseId);
+      if (!d) throw notFound("device not found");
+      d.status = "approved";
+      d.approved_by = user.id;
+      d.last_seen_at = new Date().toISOString();
+      pushAudit("device.approved", "field_device", caseId, { serial: d.serial });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: new Date().toISOString(),
+        kind: "device_approved",
+        title: `Device '${d.serial}' approved`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: d.id,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: new Date().toISOString(),
+      });
+      return d;
+    },
+
+    async revoke(caseId: string, deviceId: string): Promise<FieldDevice> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("users.manage");
+      assertCaseAccess(caseId);
+      const d = devicesState.find((x) => x.id === deviceId && x.case_id === caseId);
+      if (!d) throw notFound("device not found");
+      d.status = "revoked";
+      d.approved_by = null;
+      pushAudit("device.revoked", "field_device", caseId, { serial: d.serial });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: new Date().toISOString(),
+        kind: "device_revoked",
+        title: `Device '${d.serial}' revoked`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: d.id,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: new Date().toISOString(),
+      });
+      return d;
+    },
+
+    async verifyKey(caseId: string, deviceId: string): Promise<DeviceVerifyResponse> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      const d = devicesState.find((x) => x.id === deviceId && x.case_id === caseId);
+      if (!d) throw notFound("device not found");
+      // Deterministic demo answer: serials approved under RSA-SHA256 verify.
+      const valid = d.status === "approved" && d.signature_algorithm === "RSA-SHA256";
+      return { valid };
+    },
+  },
+
+  reports: {
+    async list(caseId: string, params: ReportListParams = {}): Promise<ReportList> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      let items = reportsState.filter((r) => r.case_id === caseId);
+      if (params.report_type) items = items.filter((r) => r.report_type === params.report_type);
+      items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const limit = params.limit ?? 100;
+      const offset = params.offset ?? 0;
+      return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+    },
+
+    async get(caseId: string, reportId: string): Promise<Report> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      const r = reportsState.find((x) => x.id === reportId && x.case_id === caseId);
+      if (!r) throw notFound("report not found");
+      return r;
+    },
+
+    async generate(caseId: string, input): Promise<Report> {
+      await delay(MOCK_LATENCY * 2);
+      assertCaseAccess(caseId);
+      const now = new Date().toISOString();
+      const known = ["case_summary", "intelligence", "evidence_manifest", "network_analysis"];
+      const report: Report = {
+        id: uid(2600 + reportsState.length),
+        case_id: caseId,
+        report_type: input.report_type,
+        format: input.format ?? "json",
+        title: input.title ?? `${input.report_type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} - Case`,
+        status: known.includes(input.report_type) ? "ready" : "failed",
+        byte_size: known.includes(input.report_type) ? 24680 : null,
+        failure_reason: known.includes(input.report_type) ? null : `unknown report type '${input.report_type}'`,
+        created_at: now,
+      };
+      reportsState.unshift(report);
+      pushAudit("report.generated", "report", caseId, {
+        report_type: report.report_type,
+        format: report.format,
+        status: report.status,
+      });
+      return report;
+    },
+
+    async download(caseId: string, reportId: string): Promise<{ blob: Blob; filename: string }> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      const r = reportsState.find((x) => x.id === reportId && x.case_id === caseId);
+      if (!r) throw notFound("report not found");
+      if (r.status !== "ready") {
+        throw new ApiError({ status: 409, code: "CONFLICT", message: "report not ready" });
+      }
+      const blob = new Blob([JSON.stringify({ report_type: r.report_type, case_id: caseId, generated_at: r.created_at }, null, 2)], {
+        type: "application/json",
+      });
+      return { blob, filename: `${r.report_type}-report.json` };
+    },
+  },
+
+  hypotheses: {
+    async list(caseId: string, params: InvestigationHypothesisListParams = {}): Promise<InvestigationHypothesisList> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      let items = hypothesesState.filter((h) => h.case_id === caseId);
+      if (params.kind) items = items.filter((h) => h.kind === params.kind);
+      if (params.status) items = items.filter((h) => h.status === params.status);
+      items.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const limit = params.limit ?? 100;
+      const offset = params.offset ?? 0;
+      return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+    },
+
+    async get(caseId: string, hypothesisId: string): Promise<InvestigationHypothesis> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      const h = hypothesesState.find((x) => x.id === hypothesisId && x.case_id === caseId);
+      if (!h) throw notFound("hypothesis not found");
+      return h;
+    },
+
+    async create(caseId: string, input): Promise<InvestigationHypothesis> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("findings.review");
+      assertCaseAccess(caseId);
+      const now = new Date().toISOString();
+      const created: InvestigationHypothesis = {
+        id: uid(2700 + hypothesesState.length),
+        case_id: caseId,
+        kind: input.kind ?? "hypothesis",
+        status: "proposed",
+        title: input.title,
+        statement: input.statement,
+        confidence: input.confidence ?? null,
+        supporting_evidence: null,
+        contradicting_evidence: null,
+        related_entities: null,
+        related_relationships: null,
+        evidence_weight: 0,
+        notes: input.notes ?? null,
+        submitted_by: user.id,
+        created_at: now,
+        updated_at: now,
+      };
+      hypothesesState.unshift(created);
+      pushAudit("hypothesis.created", "hypothesis", caseId, { title: created.title, kind: created.kind });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: now,
+        kind: "hypothesis_created",
+        title: `Hypothesis: ${created.title}`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: null,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: now,
+      });
+      return created;
+    },
+
+    async updateStatus(caseId: string, hypothesisId: string, status: string): Promise<InvestigationHypothesis> {
+      await delay(MOCK_LATENCY);
+      const user = requirePermission("findings.review");
+      assertCaseAccess(caseId);
+      const h = hypothesesState.find((x) => x.id === hypothesisId && x.case_id === caseId);
+      if (!h) throw notFound("hypothesis not found");
+      const valid = ["proposed", "under_review", "supported", "contradicted", "dismissed", "concluded"];
+      if (!valid.includes(status)) {
+        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: `invalid hypothesis status '${status}'` });
+      }
+      const oldStatus = h.status;
+      h.status = status as InvestigationHypothesis["status"];
+      h.updated_at = new Date().toISOString();
+      pushAudit("hypothesis.status_changed", "hypothesis", caseId, { old: oldStatus, new: status });
+      timelineState.unshift({
+        id: uid(3900 + timelineState.length),
+        case_id: caseId,
+        occurred_at: h.updated_at,
+        kind: "hypothesis_status_changed",
+        title: `Hypothesis '${h.title}' status: ${oldStatus} -> ${status}`,
+        description: null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: null,
+        actor_user_id: user.id,
+        payload: null,
+        created_at: h.updated_at,
+      });
+      return h;
+    },
+
+    async linkEvidence(caseId: string, hypothesisId: string, input): Promise<InvestigationHypothesis> {
+      await delay(MOCK_LATENCY);
+      requirePermission("findings.review");
+      assertCaseAccess(caseId);
+      const h = hypothesesState.find((x) => x.id === hypothesisId && x.case_id === caseId);
+      if (!h) throw notFound("hypothesis not found");
+      const target = input.support ? "supporting_evidence" : "contradicting_evidence";
+      const list = h[target] ?? [];
+      if (!list.includes(input.evidence_id)) {
+        h[target] = [...list, input.evidence_id];
+        h.evidence_weight += input.support ? 1 : -1;
+      }
+      h.updated_at = new Date().toISOString();
+      return h;
+    },
+
+    async delete(caseId: string, hypothesisId: string): Promise<void> {
+      await delay(MOCK_LATENCY);
+      requirePermission("findings.dismiss");
+      assertCaseAccess(caseId);
+      const idx = hypothesesState.findIndex((x) => x.id === hypothesisId && x.case_id === caseId);
+      if (idx === -1) throw notFound("hypothesis not found");
+      hypothesesState.splice(idx, 1);
+    },
+  },
+
+  search: {
+    async search(caseId: string, params: SearchParams): Promise<SearchResponse> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      const q = params.q.toLowerCase();
+      const results: SearchResponse["items"] = [];
+      if (caseId === CASE_ID_MAIN) {
+        for (const e of MAIN_ENTITIES) {
+          if (e.display_value.toLowerCase().includes(q)) {
+            results.push({ kind: "entity", id: e.id, title: e.display_value, subtitle: e.entity_type, url: `/app/cases/${caseId}/entities/${e.id}` });
+          }
+        }
+        for (const item of evidenceState) {
+          if (item.original_filename.toLowerCase().includes(q)) {
+            results.push({ kind: "evidence", id: item.id, title: item.original_filename, subtitle: item.format ?? null, url: `/app/cases/${caseId}/evidence` });
+          }
+        }
+        for (const f of MAIN_FINDINGS) {
+          if (f.title.toLowerCase().includes(q)) {
+            results.push({ kind: "finding", id: f.id, title: f.title, subtitle: f.finding_type, url: `/app/cases/${caseId}/findings/${f.id}` });
+          }
+        }
+      }
+      const limit = params.limit ?? 50;
+      const offset = params.offset ?? 0;
+      return { items: results.slice(offset, offset + limit), total: results.length, limit, offset };
+    },
+  },
+
+  importPackages: {
+    async submitPackage(caseId: string, payload): Promise<ImportAccepted> {
+      await delay(MOCK_LATENCY * 3);
+      const user = requirePermission("evidence.upload");
+      assertCaseAccess(caseId);
+      const device = devicesState.find((d) => d.status === "approved" && d.case_id === caseId);
+      const now = new Date().toISOString();
+      const fileCount = Math.max(1, payload.files.length);
+      const ids = Array.from({ length: fileCount }, (_, i) => uid(5700 + evidenceState.length + i));
+      const filenames = payload.files.map((f: File) => f.name) as string[];
+      ids.forEach((id, i) => {
+        const filename = filenames[i] ?? `collection_evidence_${id.slice(-6)}.bin`;
+        evidenceState.push({
+          id,
+          original_filename: filename,
+          sha256: `${id.replace(/-/g, "").slice(0, 56)}0000`,
+          format: "txt",
+          file_size: 128,
+          status: "stored",
+          record_count: null,
+          created_at: now,
+        });
+        timelineState.unshift({
+          id: uid(3900 + timelineState.length),
+          case_id: caseId,
+          occurred_at: now,
+          kind: "evidence_uploaded",
+          title: `Field evidence '${filename}' imported from device '${device?.serial ?? "unknown"}'`,
+          description: "Package collection · per-file SHA-256 verified",
+          entity_id: null,
+          evidence_file_id: id,
+          collection_id: null,
+          device_id: device?.id ?? null,
+          actor_user_id: user.id,
+          payload: null,
+          created_at: now,
+        });
+      });
+      pushAudit("import.package_accepted", "import_package", caseId, {
+        device_serial: device?.serial ?? null,
+        evidence_count: ids.length,
+      });
+      return {
+        case_id: caseId,
+        device_serial: device?.serial ?? "andromeda-0001",
+        imported_evidence_count: ids.length,
+        evidence_ids: ids,
+        collection_name: "Field collection (imported)",
+      };
     },
   },
 };

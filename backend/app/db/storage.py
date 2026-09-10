@@ -88,6 +88,15 @@ class Storage:
     def delete(self, key: str) -> None:
         self.client().delete_object(Bucket=self.bucket_name(), Key=key)
 
+    def move(self, source: str, destination: str) -> None:
+        """Atomically-ish move an object: copy to *destination* then delete *source*."""
+        self.client().copy_object(
+            Bucket=self.bucket_name(),
+            Key=destination,
+            CopySource={"Bucket": self.bucket_name(), "Key": source},
+        )
+        self.client().delete_object(Bucket=self.bucket_name(), Key=source)
+
     def list_keys(self, prefix: str = "") -> list[str]:
         """All object keys under *prefix* ('' for the whole bucket)."""
         keys: list[str] = []

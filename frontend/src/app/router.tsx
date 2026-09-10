@@ -22,6 +22,7 @@ const HypothesesPage = lazy(() => import("@/app/pages/hypotheses"));
 const FindingsPage = lazy(() => import("@/app/pages/findings"));
 const FindingDetailPage = lazy(() => import("@/app/pages/finding-detail"));
 const TimelinePage = lazy(() => import("@/app/pages/timeline"));
+const ReportsPage = lazy(() => import("@/app/pages/reports"));
 const VictimsPage = lazy(() => import("@/app/pages/victims"));
 const VictimDetailPage = lazy(() => import("@/app/pages/victim-detail"));
 const IoTDevicesPage = lazy(() => import("@/app/pages/iot-devices"));
@@ -115,6 +116,7 @@ export function AppRouter() {
             <Route path="iot" element={<IoTDevicesPage />} />
             <Route path="iot/:deviceId" element={<IoTDeviceDetailPage />} />
             <Route path="timeline" element={<TimelinePage />} />
+            <Route path="reports" element={<ReportsPage />} />
           </Route>
           <Route
             path="audit"

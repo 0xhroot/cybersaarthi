@@ -44,6 +44,8 @@ PERM_FINDINGS_CONFIRM = "findings.confirm"
 PERM_FINDINGS_DISMISS = "findings.dismiss"
 PERM_USERS_MANAGE = "users.manage"
 PERM_AUDIT_READ = "audit.read"
+PERM_ENTITY_MERGE = "entity.merge"
+PERM_EVIDENCE_RESTORE = "evidence.restore"
 
 ALL_PERMISSIONS: frozenset[str] = frozenset(
     {
@@ -54,6 +56,7 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         PERM_EVIDENCE_READ,
         PERM_EVIDENCE_UPLOAD,
         PERM_EVIDENCE_DELETE,
+        PERM_EVIDENCE_RESTORE,
         PERM_INGESTION_RUN,
         PERM_ANALYTICS_RUN,
         PERM_FINDINGS_READ,
@@ -62,6 +65,7 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         PERM_FINDINGS_DISMISS,
         PERM_USERS_MANAGE,
         PERM_AUDIT_READ,
+        PERM_ENTITY_MERGE,
     }
 )
 
@@ -76,12 +80,14 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             PERM_EVIDENCE_READ,
             PERM_EVIDENCE_UPLOAD,
             PERM_EVIDENCE_DELETE,
+            PERM_EVIDENCE_RESTORE,
             PERM_INGESTION_RUN,
             PERM_ANALYTICS_RUN,
             PERM_FINDINGS_READ,
             PERM_FINDINGS_REVIEW,
             PERM_FINDINGS_CONFIRM,
             PERM_FINDINGS_DISMISS,
+            PERM_ENTITY_MERGE,
             PERM_AUDIT_READ,
         }
     ),

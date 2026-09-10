@@ -9,12 +9,19 @@ from app.api.routes import (
     audit_router,
     auth_router,
     cases_router,
+    collections_router,
+    devices_router,
     entities_router,
     evidence_router,
     findings_router,
     graph_router,
     health_router,
+    hypotheses_router,
+    import_packages_router,
     iot_router,
+    reports_router,
+    search_router,
+    timeline_router,
     users_router,
     victims_router,
 )
@@ -44,3 +51,12 @@ api_router.include_router(victims_router, prefix="/api/v1")
 
 # IoT device and telemetry management.
 api_router.include_router(iot_router, prefix="/api/v1")
+
+# Investigation platform: collections, devices, timeline, hypotheses, reports, search, import.
+api_router.include_router(collections_router, prefix="/api/v1")
+api_router.include_router(devices_router, prefix="/api/v1")
+api_router.include_router(timeline_router, prefix="/api/v1")
+api_router.include_router(hypotheses_router, prefix="/api/v1")
+api_router.include_router(reports_router, prefix="/api/v1")
+api_router.include_router(search_router, prefix="/api/v1")
+api_router.include_router(import_packages_router, prefix="/api/v1")
