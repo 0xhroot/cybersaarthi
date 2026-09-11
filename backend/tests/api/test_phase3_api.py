@@ -70,6 +70,22 @@ async def _upload_one(http_client, case_id: uuid.UUID) -> dict:
     return response.json()
 
 
+async def _evidence_objects(storage, case_id: uuid.UUID) -> list[str]:
+    from asyncio import to_thread
+
+    return list(await to_thread(storage.list_keys, f"evidence/{case_id}/"))
+
+
+async def _graph_entity_count(graph_store, case_id: uuid.UUID) -> int:
+    async with graph_store.driver().session() as session:
+        result = await session.run(
+            "MATCH (n:Entity) WHERE n.case_id = $cid RETURN count(n) AS cnt",
+            cid=str(case_id),
+        )
+        record = await result.single()
+        return int(record["cnt"])
+
+
 # ---------------------------------------------------------------------------
 # Collections
 # ---------------------------------------------------------------------------
@@ -761,6 +777,353 @@ async def test_import_package_revoked_device(http_client, admin_http_client, p3_
         },
     )
     assert resp.status_code == 403, resp.text
+
+
+async def test_import_package_tampered_file_rejected(
+    http_client, admin_http_client, p3_case
+) -> None:
+    """A file whose bytes differ from the manifest digest must be rejected.
+
+    The signature is valid (it covers the manifest) but the uploaded content has
+    been tampered with, so the per-file SHA-256 check has to block the import.
+    """
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    _gen_rsa()
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/devices",
+        json={
+            "platform": "android_mobile",
+            "serial": "IMPORT-TAMPER",
+            "public_key": RSA_PUBLIC_KEY_PEM,
+            "signature_algorithm": "RSA-SHA256",
+        },
+    )
+    device = resp.json()
+    await admin_http_client.post(f"{prefix}/cases/{case_id}/devices/{device['id']}/approve")
+
+    original = b"name,amount\na,1\n"
+    manifest = {
+        "schema_version": "1.0",
+        "case_id": str(case_id),
+        "device_serial": "IMPORT-TAMPER",
+        "collection_name": "USB Import",
+        "evidence_files": [
+            {
+                "filename": "trans.csv",
+                "sha256": hashlib.sha256(original).hexdigest(),
+                "size_bytes": len(original),
+            }
+        ],
+    }
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest_sig = _sign_data(canonical)
+
+    tampered = original + b"evil"
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/import/packages",
+        files={
+            "manifest": ("manifest.json", json.dumps(manifest).encode(), "application/json"),
+            "manifest_signature": (
+                "sig.bin",
+                bytes.fromhex(manifest_sig),
+                "application/octet-stream",
+            ),
+            "files": ("trans.csv", tampered, "text/csv"),
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"]["code"] == "HASH_MISMATCH"
+
+
+async def test_import_package_multifile_tampered_first_no_orphans(
+    http_client, admin_http_client, p3_case, storage, graph_store
+) -> None:
+    """Tampered FIRST file in a 3-file package → 422 HASH_MISMATCH.
+
+    All 0 evidence rows, 0 timeline events, 0 MinIO orphans.
+    """
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    _gen_rsa()
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/devices",
+        json={
+            "platform": "android_mobile",
+            "serial": "MULTIFILE-T1",
+            "public_key": RSA_PUBLIC_KEY_PEM,
+            "signature_algorithm": "RSA-SHA256",
+        },
+    )
+    device = resp.json()
+    await admin_http_client.post(f"{prefix}/cases/{case_id}/devices/{device['id']}/approve")
+
+    content1 = b"file1-data"
+    content2 = b"file2-data"
+    content3 = b"file3-data"
+    h1 = hashlib.sha256(content1).hexdigest()
+    h2 = hashlib.sha256(content2).hexdigest()
+    h3 = hashlib.sha256(content3).hexdigest()
+    manifest = {
+        "schema_version": "1.0",
+        "case_id": str(case_id),
+        "device_serial": "MULTIFILE-T1",
+        "collection_name": "MultiTamper",
+        "evidence_files": [
+            {"filename": "f1.csv", "sha256": h1, "size_bytes": len(content1)},
+            {"filename": "f2.csv", "sha256": h2, "size_bytes": len(content2)},
+            {"filename": "f3.csv", "sha256": h3, "size_bytes": len(content3)},
+        ],
+    }
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest_sig = _sign_data(canonical)
+
+    tampered1 = b"EVIL-f1"
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/import/packages",
+        files=[
+            ("manifest", ("manifest.json", json.dumps(manifest).encode(), "application/json")),
+            (
+                "manifest_signature",
+                ("sig.bin", bytes.fromhex(manifest_sig), "application/octet-stream"),
+            ),
+            ("files", ("f1.csv", tampered1, "text/csv")),
+            ("files", ("f2.csv", content2, "text/csv")),
+            ("files", ("f3.csv", content3, "text/csv")),
+        ],
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"]["code"] == "HASH_MISMATCH"
+
+    # No evidence rows
+    resp = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert resp.json()["total"] == 0
+
+    # No timeline events
+    resp = await http_client.get(f"{prefix}/cases/{case_id}/timeline")
+    kinds = [e["kind"] for e in resp.json()["items"]]
+    assert "evidence_uploaded" not in kinds, "failed import must not emit evidence events"
+    assert "package_imported" not in kinds, "failed import must not emit package events"
+
+    # No MinIO orphans, no graph nodes
+    assert await _evidence_objects(storage, case_id) == []
+    assert await _graph_entity_count(graph_store, case_id) == 0
+
+
+async def test_import_package_multifile_tampered_middle_no_orphans(
+    http_client, admin_http_client, p3_case, storage, graph_store
+) -> None:
+    """Tampered MIDDLE file in a 3-file package → 422 HASH_MISMATCH, zero orphans."""
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    _gen_rsa()
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/devices",
+        json={
+            "platform": "android_mobile",
+            "serial": "MULTIFILE-T2",
+            "public_key": RSA_PUBLIC_KEY_PEM,
+            "signature_algorithm": "RSA-SHA256",
+        },
+    )
+    device = resp.json()
+    await admin_http_client.post(f"{prefix}/cases/{case_id}/devices/{device['id']}/approve")
+
+    content1 = b"file1-data"
+    content2 = b"file2-data"
+    content3 = b"file3-data"
+    h1 = hashlib.sha256(content1).hexdigest()
+    h2 = hashlib.sha256(content2).hexdigest()
+    h3 = hashlib.sha256(content3).hexdigest()
+    manifest = {
+        "schema_version": "1.0",
+        "case_id": str(case_id),
+        "device_serial": "MULTIFILE-T2",
+        "collection_name": "MultiTamper",
+        "evidence_files": [
+            {"filename": "f1.csv", "sha256": h1, "size_bytes": len(content1)},
+            {"filename": "f2.csv", "sha256": h2, "size_bytes": len(content2)},
+            {"filename": "f3.csv", "sha256": h3, "size_bytes": len(content3)},
+        ],
+    }
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest_sig = _sign_data(canonical)
+
+    tampered2 = b"EVIL-f2"
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/import/packages",
+        files=[
+            ("manifest", ("manifest.json", json.dumps(manifest).encode(), "application/json")),
+            (
+                "manifest_signature",
+                ("sig.bin", bytes.fromhex(manifest_sig), "application/octet-stream"),
+            ),
+            ("files", ("f1.csv", content1, "text/csv")),
+            ("files", ("f2.csv", tampered2, "text/csv")),
+            ("files", ("f3.csv", content3, "text/csv")),
+        ],
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"]["code"] == "HASH_MISMATCH"
+
+    resp = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert resp.json()["total"] == 0
+
+    resp = await http_client.get(f"{prefix}/cases/{case_id}/timeline")
+    kinds = [e["kind"] for e in resp.json()["items"]]
+    assert "evidence_uploaded" not in kinds, "failed import must not emit evidence events"
+    assert "package_imported" not in kinds, "failed import must not emit package events"
+
+    # No MinIO orphans, no graph nodes
+    assert await _evidence_objects(storage, case_id) == []
+    assert await _graph_entity_count(graph_store, case_id) == 0
+
+
+async def test_import_package_multifile_tampered_last_no_orphans(
+    http_client, admin_http_client, p3_case, storage, graph_store
+) -> None:
+    """Tampered LAST file in a 3-file package → 422 HASH_MISMATCH, zero orphans."""
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    _gen_rsa()
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/devices",
+        json={
+            "platform": "android_mobile",
+            "serial": "MULTIFILE-T3",
+            "public_key": RSA_PUBLIC_KEY_PEM,
+            "signature_algorithm": "RSA-SHA256",
+        },
+    )
+    device = resp.json()
+    await admin_http_client.post(f"{prefix}/cases/{case_id}/devices/{device['id']}/approve")
+
+    content1 = b"file1-data"
+    content2 = b"file2-data"
+    content3 = b"file3-data"
+    h1 = hashlib.sha256(content1).hexdigest()
+    h2 = hashlib.sha256(content2).hexdigest()
+    h3 = hashlib.sha256(content3).hexdigest()
+    manifest = {
+        "schema_version": "1.0",
+        "case_id": str(case_id),
+        "device_serial": "MULTIFILE-T3",
+        "collection_name": "MultiTamper",
+        "evidence_files": [
+            {"filename": "f1.csv", "sha256": h1, "size_bytes": len(content1)},
+            {"filename": "f2.csv", "sha256": h2, "size_bytes": len(content2)},
+            {"filename": "f3.csv", "sha256": h3, "size_bytes": len(content3)},
+        ],
+    }
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest_sig = _sign_data(canonical)
+
+    tampered3 = b"EVIL-f3"
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/import/packages",
+        files=[
+            ("manifest", ("manifest.json", json.dumps(manifest).encode(), "application/json")),
+            (
+                "manifest_signature",
+                ("sig.bin", bytes.fromhex(manifest_sig), "application/octet-stream"),
+            ),
+            ("files", ("f1.csv", content1, "text/csv")),
+            ("files", ("f2.csv", content2, "text/csv")),
+            ("files", ("f3.csv", tampered3, "text/csv")),
+        ],
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error"]["code"] == "HASH_MISMATCH"
+
+    resp = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert resp.json()["total"] == 0
+
+    resp = await http_client.get(f"{prefix}/cases/{case_id}/timeline")
+    kinds = [e["kind"] for e in resp.json()["items"]]
+    assert "evidence_uploaded" not in kinds, "failed import must not emit evidence events"
+    assert "package_imported" not in kinds, "failed import must not emit package events"
+
+    # No MinIO orphans, no graph nodes
+    assert await _evidence_objects(storage, case_id) == []
+    assert await _graph_entity_count(graph_store, case_id) == 0
+
+
+async def test_import_package_multifile_intact_3files(
+    http_client, admin_http_client, p3_case, storage
+) -> None:
+    """Intact 3-file package → 201, 3 evidence IDs, zero orphans."""
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    _gen_rsa()
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/devices",
+        json={
+            "platform": "android_mobile",
+            "serial": "MULTIFILE-OK",
+            "public_key": RSA_PUBLIC_KEY_PEM,
+            "signature_algorithm": "RSA-SHA256",
+        },
+    )
+    device = resp.json()
+    await admin_http_client.post(f"{prefix}/cases/{case_id}/devices/{device['id']}/approve")
+
+    content1 = b"file1-data-ok"
+    content2 = b"file2-data-ok"
+    content3 = b"file3-data-ok"
+    h1 = hashlib.sha256(content1).hexdigest()
+    h2 = hashlib.sha256(content2).hexdigest()
+    h3 = hashlib.sha256(content3).hexdigest()
+    manifest = {
+        "schema_version": "1.0",
+        "case_id": str(case_id),
+        "device_serial": "MULTIFILE-OK",
+        "collection_name": "MultiOK",
+        "evidence_files": [
+            {"filename": "f1.csv", "sha256": h1, "size_bytes": len(content1)},
+            {"filename": "f2.csv", "sha256": h2, "size_bytes": len(content2)},
+            {"filename": "f3.csv", "sha256": h3, "size_bytes": len(content3)},
+        ],
+    }
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest_sig = _sign_data(canonical)
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/import/packages",
+        files=[
+            ("manifest", ("manifest.json", json.dumps(manifest).encode(), "application/json")),
+            (
+                "manifest_signature",
+                ("sig.bin", bytes.fromhex(manifest_sig), "application/octet-stream"),
+            ),
+            ("files", ("f1.csv", content1, "text/csv")),
+            ("files", ("f2.csv", content2, "text/csv")),
+            ("files", ("f3.csv", content3, "text/csv")),
+        ],
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["imported_evidence_count"] == 3
+    assert len(body["evidence_ids"]) == 3
+
+    # 3 evidence rows
+    resp = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert resp.json()["total"] == 3
+
+    # 3 evidence_uploaded + 1 package_imported = 4 timeline events
+    resp = await http_client.get(f"{prefix}/cases/{case_id}/timeline")
+    kinds = [e["kind"] for e in resp.json()["items"]]
+    assert kinds.count("evidence_uploaded") == 3
+    assert kinds.count("package_imported") == 1
+
+    # Zero orphans (objects exist = exactly 3, matching 3 evidence rows)
+    from asyncio import to_thread
+    keys = await to_thread(storage.list_keys, f"evidence/{case_id}/")
+    assert len(keys) == 3
 
 
 async def test_import_package_invalid_manifest_missing_key(http_client, p3_case) -> None:

@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { formatRelative, formatTime } from "@/lib/utils";
 
 const KIND_LABELS: Record<string, string> = {
+  case_event: "Case",
   case_created: "Case opened",
   case_status_changed: "Case status",
   case_archived: "Case archived",

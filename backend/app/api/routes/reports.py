@@ -18,6 +18,7 @@ from app.db.postgres import get_db_session
 from app.models import Report, User
 from app.services import audit as audit_svc
 from app.services import reporting as rpt_svc
+from app.services.timeline import record_event
 
 router = APIRouter(prefix="/cases", tags=["reports"])
 
@@ -94,6 +95,20 @@ async def generate_report(
         resource_id=report.id,
         case_id=case_id,
         metadata={
+            "report_type": report.report_type,
+            "format": report.format,
+            "status": report.status,
+        },
+    )
+    await record_event(
+        session=session,
+        case_id=case_id,
+        occurred_at=report.created_at,
+        kind="report_generated",
+        title=f"Report generated: {title}",
+        description=f"format {report.format} · status {report.status}",
+        actor_user_id=user.id,
+        payload={
             "report_type": report.report_type,
             "format": report.format,
             "status": report.status,

@@ -44,6 +44,7 @@ from app.schemas.analytics import (
     RelationshipStrengthOut,
 )
 from app.services.audit import record_audit
+from app.services.timeline import record_event
 
 router = APIRouter(prefix="/cases", tags=["analytics"])
 
@@ -538,6 +539,35 @@ async def run_analytics(
         case_id=case_id,
         metadata={"status": run.status, "stage": run.stage},
     )
+    from datetime import UTC, datetime
+
+    await record_event(
+        session=session,
+        case_id=case_id,
+        occurred_at=datetime.now(UTC),
+        kind="analytics_run",
+        title=(
+            f"Analytics run "
+            f"{'completed successfully' if run.status == 'completed' else 'failed'}"
+        ),
+        description=f"stage '{run.stage}' · run {run.id}",
+        actor_user_id=user.id,
+        payload={"status": run.status, "stage": run.stage},
+    )
+    finding_count = 0
+    if run.summary and isinstance(run.summary, dict):
+        finding_count = run.summary.get("finding_count") or 0
+    if finding_count:
+        await record_event(
+            session=session,
+            case_id=case_id,
+            occurred_at=datetime.now(UTC),
+            kind="finding_created",
+            title=f"{finding_count} finding(s) surfaced by analytics",
+            description="Findings start as NEW and await human review",
+            actor_user_id=user.id,
+            payload={"count": finding_count},
+        )
     await session.commit()
     return AnalyticsRunOut(
         id=run.id,

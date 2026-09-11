@@ -219,6 +219,20 @@ async def upload_evidence(
                 "format": fmt.value,
             },
         )
+        from app.services.timeline import record_event
+
+        await record_event(
+            session=session,
+            case_id=case_id,
+            occurred_at=evidence.created_at,
+            kind="evidence_uploaded",
+            title=f"Evidence '{evidence.original_filename}' uploaded",
+            description=f"sha256 {sha256[:16]}… · format {fmt.value}",
+            evidence_file_id=evidence.id,
+            collection_id=collection_id,
+            actor_user_id=user.id,
+            payload={"sha256": sha256, "format": fmt.value},
+        )
         await session.commit()
     except Exception:
         # A03: the object reached the bucket before the row committed (or a

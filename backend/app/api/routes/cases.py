@@ -10,6 +10,7 @@ server-generated id, so the API always returns a stable, unique reference.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import ColumnElement, func, or_, select
@@ -35,6 +36,7 @@ from app.schemas.cases import (
     CaseUpdateRequest,
 )
 from app.services.audit import record_audit
+from app.services.timeline import record_event
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -157,6 +159,16 @@ async def create_case(
         case_id=case.id,
         metadata={"title": case.title, "case_number": case.case_number},
     )
+    await record_event(
+        session=session,
+        case_id=case.id,
+        occurred_at=case.created_at,
+        kind="case_event",
+        title=f"Case {case.case_number} created",
+        description=case.title,
+        actor_user_id=user.id,
+        payload={"status": case.status},
+    )
     await session.commit()
     await session.refresh(case)
     return _case_out(case)
@@ -183,6 +195,7 @@ async def update_case(
 ) -> CaseOut:
     """Update editable case fields with lifecycle-aware status transitions."""
     case = await get_case_or_404(case_id, request, session)
+    previous_status = case.status
     if payload.status == "archived":
         raise HTTPException(status_code=422, detail="use the archive endpoint to archive a case")
 
@@ -234,6 +247,17 @@ async def update_case(
         case_id=case.id,
         metadata={"changes": changes},
     )
+    if status_change:
+        await record_event(
+            session=session,
+            case_id=case.id,
+            occurred_at=datetime.now(UTC),
+            kind="case_event",
+            title=f"Case {case.case_number} status: {previous_status} -> {payload.status}",
+            description=case.title,
+            actor_user_id=user.id,
+            payload={"from": previous_status, "to": payload.status},
+        )
     await session.commit()
     await session.refresh(case)
     return _case_out(case)
@@ -260,6 +284,16 @@ async def archive_case(
         resource_id=case.id,
         case_id=case.id,
         metadata={"from_status": previous_status},
+    )
+    await record_event(
+        session=session,
+        case_id=case.id,
+        occurred_at=datetime.now(UTC),
+        kind="case_event",
+        title=f"Case {case.case_number} archived",
+        description=f"Status: {previous_status} -> archived",
+        actor_user_id=user.id,
+        payload={"from": previous_status, "to": "archived"},
     )
     await session.commit()
     await session.refresh(case)

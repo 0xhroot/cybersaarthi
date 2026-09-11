@@ -172,15 +172,29 @@ async def import_package(
 
     evidence_repo = EvidenceRepository(session)
 
-    imported_count = 0
-    evidence_ids: list[str] = []
     manifest_entry_map = {e["filename"]: e for e in manifest["evidence_files"]}
 
+    # Phase 1: pre-verify every file before any object is stored so a failure
+    # cannot leave orphaned MinIO objects behind.
+    verified: list[tuple[str, bytes, dict[str, Any]]] = []
     for filename, file_bytes in file_slices:
         entry = manifest_entry_map.get(filename)
         if entry is None:
             continue
         await _check_replay(session, case_id, entry["sha256"])
+        await _verify_single_file(
+            session=session,
+            case_id=case_id,
+            manifest_entry=entry,
+            file_bytes=file_bytes,
+        )
+        verified.append((filename, file_bytes, entry))
+
+    # Phase 2: store every verified file and record per-file events.
+    imported_count = 0
+    evidence_ids: list[str] = []
+
+    for filename, file_bytes, entry in verified:
         stored_key = f"evidence/{case_id}/{uuid.uuid4().hex}/{filename}"
         storage.client().put_object(
             Bucket=storage.bucket_name(),
@@ -215,6 +229,21 @@ async def import_package(
             actor_user_id=actor_id,
         )
 
+    await record_event(
+        session=session,
+        case_id=case_id,
+        occurred_at=datetime.now(UTC),
+        kind="package_imported",
+        title=f"Import package received from device '{manifest['device_serial']}'",
+        description=(
+            f"{imported_count} evidence file(s) · "
+            f"collection '{manifest.get('collection_name', 'unknown collection')}' · "
+            "signature and per-file SHA-256 verified"
+        ),
+        device_id=uuid.UUID(str(device.id)),
+        actor_user_id=actor_id,
+        payload={"imported_evidence_count": imported_count, "evidence_ids": evidence_ids},
+    )
     await audit_svc.record_audit(
         session,
         actor_id=actor_id,

@@ -25,6 +25,7 @@ from app.schemas.entity import (
 from app.services import audit as audit_svc
 from app.services import resolve_review as rr_svc
 from app.services.entity_service import EntityQueryService
+from app.services.timeline import record_event
 
 router = APIRouter(prefix="/cases", tags=["entities"])
 
@@ -149,6 +150,8 @@ async def accept_match(
     session: AsyncSession = Depends(get_db_session),
     user: User = Depends(require_permission(rbac.PERM_FINDINGS_REVIEW)),
 ) -> ReviewDecisionResponse:
+    from datetime import UTC, datetime
+
     from app.api.dependencies import assert_case_investigation_mutable
 
     case = await get_case_or_404(case_id, request, session)
@@ -162,6 +165,16 @@ async def accept_match(
         resource_id=match.id,
         case_id=case_id,
         metadata={"score": match.score},
+    )
+    await record_event(
+        session=session,
+        case_id=case_id,
+        occurred_at=datetime.now(UTC),
+        kind="match_accepted",
+        title=f"Resolution accepted: {match.decision} (score {match.score})",
+        description=f"Match decision '{match.decision}' accepted at score {match.score}",
+        actor_user_id=user.id,
+        payload={"score": match.score},
     )
     await session.commit()
     return ReviewDecisionResponse(match_id=str(match.id), status=match.status)
@@ -178,6 +191,8 @@ async def reject_match(
     session: AsyncSession = Depends(get_db_session),
     user: User = Depends(require_permission(rbac.PERM_FINDINGS_REVIEW)),
 ) -> ReviewDecisionResponse:
+    from datetime import UTC, datetime
+
     from app.api.dependencies import assert_case_investigation_mutable
 
     case = await get_case_or_404(case_id, request, session)
@@ -191,6 +206,16 @@ async def reject_match(
         resource_id=match.id,
         case_id=case_id,
         metadata={"score": match.score},
+    )
+    await record_event(
+        session=session,
+        case_id=case_id,
+        occurred_at=datetime.now(UTC),
+        kind="match_rejected",
+        title=f"Resolution rejected: {match.decision} (score {match.score})",
+        description=f"Match decision '{match.decision}' rejected at score {match.score}",
+        actor_user_id=user.id,
+        payload={"score": match.score},
     )
     await session.commit()
     return ReviewDecisionResponse(match_id=str(match.id), status=match.status)
@@ -212,6 +237,8 @@ async def merge_entities(
     session: AsyncSession = Depends(get_db_session),
     user: User = Depends(require_permission(rbac.PERM_ENTITY_MERGE)),
 ) -> EntityOut:
+    from datetime import UTC, datetime
+
     from app.api.dependencies import assert_case_investigation_mutable
 
     case = await get_case_or_404(case_id, request, session)
@@ -230,6 +257,20 @@ async def merge_entities(
         resource_id=merged_into.id,
         case_id=case_id,
         metadata={
+            "primary_id": str(body.primary_entity_id),
+            "merge_id": str(body.merge_entity_id),
+        },
+    )
+    await record_event(
+        session=session,
+        case_id=case_id,
+        occurred_at=datetime.now(UTC),
+        kind="entity_merged",
+        title=f"Entities merged into '{merged_into.display_value}'",
+        description=f"Kept {body.primary_entity_id} · absorbed {body.merge_entity_id}",
+        entity_id=merged_into.id,
+        actor_user_id=user.id,
+        payload={
             "primary_id": str(body.primary_entity_id),
             "merge_id": str(body.merge_entity_id),
         },
