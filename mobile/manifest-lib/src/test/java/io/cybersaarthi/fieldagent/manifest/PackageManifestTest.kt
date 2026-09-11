@@ -37,15 +37,23 @@ class PackageManifestTest {
 
     @Test
     fun `canonical bytes are deterministic regardless of key order`() {
-        val a = PackageManifest.buildManifest(
-            caseId = "case-1", deviceSerial = "D", collectionName = "C", evidenceFiles = evidence
+        val a = PackageManifest.canonicalBytes(
+            "{" +
+                "\"case_id\":\"case-1\",\"collection_name\":\"C\",\"device_serial\":\"D\"," +
+                "\"evidence_files\":[{\"filename\":\"001.txt\",\"sha256\":\"aaaa\"," +
+                "\"size_bytes\":42,\"captured_at\":\"2026-01-01T00:00:00Z\"," +
+                "\"source\":\"field_capture\"}],\"schema_version\":\"1.0\"}"
         )
-        val canonicalA = PackageManifest.canonicalBytes(a)
-        val permuted = JSONObject(a).toString().reversed() // mutate representation
-        val canonicalB = PackageManifest.canonicalBytes(permuted)
+        val b = PackageManifest.canonicalBytes(
+            "{" +
+                "\"schema_version\":\"1.0\",\"evidence_files\":[{\"size_bytes\":42," +
+                "\"source\":\"field_capture\",\"captured_at\":\"2026-01-01T00:00:00Z\"," +
+                "\"sha256\":\"aaaa\",\"filename\":\"001.txt\"}]," +
+                "\"device_serial\":\"D\",\"collection_name\":\"C\",\"case_id\":\"case-1\"}"
+        )
         assertEquals(
-            String(canonicalA, StandardCharsets.UTF_8),
-            String(canonicalB, StandardCharsets.UTF_8)
+            String(a, StandardCharsets.UTF_8),
+            String(b, StandardCharsets.UTF_8)
         )
     }
 
@@ -68,7 +76,7 @@ class PackageManifestTest {
             val files = PackageManifest.hashEvidenceFiles(dir)
             assertEquals(2, files.size)
             assertEquals(listOf("a.txt", "b.txt"), files.map { it.filename })
-            assertEquals(40L, files.map { it.sizeBytes }.sum())
+            assertEquals(9L, files.map { it.sizeBytes }.sum())
         } finally {
             dir.deleteRecursively()
         }

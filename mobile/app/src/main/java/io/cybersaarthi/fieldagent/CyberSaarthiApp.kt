@@ -1,11 +1,15 @@
 package io.cybersaarthi.fieldagent
 
 import android.app.Application
-import io.cybersaarthi.fieldagent.signature.SignatureEnvelope
 
 class CyberSaarthiApp : Application() {
+
+    lateinit var container: AppContainer
+        private set
+
     override fun onCreate() {
         super.onCreate()
-        SignatureEnvelope.generateKeyPairIfAbsent()
+        container = AppContainer(applicationContext)
+        container.connectivity.start()
     }
 }

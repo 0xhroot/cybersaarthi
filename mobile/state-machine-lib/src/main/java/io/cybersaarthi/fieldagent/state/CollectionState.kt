@@ -29,7 +29,7 @@ enum class CollectionState(val code: String) {
         )
 
         fun canTransition(from: CollectionState, to: CollectionState): Boolean {
-            return to in (predecessors[to] ?: emptySet())
+            return from in (predecessors[to] ?: emptySet())
         }
 
         fun nextStates(current: CollectionState): Set<CollectionState> {

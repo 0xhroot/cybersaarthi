@@ -25,4 +25,6 @@ android {
 dependencies {
     implementation(project(":hashing-lib"))
     implementation(project(":signature-lib"))
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
