@@ -547,8 +547,7 @@ async def run_analytics(
         occurred_at=datetime.now(UTC),
         kind="analytics_run",
         title=(
-            f"Analytics run "
-            f"{'completed successfully' if run.status == 'completed' else 'failed'}"
+            f"Analytics run {'completed successfully' if run.status == 'completed' else 'failed'}"
         ),
         description=f"stage '{run.stage}' · run {run.id}",
         actor_user_id=user.id,
