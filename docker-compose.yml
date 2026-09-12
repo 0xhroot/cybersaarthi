@@ -93,6 +93,29 @@ services:
         soft: 65536
         hard: 65536
 
+  # Optional LAN discovery: advertises the backend over mDNS/DNS-SD
+  # (_cybersaarthi._tcp) so the Android Field Agent's LanDiscoveryScreen (NSD)
+  # can auto-find it. mDNS is link-local UDP 5353, so this service must share
+  # the host network namespace — it cannot run inside an isolated bridge.
+  # Start with:  docker compose --profile discovery up -d
+  discovery:
+    image: python:3.13-alpine
+    profiles: ["discovery"]
+    network_mode: host
+    volumes:
+      - ./scripts:/scripts:ro
+    command:
+      [
+        "sh",
+        "-c",
+        "python -m pip install --no-cache-dir -q zeroconf && sh /scripts/mdns_advertise.sh 8000 CyberSaarthi",
+      ]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 256M
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
