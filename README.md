@@ -25,7 +25,7 @@
 
 | | | | |
 |---|---|---|---|
-| 🟢 **SIH DEMO READY** | **366** Backend Tests Passed | **67** Frontend Tests Passed | **Real-Mode E2E Verified** |
+| 🟢 **SIH DEMO READY** | **379** Backend Tests Passed | **67** Frontend Tests Passed | **Real-Mode E2E Verified** |
 | Persistent Multi-Store | RBAC + JWT | Evidence Provenance | Victim + IoT Intelligence |
 | Graph Analytics | REST API + UI | Audit Trail | Docker Compose |
 
@@ -783,7 +783,7 @@ theoretical claim.
 
 | Gate | Result |
 |---|---|
-| Backend tests (pytest: unit + API + integration) | **366 passed** |
+| Backend tests (pytest: unit + API + integration) | **379 passed** |
 | Frontend tests (Vitest) | **67 passed** (13 files) |
 | SIH primary-flow E2E checks | **28/28 passed** |
 | Real-browser E2E (headless Chromium, production build) | **6/6 passed** |
@@ -801,7 +801,7 @@ Everything runs in Docker — nothing needs to be installed on the host for the 
 
 ```bash
 # backend
-docker compose --profile dev run --rm -T backend-dev pytest       # 366 tests
+docker compose --profile dev run --rm -T backend-dev pytest       # 379 tests
 docker compose --profile dev run --rm -T backend-dev ruff check . # lint
 docker compose --profile dev run --rm -T backend-dev mypy app     # typecheck
 
