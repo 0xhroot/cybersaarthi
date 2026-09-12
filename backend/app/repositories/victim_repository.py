@@ -55,7 +55,8 @@ class VictimRepository:
         if status:
             filters.append(Victim.status == status)
         if query:
-            filters.append(Victim.name.ilike(f"%{query}%"))
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            filters.append(Victim.name.ilike(f"%{escaped}%", escape="\\"))
 
         base = select(Victim).where(*filters)
         total = await self._session.scalar(select(func.count()).select_from(base.subquery()))

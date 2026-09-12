@@ -235,6 +235,15 @@ async def link_evidence(
         from fastapi import HTTPException
 
         raise HTTPException(status_code=404, detail=f"hypothesis {hypothesis_id} not found")
+
+    from app.models import EvidenceFile
+
+    evidence = await session.get(EvidenceFile, body.evidence_id)
+    if evidence is None or str(evidence.case_id) != str(case_id) or evidence.is_deleted:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=f"evidence {body.evidence_id} not found")
+
     h = await hyp_svc.link_evidence_to_hypothesis(
         session=session, hypothesis=h, evidence_id=body.evidence_id, support=body.support
     )

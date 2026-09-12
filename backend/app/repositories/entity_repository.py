@@ -112,7 +112,8 @@ class EntityRepository:
         if status:
             filters.append(Entity.status == status)
         if query:
-            filters.append(Entity.display_value.ilike(f"%{query}%"))
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            filters.append(Entity.display_value.ilike(f"%{escaped}%", escape="\\"))
 
         base = select(Entity).where(*filters)
         count_value = await self._session.scalar(select(func.count()).select_from(base.subquery()))

@@ -211,6 +211,7 @@ async def import_package(
             file_size=len(file_bytes),
             sha256=entry["sha256"],
             metadata_json=entry.get("metadata"),
+            source_field_device_id=uuid.UUID(str(device.id)),
         )
         imported_count += 1
         evidence_ids.append(str(ev.id))

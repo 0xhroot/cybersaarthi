@@ -105,12 +105,16 @@ class IngestionService:
         except Exception as exc:
             logger.exception("ingestion job failed", extra={"job_id": str(job.id), "stage": stage})
             try:
+                current = await self._evidence_repository.get_job(job.id)
+                failed_stage = current.stage if current is not None and current.stage else stage
                 if job.processed_records > 0:
                     await self._evidence_repository.mark_job_partial(
-                        job.id, error=str(exc), stage=stage
+                        job.id, error=str(exc), stage=failed_stage
                     )
                 else:
-                    await self._evidence_repository.fail_job(job.id, error=str(exc), stage=stage)
+                    await self._evidence_repository.fail_job(
+                        job.id, error=str(exc), stage=failed_stage
+                    )
                 await self._session.commit()
             except JobTransitionError:
                 await self._session.rollback()
@@ -239,7 +243,7 @@ class IngestionService:
             )
             await self._session.flush()
 
-        await self._sync_graph(case_id, job)
+        nodes, edges = await self._sync_graph(case_id, job)
 
         entity_types = await self._entity_repository.count_entities_by_type(case_id)
         relationship_types = await self._relationship_repository.count_by_type(case_id)
@@ -251,6 +255,8 @@ class IngestionService:
             "entity_types": entity_types,
             "relationships": relationship_total,
             "relationship_types": relationship_types,
+            "graph_nodes": nodes,
+            "graph_edges": edges,
         }
         final_job = await self._evidence_repository.get_job(job.id)
         graph_status = str(final_job.graph_sync_status) if final_job else "pending"

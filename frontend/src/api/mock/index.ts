@@ -1036,6 +1036,7 @@ export const mockApi: Api = {
         status_detail: detail?.status_detail ?? null,
         record_count: item.record_count,
         metadata_json: detail?.metadata_json ?? null,
+        source_field_device_id: item.source_field_device_id ?? null,
         created_at: item.created_at,
       };
     },
@@ -1071,6 +1072,7 @@ export const mockApi: Api = {
         encoding: "utf-8",
         status: "stored",
         status_detail: null,
+        source_field_device_id: null,
         created_at: created,
       };
       evidenceState.push({
@@ -1081,6 +1083,7 @@ export const mockApi: Api = {
         file_size: file.size,
         status: "stored",
         record_count: null,
+        source_field_device_id: null,
         created_at: created,
       });
       pushAudit("evidence.uploaded", "evidence_file", caseId, {
@@ -2184,6 +2187,7 @@ export const mockApi: Api = {
           file_size: 128,
           status: "stored",
           record_count: null,
+          source_field_device_id: device?.id ?? null,
           created_at: now,
         });
         timelineState.unshift({

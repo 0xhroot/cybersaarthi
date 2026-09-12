@@ -103,6 +103,7 @@ class EvidenceRepository:
         sha256: str,
         metadata_json: dict[str, object] | None,
         collection_id: uuid.UUID | None = None,
+        source_field_device_id: uuid.UUID | None = None,
     ) -> EvidenceFile:
         evidence = EvidenceFile(
             case_id=str(case_id),
@@ -114,6 +115,9 @@ class EvidenceRepository:
             sha256=sha256,
             metadata_json=metadata_json,
             collection_id=str(collection_id) if collection_id else None,
+            source_field_device_id=(
+                str(source_field_device_id) if source_field_device_id else None
+            ),
         )
         self._session.add(evidence)
         await self._session.flush()
@@ -143,12 +147,19 @@ class EvidenceRepository:
         await self._session.flush()
 
     async def list_evidence(
-        self, case_id: uuid.UUID, *, limit: int = 50, offset: int = 0
+        self,
+        case_id: uuid.UUID,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        source_field_device_id: uuid.UUID | None = None,
     ) -> tuple[list[EvidenceFile], int]:
         base = select(EvidenceFile).where(
             EvidenceFile.case_id == str(case_id),
             EvidenceFile.deleted_at.is_(None),
         )
+        if source_field_device_id is not None:
+            base = base.where(EvidenceFile.source_field_device_id == str(source_field_device_id))
         total = await self._session.scalar(select(func.count()).select_from(base.subquery()))
         result = await self._session.execute(
             base.order_by(EvidenceFile.created_at.desc()).limit(limit).offset(offset)

@@ -34,7 +34,7 @@ from app.api.dependencies import (
 from app.core import rbac
 from app.core.config import Settings, get_settings
 from app.db.postgres import get_db_session
-from app.models import DataSource, EvidenceFile, IngestionJob, User
+from app.models import DataSource, EvidenceFile, FieldDevice, IngestionJob, User
 from app.repositories.evidence_repository import EvidenceRepository
 from app.schemas.evidence import (
     EvidenceCreateResponse,
@@ -114,8 +114,13 @@ def _evidence_to_create_response(evidence: EvidenceFile) -> EvidenceCreateRespon
         encoding=evidence.encoding,
         status=evidence.status,
         status_detail=evidence.status_detail,
+        source_field_device_id=_optional_uuid(evidence.source_field_device_id),
         created_at=evidence.created_at,
     )
+
+
+def _optional_uuid(value: str | None) -> uuid.UUID | None:
+    return uuid.UUID(str(value)) if value else None
 
 
 def _evidence_detail(evidence: EvidenceFile, data_source: str | None) -> EvidenceDetailResponse:
@@ -134,6 +139,7 @@ def _evidence_detail(evidence: EvidenceFile, data_source: str | None) -> Evidenc
         status_detail=evidence.status_detail,
         record_count=evidence.record_count,
         metadata_json=evidence.metadata_json,
+        source_field_device_id=_optional_uuid(evidence.source_field_device_id),
         created_at=evidence.created_at,
     )
 
@@ -372,11 +378,23 @@ async def list_evidence(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    source_field_device_id: uuid.UUID | None = Query(default=None),
     session: AsyncSession = Depends(get_db_session),
     evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
 ) -> EvidenceListResponse:
     await get_case_or_404(case_id, request, session)
-    items, total = await evidence_repository.list_evidence(case_id, limit=limit, offset=offset)
+    if source_field_device_id is not None:
+        device = await session.get(FieldDevice, source_field_device_id)
+        if device is None or str(device.case_id) != str(case_id):
+            raise HTTPException(
+                status_code=404, detail=f"device {source_field_device_id} not found in case"
+            )
+    items, total = await evidence_repository.list_evidence(
+        case_id,
+        limit=limit,
+        offset=offset,
+        source_field_device_id=source_field_device_id,
+    )
     return EvidenceListResponse(
         items=[
             EvidenceListItem(
@@ -387,6 +405,7 @@ async def list_evidence(
                 file_size=item.file_size,
                 status=item.status,
                 record_count=item.record_count,
+                source_field_device_id=_optional_uuid(item.source_field_device_id),
                 created_at=item.created_at,
             )
             for item in items
@@ -541,7 +560,7 @@ async def _submit_pending_job(
     return await evidence_repository.create_job(
         case_id=case_id,
         evidence_file_id=evidence_file_id,
-        status="running",
+        status="pending",
         actor_id=actor_id,
     )
 

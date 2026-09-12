@@ -4,6 +4,7 @@ timeline, reports, search, evidence restore, entity resolution, and import.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import uuid
@@ -139,6 +140,21 @@ async def test_collection_lifecycle(http_client, p3_case) -> None:
     assert resp.json()["total"] == 0
 
 
+async def test_create_collection_rejected_on_closed_case(http_client, p3_case) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+
+    closed = await http_client.patch(f"{prefix}/cases/{case_id}", json={"status": "closed"})
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["status"] == "closed"
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/collections",
+        json={"name": "Late Entry"},
+    )
+    assert resp.status_code == 409, resp.text
+
+
 # ---------------------------------------------------------------------------
 # Field Devices
 # ---------------------------------------------------------------------------
@@ -236,6 +252,12 @@ async def test_device_verify_key(http_client, p3_case) -> None:
     assert resp.status_code == 200
     assert resp.json()["valid"] is False
 
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/devices/{dev_id}/verify-key",
+        json={"data": data.decode(), "signature": "not-hex"},
+    )
+    assert resp.status_code == 400, resp.text
+
 
 # ---------------------------------------------------------------------------
 # Hypotheses
@@ -281,13 +303,20 @@ async def test_hypothesis_lifecycle(http_client, p3_case) -> None:
     )
     assert resp.status_code == 409
 
-    # link evidence
+    # link evidence (must reference a real, non-deleted file in the case)
+    evidence = await _upload_one(http_client, case_id)
     resp = await http_client.post(
         f"{prefix}/cases/{case_id}/hypotheses/{hyp['id']}/evidence",
-        json={"evidence_id": str(uuid.uuid4()), "support": True},
+        json={"evidence_id": evidence["id"], "support": True},
     )
     assert resp.status_code == 200
     assert resp.json()["evidence_weight"] == 1
+
+    phantom = await http_client.post(
+        f"{prefix}/cases/{case_id}/hypotheses/{hyp['id']}/evidence",
+        json={"evidence_id": str(uuid.uuid4()), "support": False},
+    )
+    assert phantom.status_code == 404
 
     # delete
     resp = await http_client.delete(f"{prefix}/cases/{case_id}/hypotheses/{hyp['id']}")
@@ -512,7 +541,7 @@ async def test_evidence_restore_active_returns_409(http_client, p3_case) -> None
 # ---------------------------------------------------------------------------
 
 
-async def test_async_ingest_returns_running(http_client, p3_case) -> None:
+async def test_async_ingest_queues_pending_and_completes(http_client, p3_case) -> None:
     case_id, _ = p3_case
     prefix = get_settings().API_V1_PREFIX
 
@@ -524,10 +553,21 @@ async def test_async_ingest_returns_running(http_client, p3_case) -> None:
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["job"]["status"] == "running"
+    assert body["job"]["status"] == "pending"
 
     resp = await http_client.get(f"{prefix}/cases/{case_id}/ingest-jobs")
-    assert resp.json()["total"] >= 1
+    items = resp.json()["items"]
+    assert resp.json()["total"] == 1
+    job_id = items[0]["id"]
+
+    status = items[0]["status"]
+    for _ in range(60):
+        if status in {"completed", "failed", "partial"}:
+            break
+        await asyncio.sleep(0.05)
+        resp = await http_client.get(f"{prefix}/cases/{case_id}/ingest-jobs")
+        status = next(item["status"] for item in resp.json()["items"] if item["id"] == job_id)
+    assert status == "completed"
 
 
 # ---------------------------------------------------------------------------
@@ -691,7 +731,8 @@ async def test_import_package_valid(http_client, admin_http_client, p3_case) -> 
     timeline = await http_client.get(f"{prefix}/cases/{case_id}/timeline")
     assert timeline.status_code == 200
     imported = [
-        e for e in timeline.json()["items"]
+        e
+        for e in timeline.json()["items"]
         if e["kind"] == "evidence_uploaded" and "IMPORT-001" in (e["title"] or "")
     ]
     assert imported, "package import must record a timeline event"
@@ -1122,6 +1163,7 @@ async def test_import_package_multifile_intact_3files(
 
     # Zero orphans (objects exist = exactly 3, matching 3 evidence rows)
     from asyncio import to_thread
+
     keys = await to_thread(storage.list_keys, f"evidence/{case_id}/")
     assert len(keys) == 3
 
@@ -1143,3 +1185,334 @@ async def test_import_package_invalid_manifest_missing_key(http_client, p3_case)
         },
     )
     assert resp.status_code == 422, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: Evidence source provenance (source_field_device_id)
+# ---------------------------------------------------------------------------
+
+
+async def _approved_device(http_client, admin_http_client, case_id: str, serial: str) -> dict:
+    _gen_rsa()
+    prefix = get_settings().API_V1_PREFIX
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/devices",
+        json={
+            "platform": "android_mobile",
+            "serial": serial,
+            "public_key": RSA_PUBLIC_KEY_PEM,
+            "signature_algorithm": "RSA-SHA256",
+        },
+    )
+    assert resp.status_code in (200, 201), resp.text
+    device = resp.json()
+    resp = await admin_http_client.post(f"{prefix}/cases/{case_id}/devices/{device['id']}/approve")
+    assert resp.status_code == 200, resp.text
+    return device
+
+
+def _valid_manifest(
+    case_id, serial: str, *files: tuple[str, bytes], extra: dict | None = None
+) -> tuple[dict, str]:
+    manifest = {
+        "schema_version": "1.0",
+        "case_id": str(case_id),
+        "device_serial": serial,
+        "collection_name": "Field Evidence",
+        "evidence_files": [
+            {
+                "filename": name,
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size_bytes": len(data),
+            }
+            for name, data in files
+        ],
+    }
+    if extra:
+        manifest.update(extra)
+    canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    return manifest, _sign_data(canonical)
+
+
+async def _import_package(http_client, case_id: str, manifest: dict, sig: str, files):
+    prefix = get_settings().API_V1_PREFIX
+    file_fields = [("files", (name, data, "application/octet-stream")) for name, data in files]
+    return await http_client.post(
+        f"{prefix}/cases/{case_id}/import/packages",
+        files=[
+            ("manifest", ("manifest.json", json.dumps(manifest).encode(), "application/json")),
+            ("manifest_signature", ("sig.bin", bytes.fromhex(sig), "application/octet-stream")),
+            *file_fields,
+        ],
+    )
+
+
+async def test_import_sets_evidence_source_field_device(
+    http_client, admin_http_client, p3_case
+) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    device = await _approved_device(http_client, admin_http_client, str(case_id), "PROV-OK")
+
+    content = b"a,1\nb,2\n"
+    manifest, sig = _valid_manifest(case_id, "PROV-OK", ("alpha.csv", content))
+    resp = await _import_package(http_client, str(case_id), manifest, sig, [("alpha.csv", content)])
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["imported_evidence_count"] == 1
+    evidence_id = body["evidence_ids"][0]
+
+    detail = await http_client.get(f"{prefix}/cases/{case_id}/evidence/{evidence_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["source_field_device_id"] == device["id"]
+
+    listing = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    items = listing.json()["items"]
+    assert len(items) == 1
+    assert items[0]["source_field_device_id"] == device["id"]
+
+
+async def test_import_revoked_device_creates_no_evidence(
+    http_client, admin_http_client, p3_case
+) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    device = await _approved_device(http_client, admin_http_client, str(case_id), "PROV-REVOKED")
+    resp = await admin_http_client.post(f"{prefix}/cases/{case_id}/devices/{device['id']}/revoke")
+    assert resp.status_code == 200, resp.text
+
+    content = b"x\n"
+    manifest, sig = _valid_manifest(case_id, "PROV-REVOKED", ("bad.csv", content))
+    resp = await _import_package(http_client, str(case_id), manifest, sig, [("bad.csv", content)])
+    assert resp.status_code == 403, resp.text
+    listing = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert listing.json()["total"] == 0
+    assert listing.json()["items"] == []
+
+
+async def test_import_unapproved_device_creates_no_evidence(
+    http_client, admin_http_client, p3_case
+) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    _gen_rsa()
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/devices",
+        json={
+            "platform": "android_mobile",
+            "serial": "PROV-PENDING",
+            "public_key": RSA_PUBLIC_KEY_PEM,
+            "signature_algorithm": "RSA-SHA256",
+        },
+    )
+    assert resp.status_code in (200, 201), resp.text
+
+    content = b"y\n"
+    manifest, sig = _valid_manifest(case_id, "PROV-PENDING", ("pending.csv", content))
+    resp = await _import_package(
+        http_client, str(case_id), manifest, sig, [("pending.csv", content)]
+    )
+    assert resp.status_code == 403, resp.text
+    listing = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert listing.json()["total"] == 0
+
+
+async def test_import_bad_signature_creates_no_evidence(
+    http_client, admin_http_client, p3_case
+) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _approved_device(http_client, admin_http_client, str(case_id), "PROV-BADSIG")
+
+    content = b"z\n"
+    manifest, _ = _valid_manifest(case_id, "PROV-BADSIG", ("sig.csv", content))
+    resp = await _import_package(
+        http_client, str(case_id), manifest, "00" * 256, [("sig.csv", content)]
+    )
+    assert resp.status_code == 403, resp.text
+    listing = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert listing.json()["total"] == 0
+
+
+async def test_import_wrong_case_manifest_creates_no_evidence(
+    http_client, admin_http_client, p3_case
+) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _approved_device(http_client, admin_http_client, str(case_id), "PROV-WRONGCASE")
+
+    content = b"w\n"
+    manifest, sig = _valid_manifest(str(uuid.uuid4()), "PROV-WRONGCASE", ("wrong.csv", content))
+    resp = await _import_package(http_client, str(case_id), manifest, sig, [("wrong.csv", content)])
+    assert resp.status_code == 422, resp.text
+    listing = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert listing.json()["total"] == 0
+
+
+async def test_import_client_cannot_spoof_source_field_device(
+    http_client, admin_http_client, p3_case
+) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _approved_device(http_client, admin_http_client, str(case_id), "PROV-SPOOF")
+
+    content = b"s\n"
+    forged = str(uuid.uuid4())
+    manifest, sig = _valid_manifest(
+        case_id, "PROV-SPOOF", ("spoof.csv", content), extra={"source_field_device_id": forged}
+    )
+    resp = await _import_package(http_client, str(case_id), manifest, sig, [("spoof.csv", content)])
+    assert resp.status_code == 403, resp.text
+    listing = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert listing.json()["total"] == 0
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/evidence",
+        files={"file": ("spoof_upload.csv", content, "text/csv")},
+        data={"data_source": "csv", "source_field_device_id": forged},
+    )
+    assert resp.status_code == 201, resp.text
+    forged_id = resp.json()["id"]
+    detail = await http_client.get(f"{prefix}/cases/{case_id}/evidence/{forged_id}")
+    assert detail.json()["source_field_device_id"] is None
+
+
+async def test_regular_upload_keeps_legacy_null_provenance(http_client, p3_case) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+
+    resp = await http_client.post(
+        f"{prefix}/cases/{case_id}/evidence",
+        files={"file": ("legacy.csv", b"old\n", "text/csv")},
+        data={"data_source": "csv"},
+    )
+    assert resp.status_code == 201, resp.text
+    evidence_id = resp.json()["id"]
+
+    detail = await http_client.get(f"{prefix}/cases/{case_id}/evidence/{evidence_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["source_field_device_id"] is None
+
+    listing = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert listing.json()["items"][0]["source_field_device_id"] is None
+
+
+async def test_import_device_cannot_produce_evidence_in_another_case(
+    http_client, admin_http_client, p3_case, database, api_user
+) -> None:
+    case_a, database = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    await _approved_device(http_client, admin_http_client, str(case_a), "PROV-CROSS")
+
+    factory = database.session_factory()
+    case_b = uuid.uuid4()
+    async with factory() as session:
+        session.add(
+            Case(
+                id=case_b,
+                case_number=f"P7B-{uuid.uuid4().hex[:8]}",
+                title="p7 secondary case",
+                owner_id=api_user.id,
+            )
+        )
+        await session.commit()
+    try:
+        content = b"q\n"
+        manifest, sig = _valid_manifest(case_b, "PROV-CROSS", ("cross.csv", content))
+        resp = await _import_package(
+            http_client, str(case_b), manifest, sig, [("cross.csv", content)]
+        )
+        assert resp.status_code == 404, resp.text
+
+        listing_b = await http_client.get(f"{prefix}/cases/{case_b}/evidence")
+        assert listing_b.json()["total"] == 0
+        listing_a = await http_client.get(f"{prefix}/cases/{case_a}/evidence")
+        assert listing_a.json()["total"] == 0
+    finally:
+        async with factory() as session:
+            await session.execute(delete(Case).where(Case.id == case_b))
+            await session.commit()
+
+
+async def test_evidence_list_filter_is_device_scoped_within_case(
+    http_client, admin_http_client, p3_case
+) -> None:
+    case_id, _ = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    device_a = await _approved_device(http_client, admin_http_client, str(case_id), "PROV-FILT-A")
+    device_b = await _approved_device(http_client, admin_http_client, str(case_id), "PROV-FILT-B")
+
+    alpha = b"alpha\n"
+    manifest, sig = _valid_manifest(case_id, "PROV-FILT-A", ("alpha.csv", alpha))
+    resp = await _import_package(http_client, str(case_id), manifest, sig, [("alpha.csv", alpha)])
+    assert resp.status_code == 201, resp.text
+
+    beta = b"beta\n"
+    manifest, sig = _valid_manifest(case_id, "PROV-FILT-B", ("beta.csv", beta))
+    resp = await _import_package(http_client, str(case_id), manifest, sig, [("beta.csv", beta)])
+    assert resp.status_code == 201, resp.text
+
+    only_a = await http_client.get(
+        f"{prefix}/cases/{case_id}/evidence?source_field_device_id={device_a['id']}"
+    )
+    assert only_a.status_code == 200, only_a.text
+    a_items = only_a.json()["items"]
+    assert [i["original_filename"] for i in a_items] == ["alpha.csv"]
+    assert all(i["source_field_device_id"] == device_a["id"] for i in a_items)
+
+    only_b = await http_client.get(
+        f"{prefix}/cases/{case_id}/evidence?source_field_device_id={device_b['id']}"
+    )
+    assert only_b.status_code == 200, only_b.text
+    b_items = only_b.json()["items"]
+    assert [i["original_filename"] for i in b_items] == ["beta.csv"]
+    assert all(i["source_field_device_id"] == device_b["id"] for i in b_items)
+
+    all_items = await http_client.get(f"{prefix}/cases/{case_id}/evidence")
+    assert all_items.json()["total"] == 2
+
+
+async def test_evidence_device_filter_cannot_cross_case(
+    http_client, admin_http_client, p3_case, database, api_user
+) -> None:
+    case_a, database = p3_case
+    prefix = get_settings().API_V1_PREFIX
+    device = await _approved_device(http_client, admin_http_client, str(case_a), "PROV-LOOKUP")
+
+    content = b"lookup\n"
+    manifest, sig = _valid_manifest(case_a, "PROV-LOOKUP", ("lookup.csv", content))
+    resp = await _import_package(http_client, str(case_a), manifest, sig, [("lookup.csv", content)])
+    assert resp.status_code == 201, resp.text
+
+    factory = database.session_factory()
+    case_b = uuid.uuid4()
+    async with factory() as session:
+        session.add(
+            Case(
+                id=case_b,
+                case_number=f"P7B-{uuid.uuid4().hex[:8]}",
+                title="p7 secondary case",
+                owner_id=api_user.id,
+            )
+        )
+        await session.commit()
+    try:
+        cross = await http_client.get(
+            f"{prefix}/cases/{case_b}/evidence?source_field_device_id={device['id']}"
+        )
+        assert cross.status_code == 404, cross.text
+
+        ghost = await http_client.get(
+            f"{prefix}/cases/{case_a}/evidence?source_field_device_id={uuid.uuid4()}"
+        )
+        assert ghost.status_code == 404, ghost.text
+
+        own = await http_client.get(
+            f"{prefix}/cases/{case_a}/evidence?source_field_device_id={device['id']}"
+        )
+        assert own.status_code == 200, own.text
+        assert [i["original_filename"] for i in own.json()["items"]] == ["lookup.csv"]
+    finally:
+        async with factory() as session:
+            await session.execute(delete(Case).where(Case.id == case_b))
+            await session.commit()

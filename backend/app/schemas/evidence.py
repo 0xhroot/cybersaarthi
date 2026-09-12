@@ -21,6 +21,7 @@ class EvidenceCreateResponse(BaseModel):
     encoding: str | None
     status: str
     status_detail: str | None
+    source_field_device_id: UUID | None
     created_at: datetime
 
 
@@ -32,6 +33,7 @@ class EvidenceListItem(BaseModel):
     file_size: int
     status: str
     record_count: int | None
+    source_field_device_id: UUID | None
     created_at: datetime
 
 
@@ -50,6 +52,7 @@ class EvidenceDetailResponse(BaseModel):
     status_detail: str | None
     record_count: int | None
     metadata_json: dict[str, Any] | None
+    source_field_device_id: UUID | None
     created_at: datetime
 
 

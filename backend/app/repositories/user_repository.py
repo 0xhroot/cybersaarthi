@@ -39,9 +39,13 @@ class UserRepository:
         if status:
             base = base.where(User.status == status)
         if search:
-            pattern = f"%{search.strip().lower()}%"
+            escaped = (
+                search.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+            pattern = f"%{escaped}%"
             base = base.where(
-                func.lower(User.username).like(pattern) | func.lower(User.email).like(pattern)
+                func.lower(User.username).like(pattern, escape="\\")
+                | func.lower(User.email).like(pattern, escape="\\")
             )
         total = await self._session.execute(base.with_only_columns(func.count(User.id)))
         count = total.scalar_one()

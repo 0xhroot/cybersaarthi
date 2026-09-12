@@ -157,14 +157,23 @@ async def update_finding_status(
     if payload.status not in _FINDING_STATUSES:
         raise HTTPException(status_code=422, detail=f"invalid status {payload.status}")
 
-    permission = required_permission_for(payload.status)
-    if not rbac.has_permission(roles, permission):
-        raise HTTPException(status_code=403, detail=f"permission '{permission}' required")
-
     finding = await repository.get_finding(case_id, finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail=f"finding {finding_id} not found")
     previous_status = finding.status
+
+    if finding.status == payload.status:
+        return FindingStatusOut(
+            id=finding.id,
+            status=finding.status,
+            reviewed_by=finding.reviewed_by,
+            reviewed_at=finding.reviewed_at,
+            review_comment=finding.review_comment,
+        )
+
+    permission = required_permission_for(payload.status)
+    if not rbac.has_permission(roles, permission):
+        raise HTTPException(status_code=403, detail=f"permission '{permission}' required")
 
     service = FindingsService(session)
     try:

@@ -524,6 +524,7 @@ export interface EvidenceListItem {
   file_size: number;
   status: string;
   record_count: number | null;
+  source_field_device_id: string | null;
   created_at: string;
 }
 
@@ -549,6 +550,7 @@ export interface EvidenceDetail {
   status_detail: string | null;
   record_count: number | null;
   metadata_json: Record<string, unknown> | null;
+  source_field_device_id: string | null;
   created_at: string;
 }
 
@@ -564,6 +566,7 @@ export interface EvidenceCreateResponse {
   encoding: string | null;
   status: string;
   status_detail: string | null;
+  source_field_device_id: string | null;
   created_at: string;
 }
 

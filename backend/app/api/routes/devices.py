@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_case_or_404, require_permission
+from app.api.dependencies import (
+    assert_case_investigation_mutable,
+    get_case_or_404,
+    require_permission,
+)
 from app.core import rbac
 from app.db.postgres import get_db_session
 from app.models import FieldDevice, User
@@ -78,7 +82,8 @@ async def register_device(
     session: AsyncSession = Depends(get_db_session),
     user: User = Depends(require_permission(rbac.PERM_CASE_UPDATE)),
 ) -> DeviceOut:
-    await get_case_or_404(case_id, request, session)
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
     device = await dev_svc.register_device(
         session=session,
         case_id=case_id,
@@ -242,10 +247,14 @@ async def verify_device_key(
     device = await dev_svc.get_device(session, device_id)
     if device is None or str(device.case_id) != str(case_id):
         raise HTTPException(status_code=404, detail=f"device {device_id} not found")
+    try:
+        signature = bytes.fromhex(body.signature)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="signature must be hex-encoded") from None
     valid = dev_svc.verify_signature(
         public_key_pem=device.public_key,
         algorithm=device.signature_algorithm,
         data=body.data.encode(),
-        signature=bytes.fromhex(body.signature),
+        signature=signature,
     )
     return DeviceVerifyResponse(valid=valid)

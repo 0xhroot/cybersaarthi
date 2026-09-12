@@ -43,6 +43,11 @@ class EvidenceFile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
         nullable=True,
     )
+    source_field_device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("field_devices.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     stored_key: Mapped[str] = mapped_column(String(512), nullable=False)
     content_type: Mapped[str] = mapped_column(String(128), nullable=False)

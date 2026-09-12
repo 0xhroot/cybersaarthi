@@ -403,6 +403,7 @@ export const MAIN_EVIDENCE: EvidenceListItem[] = EVIDENCE_SEEDS.map((seed, index
     file_size: seed.size,
     status: index === 0 ? "stored" : "parsed",
     record_count: seed.records,
+    source_field_device_id: null,
     created_at: created,
   } satisfies EvidenceListItem;
 });
@@ -1121,8 +1122,8 @@ const SECONDARY_FINDINGS: Finding[] = [
 ];
 
 const SECONDARY_EVIDENCE: EvidenceListItem[] = [
-  { id: uid(6510), original_filename: "shipment_manifest_2026.csv", sha256: sha256For("manifest"), format: "csv", file_size: 221_500, status: "parsed", record_count: 96, created_at: iso(8) },
-  { id: uid(6511), original_filename: "intake_forms.json", sha256: sha256For("intake"), format: "json", file_size: 12_800, status: "parsed", record_count: 14, created_at: iso(7) },
+  { id: uid(6510), original_filename: "shipment_manifest_2026.csv", sha256: sha256For("manifest"), format: "csv", file_size: 221_500, status: "parsed", record_count: 96, source_field_device_id: null, created_at: iso(8) },
+  { id: uid(6511), original_filename: "intake_forms.json", sha256: sha256For("intake"), format: "json", file_size: 12_800, status: "parsed", record_count: 14, source_field_device_id: null, created_at: iso(7) },
 ];
 
 const SECONDARY_JOBS: IngestionJob[] = [

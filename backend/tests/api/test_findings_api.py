@@ -143,6 +143,32 @@ async def test_owner_drives_review_then_confirm_with_audit(http_client, _finding
     assert metadata_by_to["CONFIRMED"]["metadata_"]["from"] == "REVIEWED"
 
 
+async def test_same_status_noop_for_new_does_not_500(http_client, _findings_case) -> None:
+    case_id, _, _ = _findings_case
+    prefix = get_settings().API_V1_PREFIX
+
+    finding_id = await _new_finding_id(http_client, case_id)
+
+    before = await http_client.get(
+        f"{prefix}/audit-logs",
+        params={"case_id": case_id, "action": "finding.status_changed"},
+    )
+    before_total = before.json()["total"]
+
+    again = await http_client.patch(
+        f"{prefix}/cases/{case_id}/findings/{finding_id}/status",
+        json={"status": "NEW"},
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["status"] == "NEW"
+
+    after = await http_client.get(
+        f"{prefix}/audit-logs",
+        params={"case_id": case_id, "action": "finding.status_changed"},
+    )
+    assert after.json()["total"] == before_total
+
+
 async def test_closed_findings_are_immutable_for_non_admins(http_client, _findings_case) -> None:
     case_id, _, _ = _findings_case
     prefix = get_settings().API_V1_PREFIX

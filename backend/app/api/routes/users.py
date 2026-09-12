@@ -95,6 +95,8 @@ async def list_pending_users(
     user_service: UserService = Depends(get_user_service),
 ) -> AdminUserList:
     """List accounts awaiting approval."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     users, total = await user_service.list_users(limit=limit, offset=offset, status="PENDING")
     items = [await _admin_out(user_service, user) for user in users]
     return AdminUserList(items=items, total=total, limit=limit, offset=offset)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -159,6 +160,10 @@ async def get_report(
 _CONTENT_TYPES = {"json": "application/json", "csv": "text/csv", "pdf": "application/pdf"}
 
 
+def _safe_filename(value: str) -> str:
+    return re.sub(r'[\x00-\x1f\x7f"\r\n]', "", value).strip()
+
+
 @router.get("/{case_id}/reports/{report_id}/download")
 async def download_report(
     case_id: uuid.UUID,
@@ -180,7 +185,7 @@ async def download_report(
     async def _iter() -> AsyncIterator[bytes]:
         yield content
 
-    filename = f"{r.title.replace(' ', '_')}.{r.format}"
+    filename = f"{_safe_filename(r.title).replace(' ', '_')}.{r.format}"
     return StreamingResponse(
         _iter(),
         media_type=_CONTENT_TYPES.get(r.format, "application/octet-stream"),

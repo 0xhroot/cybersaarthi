@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_case_or_404, require_permission
+from app.api.dependencies import (
+    assert_case_investigation_mutable,
+    get_case_or_404,
+    require_permission,
+)
 from app.core import rbac
 from app.db.postgres import get_db_session
 from app.models import User
@@ -60,7 +64,8 @@ async def create_collection(
     session: AsyncSession = Depends(get_db_session),
     user: User = Depends(require_permission(rbac.PERM_CASE_UPDATE)),
 ) -> CollectionOut:
-    await get_case_or_404(case_id, request, session)
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
     col = await col_svc.create_collection(
         session=session,
         case_id=case_id,

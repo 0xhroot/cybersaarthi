@@ -174,6 +174,35 @@ async def test_viewer_cannot_mutate_evidence_or_run_analytics(
         assert (await client.post(f"{prefix}/cases/{case_id}/analytics/run")).status_code == 403
 
 
+async def test_stranger_cannot_mutate_findings_collections_or_devices(
+    http_client, _secure_case, user_factory
+) -> None:
+    prefix = get_settings().API_V1_PREFIX
+    case_id = _secure_case
+    stranger = await user_factory(role="INVESTIGATOR")
+    async with _client(stranger.token) as client:
+        finding = await client.patch(
+            f"{prefix}/cases/{case_id}/findings/{uuid.uuid4()}/status",
+            json={"status": "REVIEWED"},
+        )
+        assert finding.status_code == 403, finding.text
+        collection = await client.post(
+            f"{prefix}/cases/{case_id}/collections",
+            json={"name": "denied"},
+        )
+        assert collection.status_code == 403, collection.text
+        device = await client.post(
+            f"{prefix}/cases/{case_id}/devices",
+            json={
+                "platform": "android_mobile",
+                "serial": "STRANGER-1",
+                "public_key": "not-a-real-key",
+                "signature_algorithm": "RSA-SHA256",
+            },
+        )
+        assert device.status_code == 403, device.text
+
+
 async def test_listing_is_filtered_to_owned_cases(
     http_client, database: Database, user_factory
 ) -> None:
