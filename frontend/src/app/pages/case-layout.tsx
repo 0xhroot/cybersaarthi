@@ -31,6 +31,7 @@ const TABS = [
   { to: "entities", label: "Entities", end: false },
   { to: "evidence", label: "Evidence", end: false },
   { to: "victims", label: "Victims", end: false },
+  { to: "devices", label: "Devices", end: false },
   { to: "iot", label: "IoT", end: false },
   { to: "graph", label: "Graph", end: false },
   { to: "analytics", label: "Analytics", end: false },

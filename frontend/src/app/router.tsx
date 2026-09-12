@@ -27,6 +27,7 @@ const VictimsPage = lazy(() => import("@/app/pages/victims"));
 const VictimDetailPage = lazy(() => import("@/app/pages/victim-detail"));
 const IoTDevicesPage = lazy(() => import("@/app/pages/iot-devices"));
 const IoTDeviceDetailPage = lazy(() => import("@/app/pages/iot-device-detail"));
+const FieldDevicesPage = lazy(() => import("@/app/pages/devices"));
 const AuditPage = lazy(() => import("@/app/pages/audit"));
 const AdminUsersPage = lazy(() => import("@/app/pages/admin-users"));
 const NoAccessPage = lazy(() => import("@/app/pages/no-access"));
@@ -113,6 +114,7 @@ export function AppRouter() {
             <Route path="findings/:findingId" element={<FindingDetailPage />} />
             <Route path="victims" element={<VictimsPage />} />
             <Route path="victims/:victimId" element={<VictimDetailPage />} />
+            <Route path="devices" element={<FieldDevicesPage />} />
             <Route path="iot" element={<IoTDevicesPage />} />
             <Route path="iot/:deviceId" element={<IoTDeviceDetailPage />} />
             <Route path="timeline" element={<TimelinePage />} />

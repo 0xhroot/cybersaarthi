@@ -47,6 +47,7 @@ import type {
   GraphResponse,
   GraphStats,
   GraphSyncResult,
+  HealthResponse,
   Hypothesis,
   HypothesisLinkEvidenceRequest,
   ImportAccepted,
@@ -353,6 +354,11 @@ export interface ApiTimelineService {
   create(caseId: string, input: TimelineEventCreateRequest): Promise<TimelineEvent>;
 }
 
+export interface ApiHealthService {
+  /** Unauthenticated server health; used to fingerprint the backend during QR pairing. */
+  health(): Promise<HealthResponse>;
+}
+
 export interface Api {
   readonly src: "mock" | "real";
   auth: ApiAuthService;
@@ -373,4 +379,5 @@ export interface Api {
   hypotheses: ApiHypothesisService;
   search: ApiSearchService;
   importPackages: ApiImportService;
+  health: ApiHealthService;
 }

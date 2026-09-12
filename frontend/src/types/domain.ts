@@ -950,6 +950,12 @@ export interface DeviceList {
   offset: number;
 }
 
+export interface HealthResponse {
+  status: string;
+  service: string;
+  version: string;
+}
+
 /* -------------------------------- Reports -------------------------------- */
 
 export type ReportStatus = "pending" | "ready" | "failed";

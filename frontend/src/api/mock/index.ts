@@ -34,6 +34,7 @@ import type {
   CollectionList,
   CollectionUpdateRequest,
   DeviceList,
+  DeviceVerifyRequest,
   DeviceVerifyResponse,
   Entity,
   EntityDetail,
@@ -53,6 +54,7 @@ import type {
   GraphStats,
   GraphResponse,
   GraphSyncResult,
+  HealthResponse,
   ImportAccepted,
   IngestAccepted,
   IngestionJob,
@@ -1945,14 +1947,24 @@ export const mockApi: Api = {
       return d;
     },
 
-    async verifyKey(caseId: string, deviceId: string): Promise<DeviceVerifyResponse> {
+    async verifyKey(caseId: string, deviceId: string, input: DeviceVerifyRequest): Promise<DeviceVerifyResponse> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
       const d = devicesState.find((x) => x.id === deviceId && x.case_id === caseId);
       if (!d) throw notFound("device not found");
-      // Deterministic demo answer: serials approved under RSA-SHA256 verify.
-      const valid = d.status === "approved" && d.signature_algorithm === "RSA-SHA256";
+      // Deterministic demo answer: approved RSA-SHA256 devices verify when a
+      // non-empty signature is presented (parity with the real adapter, which
+      // forwards { data, signature } to the backend).
+      const hasProof = Boolean(input?.data && input?.signature);
+      const valid = d.status === "approved" && d.signature_algorithm === "RSA-SHA256" && hasProof;
       return { valid };
+    },
+  },
+
+  health: {
+    async health(): Promise<HealthResponse> {
+      await delay(MOCK_LATENCY);
+      return { status: "ok", service: "cybersaarthi", version: "0.1.0" };
     },
   },
 

@@ -44,6 +44,7 @@ export const queryKeys = {
   collections: (caseId: string) => ["collections", caseId] as const,
   fieldDevices: (caseId: string) => ["field-devices", caseId] as const,
   reports: (caseId: string) => ["reports", caseId] as const,
+  health: () => ["health"] as const,
   investigationHypotheses: (caseId: string, params?: InvestigationHypothesisListParams) => ["hypotheses", caseId, params] as const,
   search: (caseId: string, q: string) => ["search", caseId, q] as const,
 };
@@ -703,6 +704,16 @@ export function useFieldDevices(caseId: string) {
     queryKey: queryKeys.fieldDevices(caseId),
     queryFn: () => api.fieldDevices.list(caseId),
     staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useServerHealth() {
+  return useQuery({
+    queryKey: queryKeys.health(),
+    queryFn: () => api.health.health(),
+    staleTime: MINUTE,
+    retry: false,
   });
 }
 

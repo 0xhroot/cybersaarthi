@@ -13,6 +13,7 @@ import {
   useRetryGraphSync,
   useCollections,
   useRestoreEvidence,
+  useFieldDevices,
 } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
 import { PageContainer, PageHeader } from "@/components/layout/page";
@@ -81,6 +82,7 @@ export default function EvidencePage() {
   const collections = useCollections(caseId);
   const detail = useEvidenceDetail(caseId, selectedId);
   const provenance = useProvenance(caseId, selectedId);
+  const fieldDevices = useFieldDevices(caseId);
   const upload = useUploadEvidence(caseId);
   const ingest = useIngestEvidence(caseId);
   const remove = useDeleteEvidence(caseId);
@@ -344,6 +346,15 @@ export default function EvidencePage() {
                   <p className="tabular text-foreground/80">{formatBytes(selectedDetail.file_size)}</p>
                   <p className="text-dim">Records</p>
                   <p className="tabular text-foreground/80">{selectedDetail.record_count ?? "—"}</p>
+                  {selectedDetail.source_field_device_id ? (
+                    <>
+                      <p className="text-dim">Source device</p>
+                      <p className="font-mono text-foreground/80">
+                        {fieldDevices.data?.items.find((d) => d.id === selectedDetail.source_field_device_id)?.serial ??
+                          `${selectedDetail.source_field_device_id.slice(0, 8)}…`}
+                      </p>
+                    </>
+                  ) : null}
                 </div>
 
                 <div>

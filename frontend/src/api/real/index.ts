@@ -15,6 +15,7 @@ import type {
   ApiFieldDeviceService,
   ApiFindingService,
   ApiGraphService,
+  ApiHealthService,
   ApiHypothesisService,
   ApiImportService,
   ApiIoTService,
@@ -65,6 +66,7 @@ import type {
   GraphStats,
   GraphSyncResult,
   Hypothesis,
+  HealthResponse,
   ImportAccepted,
   IngestAccepted,
   IngestJobList,
@@ -693,6 +695,12 @@ const iotService: ApiIoTService = {
   },
 };
 
+const healthService: ApiHealthService = {
+  health() {
+    return request<HealthResponse>("/health");
+  },
+};
+
 export const realApi: Api = {
   src: "real",
   auth: authService,
@@ -713,4 +721,5 @@ export const realApi: Api = {
   hypotheses: hypothesisService,
   search: searchService,
   importPackages: importService,
+  health: healthService,
 };
