@@ -12,7 +12,8 @@ enum class EvidenceKind(val code: String) {
     AUDIO("audio"),
     DOCUMENT("document"),
     NOTE("note"),
-    LOCATION("location");
+    LOCATION("location"),
+    SENSOR("sensor");
 
     companion object {
         fun fromCode(code: String): EvidenceKind? =
@@ -27,6 +28,7 @@ fun EvidenceKind.defaultExtension(): String = when (this) {
     EvidenceKind.DOCUMENT -> "bin"
     EvidenceKind.NOTE -> "txt"
     EvidenceKind.LOCATION -> "json"
+    EvidenceKind.SENSOR -> "json"
 }
 
 /** Local (offline-first) evidence item. */

@@ -186,6 +186,24 @@ data class ImportAccepted(
     }
 }
 
+/** Response payload of the approved-device liveness beacon (`POST .../heartbeat`). */
+data class DeviceHeartbeatResult(
+    val ok: Boolean,
+    val status: String,
+    val lastSeenAt: String?
+) {
+    companion object {
+        fun fromJson(raw: String): DeviceHeartbeatResult {
+            val o = JSONObject(raw)
+            return DeviceHeartbeatResult(
+                ok = o.optBoolean("ok"),
+                status = o.getStr("status") ?: "",
+                lastSeenAt = o.getStr("last_seen_at")
+            )
+        }
+    }
+}
+
 data class TimelineEvent(
     val id: String,
     val occurredAt: String,
@@ -201,5 +219,23 @@ data class TimelineEvent(
             title = o.getStr("title") ?: "",
             description = o.getStr("description")
         )
+    }
+}
+
+/** Unauthenticated server identity probe payload (`GET /api/v1/health`). */
+data class HealthInfo(
+    val status: String,
+    val service: String?,
+    val version: String?
+) {
+    companion object {
+        fun fromJson(raw: String): HealthInfo {
+            val o = JSONObject(raw)
+            return HealthInfo(
+                status = o.getStr("status") ?: "",
+                service = o.getStr("service"),
+                version = o.getStr("version")
+            )
+        }
     }
 }

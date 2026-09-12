@@ -65,6 +65,7 @@ class EnrollViewModel(private val container: AppContainer) : ViewModel() {
         try {
             val devices = container.api.listDevices(auth.accessToken, caseId)
             val mine = devices.firstOrNull { it.serial == DeviceIdentity.serial }
+            container.settings.deviceId = mine?.id
             ui = ui.copy(device = mine)
         } catch (t: Throwable) {
             ui = ui.copy(errorRes = t.toFieldError().resourceId())
@@ -95,6 +96,7 @@ class EnrollViewModel(private val container: AppContainer) : ViewModel() {
                     model = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
                     publicKeyPem = DeviceIdentity.publicKeyPem()
                 )
+                container.settings.deviceId = device.id
                 ui = ui.copy(registering = false, device = device)
             } catch (t: Throwable) {
                 ui = ui.copy(registering = false, errorRes = t.toFieldError().resourceId())

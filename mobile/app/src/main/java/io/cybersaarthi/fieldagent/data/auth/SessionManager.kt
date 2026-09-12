@@ -85,27 +85,3 @@ class SessionManager(context: Context) {
         )
     }
 }
-
-/** Non-secret operator settings. */
-class SettingsStore(context: Context) {
-    private val prefs = context.getSharedPreferences("cybersaarthi_settings", Context.MODE_PRIVATE)
-
-    var serverUrl: String
-        get() = prefs.getString("server_url", "http://10.0.2.2:8000/api/v1")
-            ?: "http://10.0.2.2:8000/api/v1"
-        set(value) = prefs.edit().putString("server_url", value.trimEnd('/')).apply()
-
-    var activeCaseId: String?
-        get() = prefs.getString("active_case_id", null)
-        set(value) {
-            prefs.edit().apply {
-                if (value == null) remove("active_case_id") else putString("active_case_id", value)
-            }.apply()
-        }
-
-    fun caseNumberFor(caseId: String) = prefs.getString("case_number_$caseId", null)
-
-    fun storeCase(caseId: String, caseNumber: String) {
-        prefs.edit().putString("case_number_$caseId", caseNumber).apply()
-    }
-}

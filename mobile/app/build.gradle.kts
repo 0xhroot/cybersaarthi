@@ -25,11 +25,21 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Release builds have no implicit backend. Field operators configure
+            // the server explicitly (QR pairing / LAN discovery / manual URL).
+            buildConfigField("String", "DEFAULT_SERVER_URL", "\"\"")
         }
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            // Emulator-only convenience default. Never used in release.
+            buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://10.0.2.2:8000/api/v1\"")
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
+        compose = true
     }
 
     compileOptions {
@@ -39,10 +49,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-    }
-
-    buildFeatures {
-        compose = true
     }
 
     testOptions {
@@ -75,6 +81,7 @@ dependencies {
     implementation("androidx.media3:media3-common:1.5.1")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

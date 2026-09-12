@@ -55,7 +55,38 @@ class CaseDetailViewModel(
                     loading = false
                 )
             } catch (t: Throwable) {
-                ui = ui.copy(loading = false, errorRes = t.toFieldError().resourceId())
+                // Offline fallback: serve the authorized local view of this case.
+                val cachedCase = container.caseCache.byId(caseId)
+                val localCollections = container.store.listCollections(caseId)
+                if (cachedCase != null || localCollections.isNotEmpty()) {
+                    val collections = localCollections.map {
+                        CollectionOut(
+                            id = it.id,
+                            caseId = caseId,
+                            name = it.name,
+                            description = null,
+                            status = it.status.code,
+                            sealedAt = null,
+                            createdAt = it.createdAt,
+                            updatedAt = it.createdAt
+                        )
+                    }
+                    ui = ui.copy(
+                        caseDetail = cachedCase?.let {
+                            CaseOut(
+                                id = it.id, caseNumber = it.caseNumber, title = it.title,
+                                description = null, status = it.status, ownerId = null,
+                                createdAt = "", updatedAt = ""
+                            )
+                        },
+                        collections = collections,
+                        remoteEvidence = null,
+                        loading = false,
+                        errorRes = null
+                    )
+                } else {
+                    ui = ui.copy(loading = false, errorRes = t.toFieldError().resourceId())
+                }
             }
         }
     }

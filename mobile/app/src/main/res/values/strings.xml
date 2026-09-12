@@ -148,4 +148,95 @@
     <string name="err_generic">Unexpected error: %1$s</string>
     <string name="err_not_found">The requested item was not found.</string>
     <string name="err_validation">The request was rejected by the server.</string>
+
+    <string name="auth_bound_server">Connected to %1$s</string>
+    <string name="auth_change_server">Change server</string>
+    <string name="auth_configure_first">Configure a server before continuing.</string>
+    <string name="auth_no_server">No server is configured yet.</string>
+    <string name="auth_work_offline">Work offline</string>
+
+    <string name="conn_connected">Connected</string>
+    <string name="conn_connecting">Connecting\u2026</string>
+    <string name="conn_offline">Offline</string>
+    <string name="conn_unreachable">Server unreachable</string>
+    <string name="conn_auth_expired">Session expired</string>
+    <string name="conn_device_unapproved">Device pending approval</string>
+    <string name="conn_device_revoked">Device revoked</string>
+    <string name="conn_recommended">Recommended</string>
+
+    <string name="cp_title">Connect to server</string>
+    <string name="cp_qr_title">Scan QR code</string>
+    <string name="cp_qr_desc">Point the camera at the pairing code shown by the server administrator.</string>
+    <string name="cp_lan_title">LAN discovery</string>
+    <string name="cp_lan_desc">Automatically discover the match server on your local network.</string>
+    <string name="cp_manual_title">Manual server</string>
+    <string name="cp_manual_desc">Enter the server address and fingerprint by hand.</string>
+
+    <string name="qr_title">Scan pairing code</string>
+    <string name="qr_permission_required">Camera permission is required to scan the pairing code.</string>
+    <string name="qr_grant_permission">Grant camera permission</string>
+    <string name="qr_verifying">Verifying server fingerprint\u2026</string>
+    <string name="qr_try_again">Try again</string>
+
+    <string name="lan_scanning">Scanning for servers\u2026</string>
+    <string name="lan_none_found">No server found yet. Make sure the server is on the same network.</string>
+    <string name="lan_retry">Scan again</string>
+    <string name="lan_connect">Connect</string>
+    <string name="lan_enter_manually">Enter server manually</string>
+    <string name="lan_title">LAN discovery</string>
+
+    <string name="ms_title">Server address</string>
+    <string name="ms_subtitle">Enter the server\u2019s address and, if available, its fingerprint.</string>
+    <string name="ms_url_label">Server address</string>
+    <string name="ms_url_hint">https://server.example.org</string>
+    <string name="ms_service_name">Display name (optional)</string>
+    <string name="ms_reachable">Server reachable</string>
+    <string name="ms_test">Test connection</string>
+    <string name="ms_save">Save and continue</string>
+
+    <string name="ob_title">Field agent</string>
+    <string name="ob_subtitle">Secure evidence collection for the CyberSaarthi field network.</string>
+    <string name="ob_connect_button">Connect to server</string>
+    <string name="ob_connect_desc">Pair this device with your match server to begin collection.</string>
+    <string name="ob_field_title">Work offline</string>
+    <string name="ob_field_desc">Collect and cache evidence now; transfer it when you return online.</string>
+    <string name="ob_offline_button">Work offline</string>
+    <string name="ob_security_note">Offline evidence stays locked on this device until you unlock it. Never share your passphrase.</string>
+
+    <string name="pr_lock_now">Lock now</string>
+    <string name="pr_offline">Offline</string>
+    <string name="pr_remove_passphrase">Remove passphrase</string>
+    <string name="pr_set_passphrase">Set passphrase</string>
+    <string name="pr_unlock_desc">Unlock the offline evidence cache with your passphrase.</string>
+    <string name="pr_unlock_enabled">Offline evidence unlocked.</string>
+    <string name="pr_unlock_disabled">Offline evidence is locked.</string>
+
+    <string name="field_title">Field mode</string>
+    <string name="field_cached_at">Cached %1$s</string>
+    <string name="field_cached_title">Cached cases</string>
+    <string name="field_no_cached_cases">No evidence is cached on this device yet.</string>
+    <string name="field_connect_online">Go online</string>
+    <string name="field_switch_online">Switch to online mode</string>
+    <string name="field_unlock_title">Unlock offline evidence</string>
+    <string name="field_unlock_hint">Passphrase</string>
+    <string name="field_unlock_button">Unlock</string>
+    <string name="field_unlock_invalid">Incorrect passphrase.</string>
+    <string name="field_passphrase">Passphrase</string>
+
+    <string name="tr_title">Transfer</string>
+    <string name="tr_collection">Collection</string>
+    <string name="tr_collection_name">Collection name</string>
+    <string name="tr_device">Device</string>
+    <string name="tr_evidence_count">Evidence items: %1$d</string>
+    <string name="tr_evidence_ids">Evidence IDs</string>
+    <string name="tr_imported">Imported %1$d items</string>
+    <string name="tr_manifest_sha">Manifest SHA-256</string>
+    <string name="tr_package">Package</string>
+    <string name="tr_package_size">Package size: %1$s</string>
+    <string name="tr_result">Last result</string>
+    <string name="tr_status">Status: %1$s</string>
+    <string name="tr_submit">Submit package</string>
+    <string name="tr_verify">Verify package</string>
+
+    <string name="field_title_short">Field mode</string>
 </resources>

@@ -1,10 +1,66 @@
 package io.cybersaarthi.fieldagent.data.net
 
+import io.cybersaarthi.fieldagent.domain.DeviceIdentity
 import org.json.JSONObject
 import java.io.File
 
+private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
 /** Typed facade over [ApiClient] for the endpoints the field agent uses. */
 class FieldApi(private val client: ApiClient) {
+
+    /** Unauthenticated health probe, used to verify server identity and reachability. */
+    suspend fun health(): HealthInfo {
+        val raw = client.requestJson("GET", "/api/v1/health")
+        return HealthInfo.fromJson(raw)
+    }
+
+    /**
+     * Challenge-response device key proof: signs [data] client-side and asks the
+     * server whether the signature verifies against the registered device key.
+     * The server expects both fields as UTF-8 strings / hex, not base64.
+     */
+    suspend fun verifyDeviceKey(
+        token: String,
+        caseId: String,
+        deviceId: String,
+        data: String,
+        signature: ByteArray
+    ): Boolean {
+        val body = JSONObject().apply {
+            put("data", data)
+            put("signature", signature.toHex())
+        }
+        val raw = client.requestJson(
+            "POST", "/api/v1/cases/$caseId/devices/$deviceId/verify-key",
+            body.toString(), token
+        )
+        return JSONObject(raw).optBoolean("valid", false)
+    }
+
+    /**
+     * Approved-device liveness beacon. Signs the canonical heartbeat message
+     * with the device key and reports it to the server, which records the
+     * last-seen timestamp when the signature verifies against the device key.
+     */
+    suspend fun heartbeat(
+        token: String,
+        caseId: String,
+        deviceId: String,
+        timestampEpochMillis: Long
+    ): DeviceHeartbeatResult {
+        val canonical = HeartbeatMessage.build(caseId, deviceId, timestampEpochMillis)
+        val signature = DeviceIdentity.sign(canonical.toByteArray(Charsets.UTF_8))
+        val body = JSONObject().apply {
+            put("timestamp_epoch_ms", timestampEpochMillis)
+            put("signature", signature.toHex())
+        }
+        val raw = client.requestJson(
+            "POST", "/api/v1/cases/$caseId/devices/$deviceId/heartbeat",
+            body.toString(), token
+        )
+        return DeviceHeartbeatResult.fromJson(raw)
+    }
 
     suspend fun login(username: String, password: String): AuthToken {
         val body = JSONObject().apply {

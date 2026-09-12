@@ -38,6 +38,21 @@ class ApiClient(
 
     fun baseUrl(): String = baseUrlProvider()
 
+    /**
+     * Combines the configured base URL with an API path. The base URL may be
+     * entered either with (e.g. `…:8000/api/v1`) or without (e.g. `…:8000`)
+     * the trailing `/api/v1`, so an explicit `/api/v1` prefix on [path] is never
+     * doubled into the final request URL.
+     */
+    private fun resolveUrl(path: String): String {
+        val base = baseUrl().trimEnd('/')
+        return if (path.startsWith("/api/v1") && base.endsWith("/api/v1")) {
+            base + path.removePrefix("/api/v1")
+        } else {
+            base + path
+        }
+    }
+
     /** Executes a JSON request and returns the raw response body (or null when 204). */
     suspend fun requestJson(
         method: String,
@@ -45,7 +60,7 @@ class ApiClient(
         body: String? = null,
         token: String? = null
     ): String = withContext(Dispatchers.IO) {
-        val url = baseUrl().trimEnd('/') + path
+        val url = resolveUrl(path)
         val jsonType = "application/json; charset=utf-8".toMediaType()
         val builder = Request.Builder().url(url).method(method, body?.toRequestBody(jsonType))
         token?.let { builder.header("Authorization", "Bearer $it") }
@@ -61,7 +76,7 @@ class ApiClient(
         token: String? = null,
         blobs: List<Triple<String, String, ByteArray>> = emptyList()
     ): String = withContext(Dispatchers.IO) {
-        val url = baseUrl().trimEnd('/') + path
+        val url = resolveUrl(path)
         val mp = MultipartBody.Builder().setType(MultipartBody.FORM)
         fields.forEach { (k, v) -> mp.addFormDataPart(k, v) }
         files.forEach { (name, file) ->

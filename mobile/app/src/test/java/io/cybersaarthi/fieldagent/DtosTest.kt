@@ -3,6 +3,7 @@ package io.cybersaarthi.fieldagent
 import io.cybersaarthi.fieldagent.data.net.AuthToken
 import io.cybersaarthi.fieldagent.data.net.CaseOut
 import io.cybersaarthi.fieldagent.data.net.CollectionOut
+import io.cybersaarthi.fieldagent.data.net.DeviceHeartbeatResult
 import io.cybersaarthi.fieldagent.data.net.DeviceOut
 import io.cybersaarthi.fieldagent.data.net.EvidenceSummary
 import io.cybersaarthi.fieldagent.data.net.FieldError
@@ -79,6 +80,16 @@ class DtosTest {
         """.trimIndent())
         assertEquals(3, accepted.importedEvidenceCount)
         assertEquals(listOf("a", "b", "c"), accepted.evidenceIds)
+    }
+
+    @Test
+    fun `heartbeat result parses the liveness beacon response`() {
+        val r = DeviceHeartbeatResult.fromJson("""
+            {"ok":true,"status":"approved","last_seen_at":"2026-09-11T12:34:56Z"}
+        """.trimIndent())
+        assertEquals(true, r.ok)
+        assertEquals("approved", r.status)
+        assertEquals("2026-09-11T12:34:56Z", r.lastSeenAt)
     }
 
     @Test

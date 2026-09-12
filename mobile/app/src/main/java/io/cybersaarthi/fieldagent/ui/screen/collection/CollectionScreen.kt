@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.SdCard
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Videocam
@@ -659,6 +660,7 @@ private fun iconForKind(kind: EvidenceKind): ImageVector = when (kind) {
     EvidenceKind.DOCUMENT -> Icons.Filled.Description
     EvidenceKind.NOTE -> Icons.Filled.Notes
     EvidenceKind.LOCATION -> Icons.Filled.LocationOn
+    EvidenceKind.SENSOR -> Icons.Filled.Sensors
 }
 
 private fun shortTime(iso: String): String = runCatching {

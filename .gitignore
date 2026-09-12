@@ -36,6 +36,11 @@ phase3_api_complete_dump.txt
 .vscode/
 *.swp
 
+# Android / Gradle
+local.properties
+.gradle/
+.kotlin/
+
 # OS junk
 .DS_Store
 Thumbs.db

@@ -11,5 +11,7 @@ class CyberSaarthiApp : Application() {
         super.onCreate()
         container = AppContainer(applicationContext)
         container.connectivity.start()
+        container.startConnectionProbing()
+        container.heartbeat.start()
     }
 }

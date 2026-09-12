@@ -35,6 +35,7 @@ import io.cybersaarthi.fieldagent.di.LocalAppContainer
 import io.cybersaarthi.fieldagent.di.containerViewModel
 import io.cybersaarthi.fieldagent.ui.components.EmptyScreen
 import io.cybersaarthi.fieldagent.ui.components.ErrorScreen
+import io.cybersaarthi.fieldagent.ui.components.ConnectionStatusChip
 import io.cybersaarthi.fieldagent.ui.components.LoadingScreen
 import io.cybersaarthi.fieldagent.ui.components.OfflineBanner
 import io.cybersaarthi.fieldagent.ui.components.StatusBadge
@@ -47,7 +48,9 @@ fun DashboardScreen(
 ) {
     val vm = containerViewModel<DashboardViewModel> { DashboardViewModel(it) }
     val ui = vm.ui
-    val online by LocalAppContainer.current.connectivity.online.collectAsStateWithLifecycle()
+    val container = LocalAppContainer.current
+    val status by container.connection.status.collectAsStateWithLifecycle()
+    val online by container.connectivity.online.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -61,6 +64,9 @@ fun DashboardScreen(
         }
     ) { padding ->
         OfflineBanner(offline = !online)
+        if (ui.cases?.isNotEmpty() == true) {
+            ConnectionStatusChip(status, Modifier.padding(horizontal = 16.dp))
+        }
         Column(Modifier.fillMaxSize().padding(padding)) {
             when {
                 ui.loading && ui.cases == null -> LoadingScreen()
