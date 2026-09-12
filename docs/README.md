@@ -14,6 +14,7 @@ straight to the deep material.
 | [Phase 4](architecture/phase-4.md) | Productization: auth, RBAC, audit, token revocation, frontend |
 | [Phase 4 — Final report](architecture/phase-4-final-report.md) | Consolidated delivery report |
 | [Phase 4 — Security checklist](architecture/phase-4-security-checklist.md) | Security controls and verification checklist |
+| [Android ↔ Backend connectivity](architecture/android-connectivity.md) | LAN discovery, QR pairing trust, liveness heartbeat |
 
 ## Architecture decision records (ADRs)
 

@@ -43,7 +43,7 @@ Requires JDK 17+ and Android SDK (API 35). From a terminal:
 export JAVA_HOME=/path/to/jdk17
 export ANDROID_HOME=/path/to/android-sdk
 gradle clean assembleDebug          # builds debug APK
-gradle testDebugUnitTest            # runs all unit tests (23 total)
+gradle testDebugUnitTest            # runs all unit tests (29 total)
 gradle lintDebug                    # runs lint (0 errors expected)
 ```
 
@@ -63,9 +63,13 @@ The live backend integration test (`LiveBackendIntegrationTest`) runs automatica
 
 ## First run
 
-1. Start the backend stack (`docker compose up`).
+1. Start the backend stack (`docker compose up`) and, for LAN discovery, the mDNS advertiser (`docker compose --profile discovery up -d`).
 2. The admin seed account is `admin` / `admin-dev-password`.
-3. Point the app at `http://10.0.2.2:8000` (emulator) or `http://localhost:8000` (device on same network), log in, and the app will automatically create an RSA-2048 keypair and register the device.
-4. Have an admin approve the device via the backend UI.
+3. Point the app at your machine's **LAN address** — `http://<host-LAN-ip>:8000` (e.g. `http://192.168.0.127:8000`). `localhost` only works on the emulator; the emulator alias is `http://10.0.2.2:8000`. Prefer pairing via the web UI's "Devices → Pair" QR code or the in-app LAN discovery / manual server screen, which also verifies the server fingerprint.
+4. Have an admin approve the device via the backend web UI (Devices tab).
 5. Open a case, start a collection, capture evidence, hash → seal → submit.
 6. Alternatively, export the signed package to USB/MTP and run the desktop importer.
+
+Once enrolled for a case, the agent sends a signed liveness heartbeat every minute; the backend records `last_seen` (visible in the web UI Devices tab).
+
+> **Cleartext note**: debug builds permit cleartext HTTP for LAN prototyping (see `app/src/debug/res/xml/network_security_config.xml`). Release builds keep cleartext blocked — field deployments must use HTTPS.
