@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
@@ -227,6 +227,92 @@ class DeviceVerifyRequest(BaseModel):
 
 class DeviceVerifyResponse(BaseModel):
     valid: bool
+
+
+class DeviceHeartbeatRequest(BaseModel):
+    """Signed heartbeat proof.
+
+    ``signature`` is a hex-encoded signature over the canonical string
+    ``cybersaarthi-heartbeat/1\\ncase_id=<case_id>\\ndevice_id=<device_id>\\ntimestamp=<epoch_ms>``
+    produced with the device's registered private key. Nothing sensitive is
+    ever transmitted and no server-side credential is involved.
+    """
+
+    timestamp_epoch_ms: int
+    signature: str
+
+
+class DeviceHeartbeatResponse(BaseModel):
+    ok: bool
+    status: str
+    last_seen_at: datetime | None
+
+
+def _heartbeat_message(case_id: uuid.UUID, device_id: uuid.UUID, timestamp_epoch_ms: int) -> bytes:
+    return (
+        f"cybersaarthi-heartbeat/1\n"
+        f"case_id={case_id}\n"
+        f"device_id={device_id}\n"
+        f"timestamp={timestamp_epoch_ms}"
+    ).encode()
+
+
+@router.post(
+    "/{case_id}/devices/{device_id}/heartbeat",
+    response_model=DeviceHeartbeatResponse,
+)
+async def device_heartbeat(
+    case_id: uuid.UUID,
+    device_id: uuid.UUID,
+    body: DeviceHeartbeatRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_CASE_READ)),
+) -> DeviceHeartbeatResponse:
+    from fastapi import HTTPException
+
+    await get_case_or_404(case_id, request, session)
+    device = await dev_svc.get_device(session, device_id)
+    if device is None or str(device.case_id) != str(case_id):
+        raise HTTPException(status_code=404, detail=f"device {device_id} not found")
+    if device.status != "approved":
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"device {device.id} has status '{device.status}'; "
+                "only approved devices may report liveness"
+            ),
+        )
+    try:
+        reported_at = datetime.fromtimestamp(body.timestamp_epoch_ms / 1000, tz=UTC)
+    except (OverflowError, OSError, ValueError):
+        raise HTTPException(status_code=400, detail="heartbeat timestamp is invalid") from None
+    clock_skew_seconds = abs((datetime.now(UTC) - reported_at).total_seconds())
+    if clock_skew_seconds > 300:
+        raise HTTPException(
+            status_code=400, detail="heartbeat timestamp is outside the 5-minute window"
+        )
+    try:
+        signature = bytes.fromhex(body.signature)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="signature must be hex-encoded") from None
+    proves_identity = dev_svc.verify_signature(
+        public_key_pem=device.public_key,
+        algorithm=device.signature_algorithm,
+        data=_heartbeat_message(case_id, device_id, body.timestamp_epoch_ms),
+        signature=signature,
+    )
+    if not proves_identity:
+        raise HTTPException(
+            status_code=403, detail="heartbeat signature does not match the device key"
+        )
+    device = await dev_svc.update_last_seen(session=session, device=device)
+    await session.commit()
+    return DeviceHeartbeatResponse(
+        ok=True,
+        status=device.status,
+        last_seen_at=device.last_seen_at,
+    )
 
 
 @router.post(

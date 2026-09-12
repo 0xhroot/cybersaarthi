@@ -140,6 +140,18 @@ def verify_signature(
         return False
 
 
+async def update_last_seen(
+    *,
+    session: AsyncSession,
+    device: FieldDevice,
+    at: datetime | None = None,
+) -> FieldDevice:
+    """Records an approved device's last-seen timestamp (heartbeat)."""
+    device.last_seen_at = at or datetime.now(UTC)
+    await session.flush()
+    return device
+
+
 async def delete_device(
     *,
     session: AsyncSession,
