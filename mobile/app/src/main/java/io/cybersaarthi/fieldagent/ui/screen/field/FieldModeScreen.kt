@@ -101,6 +101,11 @@ fun FieldModeScreen(
                         style = MaterialTheme.typography.titleSmall
                     )
                     Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onSwitchOnline, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Wifi, null, Modifier.size(18.dp))
+                        Text(stringResource(R.string.field_connect_online), Modifier.padding(start = 8.dp))
+                    }
+                    Spacer(Modifier.height(4.dp))
                     LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                         items(cases, key = { it.id }) { c ->
                             Card(

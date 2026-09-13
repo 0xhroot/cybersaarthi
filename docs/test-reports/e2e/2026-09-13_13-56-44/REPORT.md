@@ -136,11 +136,12 @@ sorted, compact separators, matching `PackageManifest.canonicalBytes`.)
 - **Verification**: After fix + fresh key (requires reinstall / new keystore key), heartbeat signed successfully (`POST heartbeat -> 200`, `last_seen_at` live) and a sealed manifest verified with OpenSSL against the registered public key.
 - **Note**: A keystore key generated with the old spec continues to fail signing even after the app is updated; the key must be regenerated. Docs/test should treat old enrolled devices as needing re-enrollment after this fix.
 
-### DEFECT-11 (confirmed, app — recovery UX) — after a host/network outage the app stays in offline Field mode with no obvious route back online
+### DEFECT-11 (fixed in code) — after a host/network outage the app stays in offline Field mode with no obvious route back online
 
-- **Observed**: After the power cut, `key.connection_mode` persisted `OFFLINE`; app relaunched into Field mode showing cached cases. With cached cases present, FieldModeScreen shows **no "Switch online"** affordance (button only appears in the empty-case / locked states; NavGraph FIELD route has no online toggle). User had to re-run pm-clear to recover.
+- **Observed**: After the power cut, `key.connection_mode` persisted `OFFLINE`; app relaunched into Field mode showing cached cases. With cached cases present, FieldModeScreen showed **no "Switch online"** affordance (button only appears in the empty-case / locked states; NavGraph FIELD route has no online toggle). User had to re-run pm-clear to recover.
 - **Impact**: Field operators with cached evidence and a temporarily-unreachable server can get stuck offline with no in-app path to re-online.
-- **Recommendation**: add a persistent "Go online" action in the unlocked Field hub (and/or auto-reconnect when the server becomes reachable), and persist connection mode ephemerally rather than as a sticky offline flag after repeated probe failures.
+- **Fix (applied, in `.../ui/screen/field/FieldModeScreen.kt`)**: added a persistent **"Go online"** button in the unlocked Field hub whenever cached cases are listed (wired to the existing `onSwitchOnline` → sets `connectionMode=ONLINE` → navigates to LOGIN with the trusted server re-engaged).
+- **Verification (on-device)**: forced `connection_mode=OFFLINE` + relaunch → Field hub showed cached cases AND "Go online"; tapping it navigated to LOGIN showing `Connected to http://192.168.0.127:8000/api/v1`. DEFECT-11 resolved.
 
 ### Notes (known, not code defects)
 
@@ -158,6 +159,7 @@ sorted, compact separators, matching `PackageManifest.canonicalBytes`.)
 | `24_evidence_item.png` | Raw evidence item (note) with local SHA-256 |
 | `25_submitted_verify.png` | Submitted + Verify integrity actions |
 | `26_case_detail_with_collection.png` | Case detail listing collection AuditRun-E2E (Submitted) |
+| `27_field_hub_go_online.png` | Field hub with cached cases + persistent "Go online" (DEFECT-11 fix) |
 | `manifest.json` | Sealed package manifest (from device) |
 | `manifest.sig` | 256-byte RSA signature (from device) |
 | `device_public_key.pem` | Registered device public key (from DB) |
@@ -177,5 +179,5 @@ backend after the power-cut recovery:
 - live heartbeat / `last_seen_at`
 - full audit trail (`device.registered → device.approved → collection.created → import.package`)
 
-Two confirmed app defects found & fixed/flagged (DEFECT-10 signing, DEFECT-11
+Two confirmed app defects found and fixed (DEFECT-10 signing; DEFECT-11
 offline recovery UX).

@@ -20,7 +20,7 @@ Full physical golden path verified end-to-end on POCO (SDK 36) vs live backend, 
 ## Defects (this run)
 
 - **DEFECT-10 (fixed in code)**: Android Keystore RSA key lacked `setSignaturePaddings(RSA_PKCS1)` → every device signing op (`INCOMPATIBLE_PADDING_MODE`) → heartbeat (`sent=false`) and sealing broken on Android 16. Fix applied in `SignatureEnvelope.kt`; verified. Old enrolled keys need re-enrollment.
-- **DEFECT-11 (confirmed, needs product decision)**: after server/network outage the app stays in offline Field mode with no in-app "switch online" affordance when cached cases exist.
+- **DEFECT-11 (fixed & verified on-device)**: after outage the app had no in-app "switch online" affordance when cached cases exist; added persistent "Go online" button in Field hub, verified navigating back to LOGIN/Connected.
 
 ## Notes
 
