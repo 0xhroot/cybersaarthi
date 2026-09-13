@@ -1,0 +1,24 @@
+GIT_BRANCH=main
+GIT_COMMIT=af0c3bb
+af0c3bb docs: LAN connectivity architecture + mobile setup notes
+52dc56d feat(android): LAN backend connectivity, QR trust, liveness heartbeat
+e3d502d feat(web): field device management, QR pairing, health + verify-key parity
+20c7a44 feat(ops): mDNS advertiser + docker discovery profile
+09a2e3b feat(backend): device liveness heartbeat with last_seen tracking
+DOCKER_CLIENT=29.7.2 DOCKER_SERVER=29.7.2
+COMPOSE=5.5.1
+ADB=Android Debug Bridge version 1.0.41
+LAN_IFACE=wlo1
+LAN_IP=192.168.0.127
+BACKEND_PORT=8000
+DEVICE_SERIAL=PZ9PPJU8QSUOVCHM
+DEVICE_BRAND=POCO
+DEVICE_MAKER=Xiaomi
+DEVICE_MODEL=miel
+DEVICE_RELEASE=16
+DEVICE_SDK=36
+DEVICE_ABI=arm64-v8a
+DEVICE_RES=Physical size: 1080x2400
+DEVICE_DENSITY=Override density: 434
+DEVICE_SECURITY_PATCH=2025-11-01
+APK_PACKAGE=io.cybersaarthi.fieldagent.debug

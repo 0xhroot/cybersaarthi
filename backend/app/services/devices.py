@@ -16,7 +16,23 @@ from app.models import FieldDevice
 
 
 def _derive_fingerprint(public_key_pem: str) -> str:
-    return hashlib.sha256(public_key_pem.encode()).hexdigest()
+    """Canonical device fingerprint: SHA-256 over the DER-spki-of-the-key.
+
+    Both the Android app and the backend must hash the *same bytes*:
+    the DER-encoded ``SubjectPublicKeyInfo`` of the enrolled public key.
+    Hashing the PEM string (or its whitespace variant) produces a different
+    digest for the same keyhog nowhere.
+
+    A single cross-language vector (see tests/) locks both sides; changing
+    the canonical serialization here without updating the Android client
+    will fail that vector.
+    """
+    key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+    der_spki = key.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return hashlib.sha256(der_spki).hexdigest()
 
 
 async def register_device(

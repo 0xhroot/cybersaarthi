@@ -1,0 +1,7 @@
+NAME                       IMAGE                                                                     COMMAND                  SERVICE     CREATED          STATUS                 PORTS
+cybersaarthi-backend-1     sha256:0ffbac44883533e4388856a400f65789da8aa2db87b9de6af428d9f16881a40e   "/entrypoint.sh uvic…"   backend     37 hours ago     Up 2 hours (healthy)   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+cybersaarthi-discovery-1   python:3.13-alpine                                                        "sh -c 'python -m pi…"   discovery   29 minutes ago   Up 24 minutes          
+cybersaarthi-minio-1       minio/minio:RELEASE.2025-09-07T16-13-09Z                                  "/usr/bin/docker-ent…"   minio       3 days ago       Up 6 hours (healthy)   0.0.0.0:9000-9001->9000-9001/tcp, [::]:9000-9001->9000-9001/tcp
+cybersaarthi-neo4j-1       neo4j:5-community                                                         "tini -g -- /startup…"   neo4j       3 days ago       Up 6 hours (healthy)   0.0.0.0:7474->7474/tcp, [::]:7474->7474/tcp, 7473/tcp, 0.0.0.0:7687->7687/tcp, [::]:7687->7687/tcp
+cybersaarthi-postgres-1    postgres:16-alpine                                                        "docker-entrypoint.s…"   postgres    3 days ago       Up 6 hours (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+cybersaarthi-redis-1       redis:7-alpine                                                            "docker-entrypoint.s…"   redis       3 days ago       Up 6 hours (healthy)   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp

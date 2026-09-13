@@ -1,0 +1,29 @@
+List of devices attached
+PZ9PPJU8QSUOVCHM       device usb:1-7.4 product:miel_p_global model:miel device:miel transport_id:1
+
+BATTERY:
+  AC powered: true
+  USB powered: true
+  Wireless powered: false
+  status: 2
+  level: 41
+  Capacity level: 3
+STORAGE:
+Filesystem       Size Used Avail Use% Mounted on
+/dev/block/dm-41 107G  29G   77G  28% /storage/emulated/0/Android/obb
+APK:
+    versionCode=2 minSdk=26 targetSdk=35
+    versionName=2.0.0-debug
+    lastUpdateTime=2026-09-13 01:54:04
+      firstInstallTime=2026-09-11 14:24:13
+PERMS:
+      android.permission.ACCESS_FINE_LOCATION
+      android.permission.INTERNET
+      android.permission.ACCESS_COARSE_LOCATION
+      android.permission.ACCESS_NETWORK_STATE
+      android.permission.CAMERA
+      android.permission.RECORD_AUDIO
+      android.permission.INTERNET: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+        android.permission.ACCESS_FINE_LOCATION: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
+        android.permission.ACCESS_COARSE_LOCATION: granted=false, flags=[ USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED]
