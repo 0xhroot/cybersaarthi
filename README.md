@@ -6,14 +6,15 @@
 
 **From fragmented evidence → connected intelligence → actionable investigation.**
 
-`Evidence → Entity Resolution → Knowledge Graph → Analytics → Decisions`
+`Field evidence → Signed capture → Entity Resolution → Knowledge Graph → Graph Analytics → Decisions`
 
 <p>
 <a href="#one-minute-overview">Overview</a> ·
-<a href="#why-cybersaarthi">Why</a> ·
-<a href="#architecture">Architecture</a> ·
-<a href="#testing-and-verification">Verification</a> ·
-<a href="#sih-demo-workflow">Demo Workflow</a> ·
+<a href="#the-problem">The Problem</a> ·
+<a href="#end-to-end-investigation-workflow">Workflow</a> ·
+<a href="#application-screenshots">Screenshots</a> ·
+<a href="#system-architecture">Architecture</a> ·
+<a href="#verification--testing">Verification</a> ·
 <a href="#quick-start">Quick Start</a>
 <br>
 <sub>Smart India Hackathon submission — built for the investigator, not the demo slide.</sub>
@@ -25,7 +26,7 @@
 
 | | | | |
 |---|---|---|---|
-| 🟢 **SIH DEMO READY** | **390** Backend Tests Passed | **80** Frontend Tests Passed | **Real-Mode E2E Verified** |
+| 🟢 **SIH DEMO READY** | **390** Backend Tests Passing | **80** Frontend Tests Passing | **Real-Mode E2E Verified** |
 | Persistent Multi-Store | RBAC + JWT | Evidence Provenance | Victim + IoT Intelligence |
 | Graph Analytics | REST API + UI | Audit Trail | Android Field Agent |
 
@@ -51,35 +52,33 @@
 ## Table of Contents
 
 - [One-Minute Overview](#one-minute-overview)
-- [Problem](#problem)
-- [Solution](#solution)
-- [Why CyberSaarthi?](#why-cybersaarthi)
-- [Key Features](#key-features)
+- [The Problem](#the-problem)
+- [The Solution](#the-solution)
+- [End-to-End Investigation Workflow](#end-to-end-investigation-workflow)
+- [Complete System Workflow](#complete-system-workflow)
+- [Key Capabilities](#key-capabilities)
 - [Application Screenshots](#application-screenshots)
-- [Investigator Workflow](#investigator-workflow)
-- [Architecture](#architecture)
-- [Data Model](#data-model)
-- [Evidence and Provenance](#evidence-and-provenance)
+  - [Investigator Web Platform](#investigator-web-platform)
+  - [Android Field Agent](#android-field-agent)
+- [Android Field Agent](#android-field-agent-1)
+- [Investigator Web Platform & Device Management](#investigator-web-platform--device-management)
+- [Evidence Integrity & Provenance](#evidence-integrity--provenance)
+- [Criminal Network Intelligence](#criminal-network-intelligence)
 - [Victim Intelligence](#victim-intelligence)
-- [Criminal Intelligence](#criminal-intelligence)
-- [Graph Analytics](#graph-analytics)
-- [Field Agent (Android)](#field-agent-android)
-- [IoT Integration](#iot-integration)
-- [Security](#security)
+- [Device & IoT Intelligence](#device--iot-intelligence)
+- [Security Architecture](#security-architecture)
+- [System Architecture](#system-architecture)
+- [Data Architecture](#data-architecture)
 - [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
 - [Quick Start](#quick-start)
+- [Running the System & the Android Field Agent](#running-the-system--the-android-field-agent)
 - [Configuration](#configuration)
-- [Running the System](#running-the-system)
-- [Docker](#docker)
-- [Persistence](#persistence)
 - [API Overview](#api-overview)
-- [Testing and Verification](#testing-and-verification)
-- [SIH Demo Workflow](#sih-demo-workflow)
-- [What Makes It Different](#what-makes-it-different)
-- [Roadmap](#roadmap)
+- [Verification & Testing](#verification--testing)
+- [SIH Demonstration Flow](#sih-demonstration-flow)
 - [Limitations](#limitations)
-- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [Team](#team)
 - [License](#license)
@@ -88,23 +87,28 @@
 
 ## One-Minute Overview
 
-CyberSaarthi is a self-hosted, investigator-centric cyber-fraud investigation and evidence-management
-platform. It unifies **case management, victim intelligence, persons/suspects, phone and device
-intelligence, financial transactions, digital evidence with provenance, investigation timelines and
-criminal-network analysis** into a single persistent workspace.
+CyberSaarthi is a **self-hosted, investigator-centric cyber-fraud investigation and evidence-intelligence
+platform**. A single connected workspace brings together **case management, victim intelligence, person,
+phone, financial and device intelligence, digital evidence with verifiable provenance, investigation
+timelines, and criminal-network analysis**.
 
-Evidence is ingested deterministically: files are parsed, entities are extracted and resolved, and
-relationships are discovered — then materialized into a case-scoped knowledge graph with
-**explainable analytics** and a complete audit trail. Every relationship and score is traceable back
-to the evidence that produced it, and a human investigator stays in control of every finding.
+That is only half the story. A companion **Android Field Agent** turns a plain smartphone into a secure
+field-evidence capture device: it collects evidence **offline**, hashes and signs a canonical package with a
+device-protected RSA key, and submits it to the backend (in-app LAN discovery, manual server entry or QR
+pairing) where the signature is re-verified against the enrolled device before the evidence is accepted.
+
+Evidence is then ingested deterministically: files are parsed, entities extracted and resolved, and
+relationships discovered — then materialized into a case-scoped knowledge graph with explainable analytics
+and a complete audit trail. Every relationship and score is traceable back to the evidence that produced
+it, and a human investigator stays in control of every finding.
 
 > **PostgreSQL is the source of truth; Neo4j is an idempotent graph projection.**
-> Victim and IoT data are first-class, PostgreSQL-backed subsystems that currently live **outside**
-> the Neo4j projection by deliberate architecture decision.
+> Victim and IoT data are first-class, PostgreSQL-backed subsystems that currently live **outside** the
+> Neo4j projection by deliberate architecture decision.
 
 ---
 
-## Problem
+## The Problem
 
 Cyber-fraud investigations in the field are drowning in fragments:
 
@@ -113,6 +117,7 @@ Cyber-fraud investigations in the field are drowning in fragments:
 | **Fragmented data** | Calls, device records, bank statements, victim statements and evidence are stored in disconnected spreadsheets and folders. |
 | **Manual correlation** | Investigators join records by hand against memory and grepped CSVs. |
 | **Disconnected evidence** | No link between the uploaded file and the entity it implicates. |
+| **Field captures are mutable** | Evidence taken in the field can be edited, replaced or lost before it reaches a record. |
 | **Weak relationship visibility** | "Who is connected to whom?" is the hardest question to answer. |
 | **Lost provenance** | No chain between a claim, its source file and its integrity hash. |
 | **Victim blind spot** | Victim impact and recovery status are an afterthought, not a first-class record. |
@@ -126,7 +131,7 @@ flowchart LR
 
 ---
 
-## Solution
+## The Solution
 
 ```mermaid
 flowchart TB
@@ -140,48 +145,20 @@ flowchart TB
     L["Timeline"] --> U
     G["Graph"] --> U
     I["IoT"] --> U
+    FG["Signed field packages"] --> U
     U["Unified Investigation Intelligence"]
 ```
 
-CyberSaarthi collapses those fragments into one durable investigation workspace where **everything
-is connected to the case, survives restarts, and is backed by an audit log**.
-
----
-
-## Why CyberSaarthi?
-
-The conventional workflow is a chain of disconnected steps where intelligence accumulates through
-manual effort:
-
-```mermaid
-flowchart TD
-    A["Evidence arrives at different times in different formats"] --> B["Investigator correlates by hand"]
-    B --> C["Findings live in the investigator's memory"]
-    C --> D["Relationships never become visible"]
-    D --> E["Investigation slows down"]
-```
-
-CyberSaarthi replaces the chain with a connected workspace that keeps a **single source of truth**:
-
-```mermaid
-flowchart LR
-    A["Cases"] --> WS
-    B["Victims"] --> WS
-    C["Persons & suspects"] --> WS
-    D["Phones & devices"] --> WS
-    E["Transactions & accounts"] --> WS
-    F["Evidence with hashes"] --> WS
-    G["Timelines"] --> WS
-    WS["Persistent Investigation Workspace"] --> H["Built-in audit trail"]
-    WS --> I["Graph intelligence"]
-    WS --> J["Explainable analytics"]
-```
+CyberSaarthi collapses those fragments into one durable investigation workspace where **everything is
+connected to the case, survives restarts, and is backed by an audit log** — and it brings field capture
+into that same workspace through a signed, offline-first Android agent.
 
 | Investigation challenge | CyberSaarthi response |
 |---|---|
 | Fragmented evidence | Unified, case-scoped workspace |
 | Disconnected entities | Relationship and graph analysis |
-| Evidence integrity concerns | SHA-256 hashing + provenance + duplicate detection |
+| Evidence integrity concerns | SHA-256 hashing + signature verification + provenance + duplicate detection |
+| Field capture integrity | Offline capture hashed and signed on-device, re-verified by the backend |
 | Victim information scattered | Dedicated first-class victim subsystem |
 | Financial data disconnected | Transaction, account and bank intelligence |
 | Phone/device relationships | Entity linkage and resolution |
@@ -191,214 +168,202 @@ flowchart LR
 
 ---
 
-## Key Features
+## End-to-End Investigation Workflow
 
-### Investigation & Case Management
+The investigation lifecycle is one connected path — field capture to actionable intelligence:
 
-- Case lifecycle with severity, status and archive
-- Case membership management and per-case visibility controls
-- Owner/administrator authorization with cross-case isolation
-- Lead, entity, relationship and hypothesis tracking inside the case
-- Append-only **timeline** (audit log plus explicit case timeline events for
-  uploads, collections, devices, hypotheses, runs, reports, resolutions and case lifecycle)
+> **FIELD → ANDROID AGENT → ENROLLMENT & APPROVAL → EVIDENCE CAPTURE → HASH + SIGNATURE →
+> FASTAPI BACKEND → VERIFY + STORE → ENTITY RESOLUTION → NEO4J GRAPH → GRAPH ANALYTICS →
+> INVESTIGATOR WEB UI → ACTIONABLE LEADS**
 
-### Intelligence
+1. An investigator enrolls a field agent against a case in the web workspace; the operator approves the
+   device from the same UI.
+2. On the ground, the agent records evidence — photos, video, audio, notes, documents — **offline**.
+3. Each item is SHA-256 hashed on-device; the set is assembled into a canonical manifest and signed with
+   the device's Android-Keystore-protected RSA key.
+4. Back in coverage, the signed package is submitted over the LAN (in-app mDNS discovery, manual server
+   entry or QR pairing). The backend re-verifies the signature against the enrolled device public key.
+5. Raw objects land in MinIO, metadata lands in PostgreSQL, and the deterministic pipeline extracts and
+   resolves entities into the case graph.
+6. Network-science analytics — centrality, communities, network DNA, paths and patterns — surface
+   reviewable findings for the investigator.
+7. The investigator works leads, evidence provenance and the audit trail in the web workspace; every
+   action persists.
 
-- **Person/suspect records** — names, phones, vehicles, organizations, accounts, locations
-- **Victim records** — profile, incident, financial impact, recovery status
-- **Phone intelligence** — numbers, call relationships, registration context
-- **Device intelligence** — vehicles and device IDs linked to persons
-- **Financial intelligence** — accounts, transactions, banking organizations
-- **Vehicle information** — registration numbers when present in evidence
+## Complete System Workflow
 
-### Evidence
+```mermaid
+flowchart LR
+    subgraph FIELD["Field operations"]
+        A["Agent captures evidence<br/>photo · video · audio · note · document"] --> B["Offline device store"]
+    end
+    subgraph AGENT["Android Field Agent (mobile/)"]
+        B --> C["Hash each item (SHA-256)"]
+        C --> D["Canonical manifest"]
+        D --> E["Sign with RSA-2048 key<br/>Android Keystore"]
+    end
+    subgraph HANDOFF["Secure hand-off"]
+        E --> F["mDNS discovery · manual server · QR pair"]
+        F --> G["Submit signed package — POST /import/packages"]
+    end
+    subgraph CORE["FastAPI backend"]
+        G --> H["Verify signature<br/>against enrolled device key"]
+        H --> I["PostgreSQL metadata · MinIO objects"]
+        I --> J["Deterministic extraction<br/>and entity resolution"]
+    end
+    subgraph GRAPH["Graph and analytics"]
+        J --> K["Case-scoped knowledge graph (Neo4j)"]
+        K --> L["Centrality · communities · network DNA · paths"]
+        L --> M["Reviewable findings"]
+    end
+    subgraph WEB["Investigator web workspace"]
+        M --> N["Investigate and act on leads"]
+        N --> O["Provenance and audit trail"]
+    end
+    O --> N
+```
 
-- Multipart upload (`text/csv`, JSON and other formats supported by the parser)
-- **SHA-256 integrity fingerprint** calculated on upload
-- **Duplicate detection** — re-upload of the same bytes is rejected (HTTP 409)
-- Object storage in MinIO with case-scoped keys
-- Provenance metadata and ingestion jobs
-- Every mutation recorded in the audit log
-- **Field capture** — Android agent captures evidence offline, hashes and signs
-  a canonical package, then submits it; the backend re-verifies the signature
-  against the enrolled device key
+---
 
-### Graph Intelligence
+## Key Capabilities
 
-- Case-scoped knowledge graph with entity and relationship discovery
-- Centrality, communities, network DNA, priorities, relationship strength
-- Path and pattern analysis, ego-graphs
-- Human-reviewable entity resolution review queue
-
-### IoT Integration (subsystem foundation)
-
-- IoT device registration tied to a case (unique serial per case)
-- Telemetry event ingestion — location, connectivity and custom payloads
-- Per-device event statistics
-- Persistent PostgreSQL storage
-
-### Security
-
-- Authentication with bcrypt password hashing and JWT
-- Token revocation (`jti` denylist) and login throttling
-- RBAC with per-endpoint permissions (ADMIN / INVESTIGATOR / ANALYST / VIEWER)
-- Per-case IDOR and visibility guards
-- Audit logging and security headers
-- Input validation with strict error envelopes
+| Capability | What it does |
+|---|---|
+| **Case management** | Case lifecycle, severity, status and archive; membership and per-case visibility; owner/admin authorization with cross-case isolation. |
+| **Evidence integrity** | SHA-256 fingerprints on upload, duplicate detection (409), MinIO object storage with case-scoped keys, provenance and ingestion jobs. |
+| **Field capture** | Android agent captures evidence offline, hashes and signs a canonical package; the backend re-verifies the signature against the enrolled device key. |
+| **Entity resolution** | Persons, phones, vehicles, accounts, organizations, locations, documents, events — resolved and linked with a human review queue. |
+| **Knowledge graph** | Case-scoped entity/relationship graph with path, pattern, ego-graph and centrality views. |
+| **Graph analytics** | Deterministic centrality, communities, network DNA, priorities, relationship strength and hypotheses — all explainable. |
+| **Victim intelligence** | First-class victim records: incident, financial impact, recovery status and digital footprint. |
+| **Device & IoT intelligence** | Registered IoT devices and telemetry events per case (unique serial per case), persistent in PostgreSQL. |
+| **Timeline & audit** | Append-only audit log and explicit case timeline events for uploads, collections, devices, hypotheses, runs, reports and case lifecycle. |
+| **Security** | bcrypt + JWT, token revocation, login throttling, RBAC (ADMIN / INVESTIGATOR / ANALYST / VIEWER), IDOR guards, security headers. |
 
 ---
 
 ## Application Screenshots
 
-> Screenshots are captured from the running CyberSaarthi application (`vite dev`, mock API
-> disabled) against the seeded SIH demo dataset — **real UI, no mocked or generated imagery**.
+> All screenshots below are **captured from the running CyberSaarthi application** — real UI against the
+> live stack (Vite dev, mock API disabled) using the seeded SIH demo dataset and a real physical-device
+> field run. No mocked or generated imagery.
 
-### Investigation Dashboard
+### Investigator Web Platform
 
-The sign-in flow lands an investigator directly in a live workspace showing case-state
-summary, recent activity and one-click case creation.
+![Web sign-in](docs/screenshots/web-login.png)
+_Sign-in to the investigation workspace._
 
-![CyberSaarthi Login](docs/screenshots/01-login.png)
-_The sign-in screen with the seeded evaluation credentials._
+![Investigation dashboard](docs/screenshots/web-dashboard.png)
+_Workspace home: case-state summary and recent cases._
 
-![CyberSaarthi Investigation Dashboard](docs/screenshots/02-dashboard.png)
-_Investigation workspace — open/in-progress case summary and quick case creation._
+![Case list](docs/screenshots/web-cases.png)
+_Case management — every investigation the signed-in profile can access._
 
-![CyberSaarthi Case List](docs/screenshots/03-cases.png)
-_Case management: every investigation the signed-in profile can access._
+![Case overview](docs/screenshots/web-case-overview.png)
+_Seeded demo case `DEMO-2026-001`: 45 resolved entities, 86 relationships, 1 victim and 51 reviewable
+findings._
 
-![CyberSaarthi Case Overview](docs/screenshots/04-case-details.png)
-_Case record — synthetic evidence traceable through the entire pipeline._
+![Entity intelligence](docs/screenshots/web-entities.png)
+_Entity-resolution view with confidence, status and merge review controls._
 
-### Case & Victim Intelligence
+![Evidence vault](docs/screenshots/web-evidence.png)
+_Evidence with per-file intake status — every extractable fact traces to a stored file._
 
-<details>
-<summary>Victim intelligence · Evidence · Criminal/person intelligence (expand)</summary>
+![Criminal network graph](docs/screenshots/web-graph.png)
+_Relationship canvas — Cytoscape rendering of the resolved case graph._
 
-![CyberSaarthi Victim Intelligence](docs/screenshots/05-victim-intelligence.png)
-_Single-view victim profile: incident, loss amount, classification and investigator notes._
+![Graph analytics](docs/screenshots/web-analytics.png)
+_Deterministic network analytics: network DNA, communities and severity-ranked findings._
 
-![CyberSaarthi Evidence & Provenance](docs/screenshots/06-evidence.png)
-_Evidence vault with checksums and per-file ingestion status — every extractable fact traces to a stored file._
+![Findings review queue](docs/screenshots/web-findings.png)
+_Human-reviewable findings with evidence-backed scores._
 
-![CyberSaarthi Criminal Intelligence](docs/screenshots/07-criminal-intelligence.png)
-_Entity-resolution view: persons, phones, accounts, vehicles and organisations with aliases._
-
-</details>
-
-### Criminal Network Graph
-
-<details>
-<summary>Graph investigation · Analytics (expand)</summary>
-
-![CyberSaarthi Criminal Network Graph](docs/screenshots/08-graph.png)
-_Relationship canvas — Cytoscape rendering of every entity and link in the seeded dataset._
-
-![CyberSaarthi Graph Analytics](docs/screenshots/09-analytics.png)
-_Centrality and community analytics computed from the case graph._
-
-</details>
-
-### IoT Intelligence & Audit Trail
-
-<details>
-<summary>IoT devices/events · Timeline audit trail (expand)</summary>
-
-![CyberSaarthi IoT Devices & Events](docs/screenshots/10-iot.png)
-_Registered devices and their telemetry events in the IoT subsystem._
-
-![CyberSaarthi Timeline / Audit Trail](docs/screenshots/11-timeline-audit.png)
+![Audit timeline](docs/screenshots/web-timeline.png)
 _Chronological audit trail of every state change on the case._
 
-![CyberSaarthi Investigation Workflow](docs/screenshots/12-investigation-workflow.png)
-_The evidence → analytics → finding pipeline — the full explainable investigation workflow end to end._
+![Field device management](docs/screenshots/web-devices.png)
+_The Devices workspace: an enrolled Android field agent listed with approval status, key algorithm and
+last-seen, with approve/revoke actions._
 
-</details>
+### Android Field Agent
+
+![Agent onboarding](docs/screenshots/android-onboarding.png)
+_Secure evidence collection for the field — offline evidence stays locked on the device until unlocked._
+
+![LAN discovery](docs/screenshots/android-lan-discovery.png)
+_In-app LAN discovery scans for the matching backend on the same network._
+
+![Device enrollment](docs/screenshots/android-enrollment.png)
+_Device identity shown for operator approval: device ID, model and signing-key fingerprint._
+
+![Agent case list](docs/screenshots/android-my-cases.png)
+_My cases — the agent's active assignments with heartbeat identifiers._
+
+![Collection hub](docs/screenshots/android-field-collection.png)
+_Capture hub: photo, video, audio, location and document capture with on-demand hashing._
+
+![Evidence hashed](docs/screenshots/android-evidence-hashed.png)
+_Captured evidence item with its SHA-256 shown and integrity verified._
+
+![Package submitted](docs/screenshots/android-evidence-submitted.png)
+_Collection submitted; the operator can verify integrity or export the package._
+
+![Offline field mode](docs/screenshots/android-offline.png)
+_Offline-first field mode — cached cases retained, with one-tap "go online" recovery._
 
 ---
 
-## Investigator Workflow
+## Android Field Agent
 
-```mermaid
-flowchart TB
-    A["Investigator Login"] --> B["Create Fraud Case"]
-    B --> C["Register Victim"]
-    B --> D["Ingest Evidence (persons, phones, vehicles, accounts, transactions)"]
-    D --> E["Review Resolved Entities"]
-    B --> F["Register IoT Device + Events"]
-    C --> G["Timeline"]
-    D --> G
-    F --> G
-    E --> H["Graph Exploration"]
-    G --> I["Analytics (centrality, communities, priorities)"]
-    I --> J["Investigation Intelligence"]
+A Kotlin + Compose Android app (`mobile/`) turns a standard smartphone into a secure field-evidence
+capture device — **offline-first, zero cloud**:
+
+- **Offline-first** — evidence is captured, hashed and packaged on the device itself; a signed package can
+  be submitted later from the offline hub when the agent is back online or handed off via the desktop
+  importer (`desktop-importer/`).
+- **LAN, not internet** — the agent finds the backend over the same LAN via manual server entry, in-app
+  mDNS discovery, or QR pairing, and establishes trust from the backend identity fingerprint.
+- **Enrollment & approval** — the agent mints a hardware-backed RSA-2048 keypair (Android Keystore); the
+  operator approves or revokes the device in the web **Devices** tab.
+- **Signed liveness heartbeat** — every 60 s the agent signs a canonical heartbeat message so the backend
+  shows "last seen" per field device.
+- **Provable evidence** — each capture is SHA-256 hashed, assembled into a canonical manifest and signed
+  with the device key; the backend re-verifies the signature against the registered public key
+  (RSA-PKCS1-v1_5/SHA-256). A device that loses or rotates its Keystore key re-enrolls under a fresh
+  identity — in this stack the physical device appears as a sequence of approved `ANDROID-*` identities
+  (POCO "Xiaomi miel").
+
+```
+Field capture (offline) → hash + canonical manifest → sign (RSA-2048)
+  → submit package (online / LAN) → backend verifies signature → case evidence
 ```
 
----
-
-## Architecture
-
-```mermaid
-flowchart TB
-    FE["Frontend — React 19 / Vite / TypeScript"] --> |"Bearer JWT"| API["API Layer — FastAPI /api/v1"]
-    API --> APP["CyberSaarthi Backend Services"]
-    APP --> PG[("PostgreSQL — transactional source of truth")]
-    APP --> NEC[("Neo4j — graph / analytics projection")]
-    APP --> MIN[("MinIO — evidence objects")]
-    APP --> RED[("Redis — token revocation · throttling")]
-    APP --> IOT["IoT API — devices · events"]
-    IOT --> PG
-    APP --> AUD["Audit Log (append-only)"]
-    AUD --> PG
-```
-
-### The four data stores are deliberately specialized
-
-| Store | Role in CyberSaarthi | Persistence |
-|---|---|---|
-| **PostgreSQL** | Authoritative transactional store — users, cases, victims, entities, relationships, evidence metadata, audit log, IoT devices/events | `postgres_data` volume |
-| **Neo4j** | Relationship/graph analytics **projection**, rebuilt idempotently; never owns authoritative data | `neo4j_data` volume |
-| **MinIO** | Object storage for raw evidence files (S3 API) | `minio_data` volume |
-| **Redis** | Token revocation denylist + login throttling + cache (operational state, **not** a source of truth) | `redis_data` volume |
-
-> The frontend talks only to the FastAPI backend; the backend composes the stores. Redis is
-> infrastructure, not the postgres for any durable record.
+Refer to [`mobile/README.md`](mobile/README.md) for the agent's modules and build/test commands, and
+[`docs/architecture/android-connectivity.md`](docs/architecture/android-connectivity.md) for the
+LAN/trust/heartbeat design (verified end-to-end on a physical device).
 
 ---
 
-## Data Model
+## Investigator Web Platform & Device Management
 
-```mermaid
-flowchart LR
-    CASE["CASE"]
-    CASE --> VIC["VICTIM"]
-    VIC --> |"profile · incident · financial impact · recovery status"| VI
-    CASE --> ENT["RESOLVED ENTITY"]
-    ENT --> P["PERSON"]
-    ENT --> PH["PHONE"]
-    ENT --> VE["VEHICLE"]
-    ENT --> AC["ACCOUNT"]
-    ENT --> ORG["ORGANIZATION"]
-    ENT --> LOC["LOCATION"]
-    ENT --> DOC["DOCUMENT"]
-    ENT --> EV["EVENT"]
-    P --> PH
-    PH --> AC
-    ENT --> REL["RELATIONSHIP"]
-    CASE --> EVD["EVIDENCE FILE"]
-    EVD --> H["SHA-256 hash"]
-    CASE --> IOD["IoT DEVICE"]
-    IOD --> IOE["IoT EVENT"]
-    CASE --> TL["TIMELINE / AUDIT"]
-```
+The web workspace (React 19 + Vite + TypeScript) exposes the complete investigation surface:
 
-Implemented entity types: `person`, `phone`, `vehicle`, `organization`, `account`, `location`,
-`document`, `event` — connected by relationships such as `called`, `owns`, `located_at`, `visited`,
-`works_for`, `associated_with`.
+- **Dashboard & case list** — case-state summary, quick creation, per-case access.
+- **Case workspace** — Overview, Entities, Evidence, Victims, Devices, IoT, Graph, Analytics, Hypotheses,
+  Findings, Reports and Timeline in one case-scoped shell.
+- **Entities** — resolved persons, phones, vehicles, accounts, organizations and locations with confidence
+  scores and a merge review queue.
+- **Evidence** — upload with SHA-256 fingerprint, duplicate rejection, file-level ingestion status and a
+  provenance drawer linking each file to the entities, relationships and findings it produced.
+- **Graph & analytics** — Cytoscape graph canvas plus deterministic network analytics.
+- **Field device management** (`/cases/{id}/devices`) — enroll, **approve**, **revoke**, and monitor
+  "last seen" for every Android agent on the case. Approved devices are the only ones whose signed
+  packages are accepted (`web-devices.png` above).
+- **Audit** — permission-scoped (`audit.read`) append-only log of every mutation.
 
 ---
 
-## Evidence and Provenance
+## Evidence Integrity & Provenance
 
 ```mermaid
 flowchart TB
@@ -417,9 +382,33 @@ flowchart TB
 3. Re-uploading the same file is **rejected with 409** (duplicate detection).
 4. The stored MinIO object was verified **byte-identical** to the uploaded file.
 5. Metadata, case association and provenance persist across restarts.
+6. On a physical device, a captured item, its on-device SHA-256, the canonical manifest and the RSA
+   signature were all re-verified by the backend, and `manifest.sig` was verified independently with
+   OpenSSL against the registered device public key.
 
-> CyberSaarthi provides **technical integrity and provenance mechanisms**. Legal admissibility
-> remains dependent on jurisdiction, collection procedures and institutional policy.
+> CyberSaarthi provides **technical integrity and provenance mechanisms**. Legal admissibility remains
+> dependent on jurisdiction, collection procedures and institutional policy.
+
+---
+
+## Criminal Network Intelligence
+
+The same evidence pipeline drives suspect-focused intelligence:
+
+- **Persons / suspects** — resolved from names and aliases with entity-resolution identity management.
+- **Phones** — extracted numbers linked back to the records they appear in.
+- **Accounts & banks** — financial identifiers and banking organizations.
+- **Vehicles** — registration numbers when present.
+- **Transactions** — surfaced as financial records and account relationships.
+
+These entities live in one case-scoped graph, so a phone number's callers, an account's owners and a
+person's vehicles are queryable in a single view — with the evidence trail behind every link. The
+analytics engine implements **centrality**, **communities**, **network DNA**, **priorities**,
+**relationship strength**, **paths** (pair and ego), **patterns** and **hypotheses** — all
+case-scoped and deterministic.
+
+> The seeded demo case (`DEMO-2026-001`) currently holds **45 entities and 86 relationships** (verified
+> from the running stack) — values from the demo dataset, not universal system limits.
 
 ---
 
@@ -447,81 +436,14 @@ flowchart LR
     CASE --> E["Investigation"]
 ```
 
-Victim operations are **authorization-gated** (per-case permission checks) and fully **audit-logged**.
-Handled with a professional care befitting real victims of fraud.
+Victim operations are **authorization-gated** (per-case permission checks) and fully **audit-logged**,
+handled with the care befitting real victims of fraud.
 
 ---
 
-## Criminal Intelligence
+## Device & IoT Intelligence
 
-The same evidence pipeline drives suspect-focused intelligence:
-
-- **Persons / suspects** — resolved from names and aliases with entity resolution identity management
-- **Phones** — extracted numbers linked back to the records they appear in
-- **Accounts & banks** — financial identifiers and banking organizations
-- **Vehicles** — registration numbers when present
-- **Transactions** — surfaced as financial records and account relationships
-
-These entities live in one case-scoped graph, so a phone number's callers, an account's owners and a
-person's vehicles are queryable in a single view — with the evidence trail behind every link.
-
----
-
-## Graph Analytics
-
-Every case owns its own graph. The projection supports network science over the resolved entities:
-
-```mermaid
-flowchart LR
-    PHONE["PHONE"] --> PERSON["PERSON"]
-    PERSON --> ACCOUNT["ACCOUNT"]
-    PERSON --> DEVICE["DEVICE"]
-    ACCOUNT --> CASE["CASE"]
-    PHONE --> CASE
-```
-
-The analytics engine implements: **centrality**, **communities**, **network DNA**,
-**priorities**, **relationship strength**, **paths** (pair and ego), **patterns** and
-**hypotheses** — all case-scoped and deterministic.
-
-> The seeded demo case (`DEMO-2026-001`) currently holds **45 entities and 86 relationships**.
-> These are values from the demo dataset — not universal system limits.
-
----
-
-## Field Agent (Android)
-
-A Kotlin + Compose Android app (`mobile/`) lets investigators capture evidence in
-the field — **offline-first, zero cloud**:
-
-- **Offline-first** — evidence is captured, hashed and packaged on the device
-  itself; a signed package can be submitted later from the offline hub when the
-  agent is back online or handed off via the desktop importer (`desktop-importer/`).
-- **LAN, not internet** — the agent finds the backend over the same LAN via
-  manual server entry, in-app mDNS discovery, or QR pairing, and establishes
-  trust from the backend identity fingerprint.
-- **Enrollment & approval** — the agent mints a hardware-backed RSA-2048 keypair
-  (Android Keystore); the operator approves or revokes the device in the web
-  **Devices** tab.
-- **Signed liveness heartbeat** — every 60 s the agent signs a canonical
-  heartbeat message so the backend shows "last seen" per field device.
-- **Provable evidence** — each capture is SHA-256 hashed, assembled into a
-  canonical manifest and signed with the device key; the backend re-verifies the
-  signature against the registered public key.
-
-```
-Field capture (offline) → hash + canonical manifest → sign (RSA-2048)
-  → submit package (online / LAN) → backend verifies signature → case evidence
-```
-
-Refer to [`mobile/README.md`](mobile/README.md) for the agent's modules and
-build/test commands, and
-[`docs/architecture/android-connectivity.md`](docs/architecture/android-connectivity.md)
-for the LAN/trust/heartbeat design (verified end-to-end on a physical device).
-
----
-
-## IoT Integration
+The shipped implementation is the **complete backend IoT foundation**:
 
 ```mermaid
 flowchart TB
@@ -535,19 +457,18 @@ flowchart TB
     PG --> CASE["CyberSaarthi Case"]
 ```
 
-The shipped implementation is the **complete backend IoT foundation**:
+- Device registration (unique `(case, serial)`), update and listing.
+- Event ingestion with location/connectivity payloads.
+- Per-device statistics and case-scoped queries.
+- PostgreSQL persistence and full audit coverage.
 
-- device registration (unique `(case, serial)`), update and listing
-- event ingestion with location/connectivity payloads
-- per-device statistics and case-scoped queries
-- PostgreSQL persistence and full audit coverage
-
-Physical ESP32 hardware integration is a **planned** extension on this foundation — it is not yet
-part of the verified build.
+Physical ESP32 hardware integration is a **planned** extension on this foundation — it is not yet part of
+the verified build. Android **field agents** (distinct from IoT nodes) are fully covered today via the
+Devices workspace and the signed-package pipeline.
 
 ---
 
-## Security
+## Security Architecture
 
 | Control | Implementation |
 |---|---|
@@ -561,15 +482,77 @@ part of the verified build.
 | Audit logging | append-only, permission-scoped (`audit.read`) |
 | Input validation | size caps, format sniffing, strict error envelope, Cypher label allowlist |
 | Security headers | CSP + HSTS in production, `x-request-id` correlation |
-
-<details>
-<summary>Security model detail (expand)</summary>
+| Field-agent trust | device fingerprint (`SHA-256` over the DER `SubjectPublicKeyInfo`), approve/revoke, per-device signature verification |
 
 Every authenticated route resolves the caller against case membership, role permissions and record
-ownership before touching data. Findings and hypotheses are analytical signals for **review**, never
-an automated determination of guilt. Security is defense-in-depth and continuously reviewed — like
-any real system, it is **never "100% secure"**.
-</details>
+ownership before touching data. Findings and hypotheses are analytical signals for **review**, never an
+automated determination of guilt. Security is defense-in-depth and continuously reviewed — like any real
+system, it is **never "100% secure"**.
+
+---
+
+## System Architecture
+
+```mermaid
+flowchart TB
+    subgraph CLIENT["Clients"]
+        FE["React Web Workspace"] -->|Bearer JWT| API["API Layer /api/v1"]
+        AG["Android Field Agent"] -->|enroll · heartbeat · signed packages| API
+    end
+    API --> SVC["CyberSaarthi Backend Services"]
+    SVC --> PG[("PostgreSQL<br/>authoritative source of truth")]
+    SVC --> NEO[("Neo4j<br/>graph / analytics projection")]
+    SVC --> MIN[("MinIO<br/>evidence objects")]
+    SVC --> RED[("Redis<br/>token revocation · throttling")]
+    SVC --> AUD["Audit Log (append-only)"]
+    AUD --> PG
+```
+
+### The four data stores are deliberately specialized
+
+| Store | Role in CyberSaarthi | Persistence |
+|---|---|---|
+| **PostgreSQL** | Authoritative transactional store — users, cases, victims, entities, relationships, evidence metadata, audit log, IoT devices/events | `postgres_data` volume |
+| **Neo4j** | Relationship/graph analytics **projection**, rebuilt idempotently; never owns authoritative data | `neo4j_data` volume |
+| **MinIO** | Object storage for raw evidence files (S3 API) | `minio_data` volume |
+| **Redis** | Token revocation denylist + login throttling + cache (operational state, **not** a source of truth) | `redis_data` volume |
+
+> The frontend talks only to the FastAPI backend; the backend composes the stores. Redis is
+> infrastructure, not the postgres for any durable record.
+
+---
+
+## Data Architecture
+
+```mermaid
+flowchart LR
+    CASE["CASE"]
+    CASE --> VIC["VICTIM"]
+    VIC --> |"profile · incident · financial impact · recovery status"| VI
+    CASE --> ENT["RESOLVED ENTITY"]
+    ENT --> P["PERSON"]
+    ENT --> PH["PHONE"]
+    ENT --> VE["VEHICLE"]
+    ENT --> AC["ACCOUNT"]
+    ENT --> ORG["ORGANIZATION"]
+    ENT --> LOC["LOCATION"]
+    ENT --> DOC["DOCUMENT"]
+    ENT --> EV["EVENT"]
+    P --> PH
+    PH --> AC
+    ENT --> REL["RELATIONSHIP"]
+    CASE --> EVD["EVIDENCE FILE"]
+    EVD --> H["SHA-256 hash"]
+    CASE --> FD["FIELD DEVICE"]
+    FD --> PK["Signed packages"]
+    CASE --> IOD["IoT DEVICE"]
+    IOD --> IOE["IoT EVENT"]
+    CASE --> TL["TIMELINE / AUDIT"]
+```
+
+Implemented entity types: `person`, `phone`, `vehicle`, `organization`, `account`, `location`,
+`document`, `event` — connected by relationships such as `called`, `owns`, `located_at`, `visited`,
+`works_for`, `associated_with`.
 
 ---
 
@@ -594,13 +577,10 @@ any real system, it is **never "100% secure"**.
 | Testing | pytest + Vitest | — |
 | Tooling | Ruff · mypy · ESLint · Prettier | — |
 
-<details>
-<summary>Backend runtime dependencies</summary>
-
-`fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `sqlalchemy[asyncio]`, `alembic`,
-`psycopg[binary]`, `neo4j`, `redis`, `boto3`, `bcrypt`, `spacy`, `en_core_web_sm`, `rapidfuzz`,
-`charset-normalizer`, `python-multipart` — all pinned. No unnecessary runtime dependencies.
-</details>
+Backend runtime dependencies: `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`,
+`sqlalchemy[asyncio]`, `alembic`, `psycopg[binary]`, `neo4j`, `redis`, `boto3`, `bcrypt`, `spacy`,
+`en_core_web_sm`, `rapidfuzz`, `charset-normalizer`, `python-multipart` — all pinned. No unnecessary
+runtime dependencies.
 
 ---
 
@@ -611,15 +591,15 @@ CyberSaarthi/
 ├── backend/                 # FastAPI modular monolith (Python 3.12)
 │   ├── app/
 │   │   ├── api/             # routers: cases, victims, iot, evidence, entities,
-│   │   │                    #          graph, analytics, findings, audit, auth, users
+│   │   │                    #          graph, analytics, findings, audit, auth, users, devices, collections
 │   │   ├── analytics/       # deterministic analytics engine
 │   │   ├── services/        # ingestion · extraction · normalization · resolution
 │   │   ├── models/          # SQLAlchemy models
-│   │   └── core/            # settings, security, codes
+│   │   └── core/            # settings, security, codes, RBAC
 │   ├── migrations/          # Alembic migrations (single head)
 │   └── tests/               # unit · API · integration
 ├── frontend/                # React 19 + Vite + TypeScript UI
-│   ├── src/app/pages/       # dashboard, cases, victims, iot, evidence, graph, ...
+│   ├── src/app/pages/       # dashboard, cases, victims, iot, evidence, graph, devices, ...
 │   ├── src/api/             # mock + real adapters (mock disabled for the demo)
 │   └── src/components/ui/   # design-system components
 ├── mobile/                  # Android Field Agent (Kotlin + Compose)
@@ -628,7 +608,6 @@ CyberSaarthi/
 ├── desktop-importer/        # desktop utility to import signed USB packages into the backend
 ├── scripts/                 # mDNS advertiser + demo seed helpers
 ├── docs/                    # ADRs · connectivity design · screenshots · tooling
-├── screenshots/             # UI previews from the demo dataset
 ├── docker-compose.yml       # postgres · neo4j · redis · minio · backend (+ discovery)
 ├── Makefile                 # dev workflow (make up / seed / test / ...)
 ├── .env.example             # documented configuration template
@@ -659,9 +638,8 @@ docker compose ps               # wait for all services to be healthy
 
 ### Bootstrap the first administrator
 
-Registration is public and creates a `PENDING` account that cannot sign in until an administrator
-approves it. To get the first admin, use the idempotent bootstrap CLI (it refuses to create a second
-admin):
+Registration is public and creates a `PENDING` account that cannot sign in until an administrator approves
+it. To get the first admin, use the idempotent bootstrap CLI (it refuses to create a second admin):
 
 ```bash
 docker compose exec -T backend python -m scripts.create_admin
@@ -686,38 +664,7 @@ curl http://localhost:8000/api/v1/ready    # 200 — postgres, neo4j, redis, min
 
 ---
 
-## Configuration
-
-All configuration is environment-driven and git-ignored; no secrets are committed.
-
-| File | Purpose |
-|---|---|
-| `.env` | Compose + backend settings (Postgres, Neo4j, Redis, MinIO, CORS, `SECRET_KEY`) |
-| `frontend/.env` | Frontend runtime configuration |
-| `.env.example` | Documented template — safe to copy to `.env` |
-
-Key frontend variable:
-
-```text
-VITE_USE_MOCK_API=false
-```
-
-`false` makes the UI call the **real backend** (`VITE_API_URL`, default `http://localhost:8000`).
-The automated frontend test suite forces mock mode itself, so tests never depend on a live stack.
-The actual `.env` files are intentionally git-ignored (see `.gitignore`).
-
-<details>
-<summary>Required environment variables (documented in `.env.example`)</summary>
-
-`APP_NAME`, `APP_ENV`, `LOG_LEVEL`, `POSTGRES_HOST/PORT/DB/USER/PASSWORD`,
-`NEO4J_URI/USER/PASSWORD`, `REDIS_URL`, `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION`,
-`CORS_ORIGINS`, `SECRET_KEY`. The example ships with explicit **dev-only** placeholders — replace
-every password and the secret for any non-local deployment.
-</details>
-
----
-
-## Running the System
+## Running the System & the Android Field Agent
 
 ```bash
 docker compose up -d        # start the stack
@@ -737,69 +684,59 @@ make logs          # tail all services
 ```
 
 Services: `backend`, `postgres` (16-alpine), `neo4j` (5-community), `redis` (7-alpine, with AOF
-persistence), `minio` (+ one-shot `minio-init`), the mDNS advertiser `discovery`
-(on an opt-in profile) and the dev-only `backend-dev` test image.
+persistence), `minio` (+ one-shot `minio-init`), the mDNS advertiser `discovery` (on an opt-in profile)
+and the dev-only `backend-dev` test image.
 
-For the field-agent LAN discovery the mDNS advertiser must publish on the host
-network (UDP 5353). Start it when needed:
+For the field-agent LAN discovery the mDNS advertiser must publish on the host network (UDP 5353). Start
+it when needed:
 
 ```bash
 docker compose --profile discovery up -d discovery
 ```
 
----
-
-## Docker
-
-```bash
-docker compose up -d            # start
-docker compose ps               # inspect health
-docker compose logs --tail=100  # follow backend logs
-docker compose down             # stop — volumes preserved
-```
-
 > ⚠️ **Do NOT run `docker compose down -v`** unless you intentionally want to destroy persistent
 > development volumes. All investigation data lives in volumes; `-v` deletes it for good.
 
-| Service | Image | Healthcheck |
-|---|---|---|
-| postgres | `postgres:16-alpine` | `pg_isready` |
-| neo4j | `neo4j:5-community` | `cypher-shell RETURN 1` |
-| redis | `redis:7-alpine` (`--appendonly`) | `redis-cli ping` |
-| minio | `minio/minio` | HTTP `/minio/health/live` |
-| backend | built from `backend/Dockerfile` | `GET /api/v1/health` |
+### Android Field Agent
+
+```bash
+cd mobile
+gradle assembleDebug          # build the app
+gradle testDebugUnitTest      # unit tests
+gradle lintDebug              # lint (0 errors expected)
+```
+
+Install the APK on the device, then on the agent: **Connect to server** → in-app **LAN discovery** (or
+manual server entry / QR pairing) → **Enroll this device** against a case → the operator clicks
+**Approve** in the web Devices tab → capture evidence offline → **go online** and **submit** the signed
+package. See [`mobile/README.md`](mobile/README.md) for module details.
 
 ---
 
-## Persistence
+## Configuration
 
-Data survives because each store keeps a **named volume** that outlives the container:
+All configuration is environment-driven and git-ignored; no secrets are committed.
+
+| File | Purpose |
+|---|---|
+| `.env` | Compose + backend settings (Postgres, Neo4j, Redis, MinIO, CORS, `SECRET_KEY`) |
+| `frontend/.env` | Frontend runtime configuration |
+| `.env.example` | Documented template — safe to copy to `.env` |
+
+Key frontend variable:
 
 ```text
-PostgreSQL  → postgres_data
-Neo4j       → neo4j_data
-Redis       → redis_data
-MinIO       → minio_data
+VITE_USE_MOCK_API=false
 ```
 
-```mermaid
-flowchart TD
-    A["Container restart"] --> B["Persistent volumes"]
-    B --> C["Data remains"]
-```
+`false` makes the UI call the **real backend** (`VITE_API_URL`, default `http://localhost:8000`). The
+automated frontend test suite forces mock mode itself, so tests never depend on a live stack. The actual
+`.env` files are intentionally git-ignored (see `.gitignore`).
 
-**Verified in the release audit:**
-
-| Scenario | Result |
-|---|---|
-| `docker compose restart` of every service | Pass — all records survive |
-| `docker compose down` + `docker compose up -d` (no `-v`) | Pass — all records survive |
-| Full browser reload | Pass — state persists |
-| Logout → login cycle | Pass — investigation state persists |
-| MinIO object integrity after restart | Pass — stored bytes byte-identical |
-| Neo4j projection after restart | Pass — graph intact |
-
-A physical host reboot has **not** been part of automated verification.
+Required backend variables (documented in `.env.example`): `APP_NAME`, `APP_ENV`, `LOG_LEVEL`,
+`POSTGRES_HOST/PORT/DB/USER/PASSWORD`, `NEO4J_URI/USER/PASSWORD`, `REDIS_URL`,
+`S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION`, `CORS_ORIGINS`, `SECRET_KEY`. The example ships with
+explicit **dev-only** placeholders — replace every password and the secret for any non-local deployment.
 
 ---
 
@@ -816,7 +753,7 @@ All endpoints live under `/api/v1`. Summary of the main surface:
 | Victims | `GET/POST /cases/{id}/victims`, `GET/PUT /cases/{id}/victims/{vid}` | Victim subsystem |
 | IoT | `/cases/{id}/iot/devices`, `/cases/{id}/iot/devices/{did}`, `/cases/{id}/iot/devices/{did}/stats`, `/cases/{id}/iot/events` | Device + telemetry |
 | Evidence | `POST /cases/{id}/evidence`, `GET /cases/{id}/evidence`, `POST /cases/{id}/ingest` | Upload + integrity + ingestion |
-| Field devices | `/cases/{id}/devices`, `/cases/{id}/devices/{device_id}/heartbeat`, admin `approve`/`revoke` | Field-agent enrollment + liveness |
+| Field devices | `POST /cases/{id}/devices`, `GET /cases/{id}/devices`, `POST /cases/{id}/devices/{device_id}/heartbeat`, admin `approve`/`revoke`/`verify-key` | Field-agent enrollment + liveness |
 | Collections | `/cases/{id}/collections`, `/cases/{id}/collections/{cid}`, `POST .../seal`, `POST /cases/{id}/import/packages` | Signed field-agent evidence packages |
 | Entities | `/cases/{id}/entities`, `/cases/{id}/entities/{eid}`, `/cases/{id}/relationships` | Resolved intelligence |
 | Graph | `/cases/{id}/graph`, `/cases/{id}/graph/stats`, `/cases/{id}/graph/entity/{eid}` | Network views |
@@ -828,29 +765,27 @@ Interactive API documentation is generated by FastAPI at `/docs`.
 
 ---
 
-## Testing and Verification
+## Verification & Testing
 
-Every number below is a **verified current result** from this build (commit `a57d087`), not a
-theoretical claim.
+Every number below was **re-verified on `main` on 2026-09-13** — the gate results are fresh, not copied
+from an old report:
 
 | Gate | Result |
 |---|---|
 | Backend tests (pytest: unit + API + integration) | **390 passed** |
-| Frontend tests (Vitest) | **80 passed** (15 files) |
+| Frontend tests (Vitest) | **80 passed** |
 | Backend lint (ruff) · typecheck (mypy) | **PASS** (127 files) |
 | TypeScript (`tsc -b --noEmit`) · ESLint · Vite build | **PASS** |
 | Android unit tests (`gradle testDebugUnitTest`) | **PASS** |
 | Android lint (`gradle lintDebug`) | **PASS** (0 errors) |
-| SIH primary-flow E2E checks | **28/28 passed** |
-| Real-browser E2E (headless Chromium, production build) | **6/6 passed** |
+| Persistence (restart · down/up · reload · logout/login) | **PASS** (release audit) |
+| Real-browser E2E (headless Chromium, production build) | **6/6 passed** (release audit) |
 | Android Field Agent E2E (physical device vs live stack) | **PASS** on 2026-09-13 |
-| Persistence (restart · down/up · reload · logout/login) | **PASS** |
 
-The Android Field Agent run covered, on a physical device: LAN discovery + manual
-server entry, enrollment → web approval, live heartbeat (`last seen`), offline
-capture → SHA-256 → canonical manifest → RSA signature → package submission with
-backend signature verification, and forced-offline recovery. Details of the
-connectivity/trust design are in
+The Android Field Agent run covered, on a physical device: LAN discovery + manual server entry,
+enrollment → web approval, live heartbeat (`last seen`), offline capture → SHA-256 → canonical manifest →
+RSA signature → package submission with backend signature verification, and forced-offline recovery.
+Details of the connectivity/trust design are in
 [`docs/architecture/android-connectivity.md`](docs/architecture/android-connectivity.md).
 
 <details>
@@ -869,61 +804,58 @@ cd frontend
 npm run lint
 npx tsc -b --noEmit
 npx vitest run
-npx vite build
+npm run build
 
-# Android field agent (JDK 17+ and Android SDK API 35 required)
+# Android field agent (JDK 17+ and Android SDK required)
 cd mobile
-gradle testDebugUnitTest   # unit tests (29 total)
+gradle testDebugUnitTest   # unit tests
 gradle lintDebug           # lint (0 errors expected)
 ```
 </details>
 
 ---
 
-## SIH Demo Workflow
+## SIH Demonstration Flow
 
-A complete, verified investigation path — every step persists.
+A complete, verified investigation path — every step persists:
 
 ```
 01  Investigator Login
-        ↓
 02  Create Fraud Case
-        ↓
 03  Register Victim
-        ↓
 04  Add Suspect / Person
-        ↓
 05  Link Phones, Devices & Vehicles
-        ↓
 06  Add Transactions / Accounts
-        ↓
-07  Upload Evidence
-        ↓
-08  Generate Timeline
-        ↓
-09  Explore Network Graph
-        ↓
-10  Analyze Centrality & Analytics
-        ↓
-11  Inspect IoT Device Events
-        ↓
-12  Refresh · Logout · Login — Everything Remains
+07  Upload Evidence (fingerprinted, duplicate-detected)
+08  Enroll + Approve an Android Field Agent
+09  Capture + Sign Evidence in the Field (offline → go online → submit)
+10  Generate Timeline
+11  Explore Network Graph
+12  Analyze Centrality & Analytics
+13  Inspect IoT Device Events
+14  Review Findings
+15  Refresh · Logout · Login — Everything Remains
 ```
 
-This flow was executed end-to-end against the live stack (roles: ADMIN and INVESTIGATOR) and
-passed **28/28** checks including persistence across refresh and logout/login.
+This flow was executed end-to-end against the live stack, including the physical-device field leg of
+2026-09-13 (see [Verification & Testing](#verification--testing)).
 
 ---
 
-## What Makes It Different
+## Limitations
 
-1. **Unified investigation workspace** — one persistent, case-scoped surface instead of isolated records.
-2. **Evidence integrity + provenance** — SHA-256 fingerprints, duplicate detection and object storage, not just file upload.
-3. **Victim-first support** — structured victim intelligence (incident, financial impact, recovery) built into the workflow.
-4. **Relationship intelligence** — entities resolved and linked, not scattered rows.
-5. **Persistent multi-database architecture** — PostgreSQL (truth), Neo4j (graph), MinIO (objects), Redis (state), each with a named volume.
-6. **IoT-ready investigation layer** — a shipped backend foundation ready for physical telemetry.
-7. **Security-aware by design** — RBAC, case isolation, IDOR guards, revocation, throttling and an audit trail on every mutation.
+- The IoT subsystem is a **backend foundation**; physical hardware integration is not yet shipped.
+- The Neo4j projection **intentionally excludes Victim and IoT** data today (an explicit architecture
+  decision that protects the tested entity graph).
+- Development configuration targets `localhost`; a real deployment needs proper secret management, TLS
+  termination and container hardening.
+- Demo bootstrap credentials (`admin` / `investigator`) and the seed passwords are development defaults —
+  **replace them before any non-demo deployment**. Override with `ADMIN_PASSWORD` /
+  `SEED_INVESTIGATOR_PASSWORD`.
+- Evidence handling provides technical integrity and provenance; **legal admissibility** depends on
+  jurisdiction, collection procedures and institutional policy.
+- A physical host reboot has not been part of automated verification.
+- The frontend is run from the host (`npm run dev` / preview) rather than a Compose service.
 
 ---
 
@@ -938,6 +870,7 @@ Status legend: ✅ Completed · 🔄 In Progress · 📌 Planned
 | Security controls (RBAC, JWT, revocation, throttling, audit) | ✅ Completed |
 | Victim subsystem | ✅ Completed |
 | IoT backend foundation | ✅ Completed |
+| Android Field Agent (offline capture, sign, verify) | ✅ Completed |
 | Explore extending the Neo4j projection to Victim/IoT data | 📌 Planned (deliberate defer decision documented) |
 | Physical ESP32 field-node integration | 📌 Planned |
 | Richer IoT telemetry (motion, environment, tamper) | 📌 Planned |
@@ -945,69 +878,6 @@ Status legend: ✅ Completed · 🔄 In Progress · 📌 Planned
 | Deployment hardening, production secrets management, backup/restore | 📌 Planned |
 | OIDC / MFA | 📌 Planned |
 | Additional evidence input formats | 📌 Planned |
-
----
-
-## Limitations
-
-- The IoT subsystem is a **backend foundation**; physical hardware integration is not yet shipped.
-- The Neo4j projection **intentionally excludes Victim and IoT** data today (an explicit architecture
-  decision that protects the tested entity graph).
-- Development configuration targets `localhost`; a real deployment needs proper secret management,
-  TLS termination and container hardening.
-- Demo bootstrap credentials (`admin` / `investigator`) and the seed passwords are development
-  defaults — **replace them before any non-demo deployment**. Override with
-  `ADMIN_PASSWORD` / `SEED_INVESTIGATOR_PASSWORD`.
-- Evidence handling provides technical integrity and provenance; **legal admissibility** depends on
-  jurisdiction, collection procedures and institutional policy.
-- A physical host reboot has not been part of automated verification.
-- The frontend is run from the host (`npm run dev` / preview) rather than a Compose service.
-
----
-
-## Troubleshooting
-
-### Docker permission denied
-
-Add your user to the Docker group and re-login:
-
-```bash
-sudo usermod -aG docker "$USER"
-newgrp docker          # or log out and back in
-```
-
-### Docker daemon not running
-
-```bash
-systemctl status docker
-sudo systemctl enable --now docker   # auto-start at boot
-```
-
-### Frontend shows mock/seed data instead of real data
-
-Verify the frontend is configured for the real backend:
-
-```text
-frontend/.env  →  VITE_USE_MOCK_API=false
-```
-
-and that the API is reachable: `curl http://localhost:8000/api/v1/health`.
-
-### Data appears missing
-
-```bash
-docker compose ps             # confirm all services healthy
-docker compose logs --tail=100 backend
-```
-
-The typical cause is a backend that was restarted with old code while the frontend points at the
-wrong API — not data loss.
-
-### Do not delete volumes
-
-```bash
-docker compose down -v        # ❌ destroys PostgreSQL, Neo4j, Redis and MinIO volumes
-```
 
 ---
 
@@ -1019,8 +889,8 @@ docker compose down -v        # ❌ destroys PostgreSQL, Neo4j, Redis and MinIO 
 4. **Lint** — backend: `make lint` · `make format-check`; frontend: `npm run lint`.
 5. **Typecheck** — backend: `make typecheck`; frontend: `npm run typecheck`.
 6. **Build** — verify the frontend production build (`npm run build`) before opening a PR.
-7. **Commit** — use Conventional Commits; never commit `.env`, secrets, `node_modules`, `.venv`,
-   caches or build output.
+7. **Commit** — use Conventional Commits; never commit `.env`, secrets, `node_modules`, `.venv`, caches or
+   build output.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer guide,
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for collaboration expectations, and
@@ -1030,8 +900,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer guide,
 
 ## Team
 
-CyberSaarthi is developed by a small, focused team covering security engineering, backend
-systems, frontend and data — with every layer of the platform documented throughout this README.
+CyberSaarthi is developed by a small, focused team covering security engineering, backend systems,
+frontend and data — with every layer of the platform documented throughout this README.
 
 This project is prepared for submission under the **Smart India Hackathon**.
 
@@ -1049,7 +919,8 @@ Released under the [MIT License](LICENSE). Copyright © 2026 0xhroot.
 
 **Connect the evidence. Understand the network. Recover the truth.**
 
-<sub>Built with FastAPI · React · PostgreSQL · Neo4j · Redis · MinIO · Docker — and a determination
-to make cyber-fraud investigations explainable, persistent and victim-aware.</sub>
+<sub>Built with FastAPI · React · PostgreSQL · Neo4j · Redis · MinIO · Android · Docker — and a
+determination to make cyber-fraud investigations explainable, persistent, victim-aware and
+field-ready.</sub>
 
 </div>
