@@ -67,6 +67,7 @@ fun LoginScreen(
     var password by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(ui.signedIn) { if (ui.signedIn) onSignedIn() }
+    LaunchedEffect(Unit) { vm.refresh() }
 
     Scaffold { padding ->
         Column(
@@ -90,7 +91,13 @@ fun LoginScreen(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                stringResource(R.string.auth_secure_label),
+                stringResource(
+                    if (ui.serverUrl.startsWith("https://")) {
+                        R.string.auth_secure_label
+                    } else {
+                        R.string.auth_insecure_label
+                    }
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
@@ -105,7 +112,10 @@ fun LoginScreen(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                stringResource(R.string.auth_bound_server),
+                                stringResource(
+                                    R.string.auth_bound_server,
+                                    ui.serverHost.ifBlank { ui.serverInfo.orEmpty() }
+                                ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

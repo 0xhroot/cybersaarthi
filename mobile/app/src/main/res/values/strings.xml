@@ -39,6 +39,7 @@
     <string name="auth_signed_out">Signed out.</string>
     <string name="auth_credentials_required">Enter your username and password.</string>
     <string name="auth_secure_label">Credentials are sent over TLS and stored encrypted on this device.</string>
+    <string name="auth_insecure_label">Connection uses unencrypted HTTP. Credentials and evidence should not be sent over an untrusted network.</string>
 
     <string name="enroll_title">Device enrollment</string>
     <string name="enroll_subtitle">Register this device with a case to collect and sign field evidence.</string>

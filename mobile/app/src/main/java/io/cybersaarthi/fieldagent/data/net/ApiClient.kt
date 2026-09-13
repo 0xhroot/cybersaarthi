@@ -31,6 +31,12 @@ class ApiClient(
         .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
         .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        // Total wall-clock bound for one full request (DNS + connect + write +
+        // read). Without this, a stalled DNS resolver or a half-open keep-alive
+        // holds the UI probe indefinitely: connectTimeout only caps the socket
+        // connect, and readTimeout only caps a single read. Brief: the golden
+        // leg's "Can't reach server — spinner forever" symptom.
+        .callTimeout(90, TimeUnit.SECONDS)
         .build()
 
     @Volatile

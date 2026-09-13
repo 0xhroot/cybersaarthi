@@ -16,6 +16,7 @@ data class LoginUiState(
     val serverConfigured: Boolean = false,
     val serverHost: String = "",
     val serverInfo: String? = null,
+    val serverUrl: String = "",
     val busy: Boolean = false,
     val signedIn: Boolean = false,
     val errorRes: Int? = null,
@@ -31,7 +32,8 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
         LoginUiState(
             serverConfigured = settings.serverUrl.isNotBlank(),
             serverHost = settings.trustedServer()?.hostLabel ?: settings.serverUrl,
-            serverInfo = settings.trustedServer()?.hostname
+            serverInfo = settings.trustedServer()?.hostname,
+            serverUrl = settings.serverUrl
         )
     )
         private set
@@ -64,6 +66,16 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
 
     fun clearError() {
         ui = ui.copy(errorRes = null)
+    }
+
+    /** Re-reads the trusted server from settings (e.g. after a server change). */
+    fun refresh() {
+        ui = ui.copy(
+            serverConfigured = settings.serverUrl.isNotBlank(),
+            serverHost = settings.trustedServer()?.hostLabel ?: settings.serverUrl,
+            serverInfo = settings.trustedServer()?.hostname,
+            serverUrl = settings.serverUrl
+        )
     }
 
     /** Migrates or re-applies a newly configured server address. */

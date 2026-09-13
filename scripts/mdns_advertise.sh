@@ -33,13 +33,28 @@ if command -v avahi-publish >/dev/null 2>&1; then
   exec avahi-publish -s "$NAME" "$TYPE" "$PORT" service=cybersaarthi version=0.1.0 proto=v1
 elif python3 -c "import zeroconf" >/dev/null 2>&1; then
   exec python3 - "$NAME" "$TYPE" "$PORT" service=cybersaarthi version=0.1.0 proto=v1 <<'PY'
-import sys
+import ipaddress, sys
 from zeroconf import ServiceInfo, Zeroconf
 
 name, stype, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
 full_type = stype if stype.endswith(".local.") else stype.rstrip(".") + ".local."
 txt = {kv.split("=", 1)[0].encode(): kv.split("=", 1)[1].encode() for kv in sys.argv[4:]}
-info = ServiceInfo(full_type, f"{name}.{full_type}", addresses=[b"\x00\x00\x00\x00"], port=port, properties=txt)
+
+addrs = []
+iface = None
+try:
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    iface = s.getsockname()[0]
+    s.close()
+except Exception:
+    pass
+if not iface or ipaddress.ip_address(iface).is_unspecified:
+    raise SystemExit("mdns_advertise: could not determine a routable IPv4 address for this host")
+addrs.append(socket.inet_aton(iface))
+
+info = ServiceInfo(full_type, f"{name}.{full_type}", addresses=addrs, port=port, properties=txt)
 zc = Zeroconf()
 zc.register_service(info)
 try:

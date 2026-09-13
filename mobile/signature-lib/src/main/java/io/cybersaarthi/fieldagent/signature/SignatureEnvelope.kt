@@ -39,6 +39,7 @@ object SignatureEnvelope {
                 KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
             )
                 .setDigests(KeyProperties.DIGEST_SHA256)
+                .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
                 .setKeySize(2048)
                 .setUserAuthenticationRequired(false)
                 .build()

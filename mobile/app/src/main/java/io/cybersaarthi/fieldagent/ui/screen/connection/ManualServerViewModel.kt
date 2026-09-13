@@ -71,6 +71,7 @@ class ManualServerViewModel(private val container: AppContainer) : ViewModel() {
                 }.getOrNull()
             }
             container.settings.trustServer(url, ui.hostname, fp)
+            container.connection.probe()
             ui = ui.copy(saved = true)
         }
     }
