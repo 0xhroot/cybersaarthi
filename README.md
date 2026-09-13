@@ -1,10 +1,10 @@
 <div align="center">
 
-# **CYBERSAARTHI**
+# **CyberSaarthi**
 
-**Cyber Fraud Recovery & Evidence Intelligence Platform**
+### Cyber Fraud Recovery & Investigation Intelligence Platform
 
-> From field evidence to connected investigation intelligence.
+> From fragmented field evidence to connected, explainable investigation intelligence.
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?style=flat&logo=fastapi&logoColor=white)
@@ -16,19 +16,19 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
 ![Tests](https://img.shields.io/badge/Tests-390%20passed-2ea44f?style=flat)
 
-*Evidence → Verification → Intelligence → Investigation*
+**📱 Field Collection** → **🔐 Verified Evidence** → **🕸️ Network Intelligence** → **🔎 Investigation**
 
 <p align="center"><img src="docs/screenshots/web/dashboard.png" width="85%" alt="CyberSaarthi investigation workspace"/></p>
 
-CyberSaarthi unifies investigation **case management, victim, person, phone and financial intelligence,
-evidence provenance, and criminal-network analysis** in one persistent web workspace — and pairs it with an
-**Android field agent** that captures evidence offline, signs it, and hands it to the same case.
+CyberSaarthi unifies case management, victim, person, phone and financial intelligence, evidence
+provenance, and criminal-network analysis in one persistent web workspace — paired with an **Android
+field agent** that captures evidence offline, signs it, and hands it to the same case.
 
 Built for investigators, verified end-to-end on a real device.
 
 <br>
 
-**What it does** · **Workflow** · **See it in action** · **Architecture** · **Features** · **Setup**
+**What it does** · **Workflow** · **See it in action** · **Architecture** · **Security** · **Quick start**
 
 </div>
 
@@ -38,18 +38,13 @@ Built for investigators, verified end-to-end on a real device.
 
 Fragmented evidence becomes connected, evidence-backed intelligence — from capture to case.
 
-<table>
-<tr>
-<td width="33%" align="center"><b>📱 Field Evidence</b><br/>Android agent, offline-first capture — photo, video, audio, notes</td>
-<td width="33%" align="center"><b>🔐 Verified Evidence</b><br/>SHA-256 hashed, RSA-signed; signatures re-verified by the backend</td>
-<td width="33%" align="center"><b>🕸️ Network Intelligence</b><br/>Case knowledge graph — centrality, communities, paths</td>
-</tr>
-<tr>
-<td width="33%" align="center"><b>👤 Victim Intelligence</b><br/>First-class victim records — incident, impact, recovery</td>
-<td width="33%" align="center"><b>📊 Analytics</b><br/>Deterministic graph analytics with explainable findings</td>
-<td width="33%" align="center"><b>🧾 Auditability</b><br/>Append-only audit trail and full evidence provenance</td>
-</tr>
-</table>
+| 📱 Field Agent | 🔐 Evidence Integrity | 🕸️ Graph Intelligence |
+|---|---|---|
+| Android collection | Hash + RSA signature verification | Networks + relationships |
+
+| 👤 Victim Intelligence | 📊 Analytics | 🧾 Provenance |
+|---|---|---|
+| Victim-centric case view | Centrality + communities | Timeline + audit |
 
 ---
 
@@ -61,46 +56,40 @@ One connected path — **field capture → verified evidence → connected intel
 flowchart TB
     subgraph FIELD["FIELD"]
         direction TB
-        A["Field officer captures evidence<br/>photo · video · audio · note · document"] --> B["Android Field Agent"]
-        B --> C["Connect & enroll<br/>LAN discovery · QR pairing · manual server"]
-        C --> D["SHA-256 hash every item"]
-        D --> E["Canonical manifest · RSA-2048 signature"]
-        E --> F["Signed evidence package"]
+        FO["Field Officer"] --> AG["Android Field Agent"]
+        AG --> CP["Connect / Pair<br/>LAN discovery · QR · manual"]
+        CP --> DE["Device Enrollment"]
+        DE --> AA["Administrator Approval"]
+        AA --> CS["Case Selection"]
+        CS --> EC["Evidence Capture<br/>photo · video · audio · notes"]
+        EC --> H["SHA-256 Hashing"]
+        H --> SP["Signed Evidence Package<br/>RSA-2048 signature"]
     end
-    F -->|"submit · POST /import/packages"| API["CyberSaarthi API · FastAPI REST"]
+    SP -->|"submit · POST /import/packages"| API["FastAPI Backend"]
     subgraph BACKEND["BACKEND"]
         direction TB
-        API --> V["VERIFY"]
-        V --> V1["Device signature"]
-        V --> V2["Hash integrity"]
-        V --> V3["Duplicate / replay"]
-        V --> V4["Device approval"]
-        V --> ST["STORE"]
-        ST --> PG[("PostgreSQL · metadata")]
-        ST --> MI[("MinIO · objects")]
-        V --> PR["PROCESS"]
-        PR --> E1["Entity extraction"]
-        E1 --> E2["Entity resolution"]
-        E2 --> E3["Relationship discovery"]
+        API --> VF["Verification<br/>device · signature · integrity · replay"]
+        VF --> SR["PostgreSQL + MinIO"]
+        SR --> PROC["Evidence Processing"]
+        PROC --> EX["Entity Extraction"]
+        EX --> RES["Entity Resolution"]
+        RES --> RD["Relationship Discovery"]
     end
-    E3 --> KG["Knowledge graph"]
+    RD --> PROJ["Graph Projection"]
     subgraph DATA["DATA"]
         direction TB
-        KG --> NEO[("Neo4j · graph projection")]
+        PROJ --> NEO[("Neo4j")]
     end
     subgraph INTELLIGENCE["INTELLIGENCE"]
         direction TB
-        NEO --> AN["Graph analytics"]
-        AN --> G1["Centrality"]
-        AN --> G2["Communities"]
-        AN --> G3["Network DNA"]
-        AN --> G4["Priority"]
-        AN --> G5["Relationship analysis"]
+        NEO --> GA["Graph Analytics"]
+        GA --> NI["Priorities · Communities · Network Intelligence"]
     end
-    G1 & G2 & G3 & G4 & G5 --> UI["Investigator Web UI"]
-    subgraph INVESTIGATOR["INVESTIGATOR"]
+    NI --> WS["React Investigator Workspace"]
+    subgraph INVESTIGATION["INVESTIGATION"]
         direction TB
-        UI --> OUT["Evidence-backed investigation"]
+        WS --> FB["Evidence-backed Findings"]
+        FB --> TL["Timeline + Audit Trail"]
     end
 ```
 
@@ -108,57 +97,73 @@ flowchart TB
 
 ## See it in action
 
-> Real screenshots from the running system: the seeded `DEMO-2026-001` SIH case, the physical-device
-> E2E run (POCO "Xiaomi miel"), and the live backend — no mocked imagery.
+Real screenshots from the running system — the seeded demo case, a physical-device E2E run, and the
+live backend API. No mocked imagery.
+
+### Android field agent
+
+Captured on a physical device (RSA-2048 Android Keystore identity), in the order an officer uses it.
+
+<table>
+<tr>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/connect.png" width="50%" alt="Connect"/><br/><b>Connect</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/discover.png" width="50%" alt="LAN discovery"/><br/><b>Discover</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/enroll.png" width="50%" alt="Enroll"/><br/><b>Enroll</b></p></td>
+</tr>
+<tr>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/field-hub.png" width="50%" alt="Field hub"/><br/><b>Field hub</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/case.png" width="50%" alt="Select case"/><br/><b>Select case</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/capture.png" width="50%" alt="Capture"/><br/><b>Capture</b></p></td>
+</tr>
+<tr>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/evidence.png" width="50%" alt="Evidence details"/><br/><b>Evidence</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/offline.png" width="50%" alt="Offline field hub"/><br/><b>Offline</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/android/transfer.png" width="50%" alt="Transfer"/><br/><b>Transfer</b></p></td>
+</tr>
+</table>
 
 ### Web investigator
+
+#### Investigation
 
 <table>
 <tr>
 <td width="33%"><p align="center"><img src="docs/screenshots/web/dashboard.png" width="100%" alt="Dashboard"/><b>Workspace</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/case.png" width="100%" alt="Case overview"/><b>Case</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/victims.png" width="100%" alt="Victims"/><b>Victim</b></p></td>
-</tr>
-<tr>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/graph.png" width="100%" alt="Network graph"/><b>Graph</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/analytics.png" width="100%" alt="Analytics"/><b>Analytics</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/entities.png" width="100%" alt="Entities"/><b>Entities</b></p></td>
-</tr>
-<tr>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/evidence.png" width="100%" alt="Evidence"/><b>Evidence</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/provenance.png" width="100%" alt="Provenance"/><b>Provenance</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/timeline.png" width="100%" alt="Timeline"/><b>Audit timeline</b></p></td>
-</tr>
-<tr>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/devices.png" width="100%" alt="Field devices"/><b>Field devices</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/iot.png" width="100%" alt="IoT devices"/><b>IoT</b></p></td>
-<td width="33%"><p align="center"></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/case.png" width="100%" alt="Case"/><b>Case</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/victims.png" width="100%" alt="Victim"/><b>Victim</b></p></td>
 </tr>
 </table>
 
-### Android field agent
-
-Captured on a physical device — the agent flow in order.
+#### Intelligence
 
 <table>
 <tr>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/connect.png" width="48%" alt="Connect"/><br/><b>Connect</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/discover.png" width="48%" alt="LAN discovery"/><br/><b>Discover</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/enroll.png" width="48%" alt="Enroll"/><br/><b>Enroll</b></p></td>
-</tr>
-<tr>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/field-hub.png" width="48%" alt="Field hub"/><br/><b>Field hub</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/case.png" width="48%" alt="Select case"/><br/><b>Select case</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/capture.png" width="48%" alt="Capture"/><br/><b>Capture</b></p></td>
-</tr>
-<tr>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/evidence.png" width="48%" alt="Evidence"/><br/><b>Evidence</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/transfer.png" width="48%" alt="Transfer"/><br/><b>Transfer</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/android/offline.png" width="48%" alt="Offline"/><br/><b>Offline</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/entities.png" width="100%" alt="Entities"/><b>Entities</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/graph.png" width="100%" alt="Knowledge graph"/><b>Graph</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/analytics.png" width="100%" alt="Analytics"/><b>Analytics</b></p></td>
 </tr>
 </table>
 
-### Android → CyberSaarthi → Investigator
+#### Evidence
+
+<table>
+<tr>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/evidence.png" width="100%" alt="Evidence"/><b>Evidence</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/timeline.png" width="100%" alt="Timeline"/><b>Timeline</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/provenance.png" width="100%" alt="Provenance"/><b>Provenance</b></p></td>
+</tr>
+</table>
+
+#### Devices
+
+<table>
+<tr>
+<td width="50%"><p align="center"><img src="docs/screenshots/web/devices.png" width="100%" alt="Field devices"/><b>Field devices</b></p></td>
+<td width="50%"><p align="center"><img src="docs/screenshots/web/iot.png" width="100%" alt="IoT devices"/><b>IoT</b></p></td>
+</tr>
+</table>
+
+### Android → Backend → Web
 
 <table>
 <tr>
@@ -191,23 +196,20 @@ flowchart TB
     GI --> UI
 ```
 
-Four stores, each deliberately specialized: **PostgreSQL** is the source of truth, **Neo4j** is an
-idempotent graph projection, **MinIO** holds evidence objects, **Redis** is operational state
-(revocation + throttling) — all persisted on named Docker volumes.
+| Store | Responsibility |
+|---|---|
+| **PostgreSQL** | Source of truth — users, cases, victims, entities, evidence metadata, audit log |
+| **Neo4j** | Idempotent graph projection + analytics (centrality, communities) |
+| **MinIO** | Raw evidence objects (S3 API) |
+| **Redis** | Token revocation denylist + login throttling — operational state, not a source of truth |
 
 <details>
-<summary><b>Data stores & data model</b></summary>
-
-| Store | Role | Persistence |
-|---|---|---|
-| PostgreSQL | Users, cases, victims, entities, relationships, evidence metadata, audit log, IoT devices/events | `postgres_data` |
-| Neo4j | Relationship/graph analytics projection, rebuilt idempotently | `neo4j_data` |
-| MinIO | Raw evidence files (S3 API) | `minio_data` |
-| Redis | Token revocation denylist + login throttling (state, not a source of truth) | `redis_data` |
+<summary><b>Detailed data architecture</b></summary>
 
 Entity types: `person`, `phone`, `vehicle`, `organization`, `account`, `location`, `document`,
 `event` — linked by relationships such as `called`, `owns`, `located_at`, `visited`, `works_for`,
-`associated_with`. The seeded demo case currently holds **45 entities and 86 relationships**.
+`associated_with`. The seeded demo case holds **45 entities and 86 relationships**; all stores persist
+on named Docker volumes.
 
 </details>
 
@@ -215,38 +217,25 @@ Entity types: `person`, `phone`, `vehicle`, `organization`, `account`, `location
 
 ## Evidence → Intelligence
 
-> How CyberSaarthi actually produces intelligence.
+How raw evidence becomes actionable intelligence.
 
 ```mermaid
 flowchart LR
-    E["Evidence"] --> A["Ingestion"] --> B["Parsing"] --> C["Entity extraction"]
-    C --> D["Normalization"] --> R["Entity resolution"] --> X["Relationship extraction"]
-    X --> P["Graph projection"] --> G["Graph algorithms"] --> F["Findings"] --> I["Investigator"]
+    E["Raw Evidence"] --> A["Ingestion"] --> B["Parsing"] --> C["Entity Extraction"]
+    C --> D["Normalization"] --> R["Entity Resolution"] --> X["Relationship Extraction"]
+    X --> P["Graph Projection"] --> G["Centrality · Communities · Network Analysis"] --> F["Prioritized Findings"] --> I["Investigator"]
 ```
 
 <details>
-<summary><b>Evidence verification pipeline</b></summary>
+<summary><b>Evidence integrity pipeline</b></summary>
 
 1. Upload computes a **SHA-256** fingerprint; byte-identical re-uploads are rejected (`409`).
-2. For field packages, the backend re-verifies the **RSA-2048 signature** against the enrolled device
-   and rejects packages from unapproved devices.
+2. Field packages re-verify the **RSA-2048 signature** against the enrolled device; packages from
+   unapproved devices are rejected.
 3. Raw objects land in **MinIO**, metadata in **PostgreSQL**, and every mutation is **audit-logged**.
-4. Provenance links every finding to the evidence file (and hashes) that produced it.
+4. Provenance links every finding to the evidence file and hashes that produced it.
 
 </details>
-
----
-
-## Features
-
-- **Case management** — lifecycle, severity, membership, per-case visibility, owner/admin isolation.
-- **Field capture** — offline Android agent, canonical signed manifests, LAN/QR/manual hand-off.
-- **Evidence integrity** — hashing, duplicate detection, signature verification, object storage.
-- **Entity resolution** — persons, phones, accounts, vehicles, organizations with a human review queue.
-- **Knowledge graph & analytics** — centrality, communities, network DNA, priorities, paths, patterns.
-- **Victim intelligence** — incident profile, financial impact, recovery status, digital footprint.
-- **IoT subsystem** — device enrollment and telemetry events (backend foundation; hardware planned).
-- **Security** — RBAC, JWT + revocation, throttling, IDOR guards, append-only audit.
 
 ---
 
@@ -263,11 +252,12 @@ flowchart TB
     PR --> AU["Audit trail"]
 ```
 
-Every device carries a DER-SPKI fingerprint presented at enrollment; only **approved** devices can
-submit packages, and every accept/reject is recorded.
+Every device presents a canonical fingerprint — **SHA-256 over the SubjectPublicKeyInfo DER bytes** of
+its key — at enrollment; only **approved** devices may submit packages, and every accept/reject is
+recorded.
 
 <details>
-<summary><b>Security controls</b></summary>
+<summary><b>Detailed security model</b></summary>
 
 | Control | Implementation |
 |---|---|
@@ -275,53 +265,92 @@ submit packages, and every accept/reject is recorded.
 | Authentication | JWT with expiry; `jti` denylist in Redis |
 | Authorization | RBAC — ADMIN / INVESTIGATOR / ANALYST / VIEWER |
 | Isolation | owner/admin checks + per-case IDOR guards |
-| Rate limiting | keyed login throttling with lockout |
+| Rate limiting | keyed login throttling with exponential lockout |
 | Input validation | size caps, format sniffing, strict error envelope, Cypher label allowlist |
-| Field-agent trust | fingerprint cross-check · approve/revoke · per-device key verification |
+| Field-agent trust | canonical fingerprint cross-check · approve/revoke · per-device key verification |
 | Audit | append-only, permission-scoped (`audit.read`) |
 
 </details>
 
 ---
 
+## Field device
+
+- **Enrollment** — stable `ANDROID-…` serial derived from the public key; fingerprint cross-checked against the backend.
+- **Approval** — administrators approve or revoke devices per case; only approved devices may submit packages.
+- **Heartbeat** — agents publish status so the dashboard reflects live / unapproved / revoked.
+- **Offline-first** — capture and sign evidence without connectivity; **Go online** syncs queued packages.
+- **Pairing** — LAN discovery broadcast (mDNS), QR code with server fingerprint, or manual server entry.
+
+<details>
+<summary><b>Detailed Android protocol</b></summary>
+
+The agent keeps an **RSA-2048 key in the Android Keystore** and derives its identity as
+`ANDROID-` + the first 16 hex chars of `sha256(publicKey SubjectPublicKeyInfo DER)`. Enrollment
+registers the public key with a case. A sealed package contains a canonical `manifest.json` (per-file
+SHA-256 hashes), an **RSA/SHA-256 signature** over that manifest, and the files. The backend re-derives
+the canonical fingerprint from the submitted public key, checks device approval, verifies the signature,
+hash-integrity, and duplicate/replay, then stores the package.
+
+</details>
+
+---
+
+## Technology stack
+
+| Layer | Technology |
+|---|---|
+| API | FastAPI · Python 3.12 · SQLAlchemy 2 (async) · Alembic |
+| Web | React 19 · TypeScript 5.7 · Vite · Tailwind CSS 4 |
+| Data | PostgreSQL 16 · Neo4j 5 · Redis 7 · MinIO (S3) |
+| Mobile | Kotlin · Jetpack Compose · Android Keystore (RSA-2048) |
+| Ops | Docker Compose · Make · GitHub Actions CI |
+
+---
+
 ## Quick start
+
+**Prerequisites**: Docker (with compose plugin), Node.js 22+ for the web UI.
 
 ```bash
 git clone https://github.com/0xhroot/cybersaarthi.git && cd cybersaarthi
 cp .env.example .env                                  # dev-safe defaults
 docker compose up -d --build                          # postgres · neo4j · redis · minio · backend
 docker compose exec -T backend python -m scripts.create_admin   # first admin (idempotent)
-docker compose exec -T backend python -m scripts.seed_demo      # DEMO-2026-001 (idempotent)
+docker compose exec -T backend python -m scripts.seed_demo      # demo case (idempotent)
 
 cd frontend && npm install && npm run dev             # → http://localhost:5173
 ```
 
 Backend API `http://localhost:8000` · Swagger `http://localhost:8000/docs` · health `curl http://localhost:8000/api/v1/health`
 
-Android agent: build with `gradle assembleDebug` from `mobile/`, then **Connect → Enroll → Approve** in the web **Devices** tab — see [`mobile/README.md`](mobile/README.md).
+Android agent: `gradle assembleDebug` from `mobile/`, then **Connect → Enroll → Approve** in the web **Devices** tab — see [`mobile/README.md`](mobile/README.md).
 
 ---
 
-## SIH demo
+## Try the demo
 
 1. **Sign in** to the workspace.
-2. **Create the case** and register the **victim**.
+2. **Create a case** and register the **victim**.
 3. **Upload evidence** — fingerprinted and duplicate-checked.
 4. **Enroll the Android agent**, then **approve** it in the web Devices tab.
-5. **Capture + sign** evidence in the field — offline, then **go online** and submit.
-6. **Explore** the graph and run analytics.
-7. **Review** findings and the audit trail.
+5. **Capture and sign** evidence in the field — offline, then **Go online** and submit.
+6. **Explore the graph** and run analytics.
+7. **Review findings** and the audit trail.
 
 ---
 
 <details>
-<summary><b>Technical details · API · testing · documentation</b></summary>
+<summary><b>Repository structure · API · testing · documentation</b></summary>
 
-**API surface** (all under `/api/v1`): auth (`/auth/*`), users (`/admin/users/*`), cases
-(`/cases`, `/cases/{id}`), victims, IoT devices/events, evidence (`/cases/{id}/evidence`, `/ingest`),
-field devices (`/cases/{id}/devices` + `approve`/`revoke`/`heartbeat`), collections and package import
-(`/import/packages`), entities/relationships, graph + analytics, findings, audit. Interactive docs at
-`/docs`.
+**Structure**: `backend/` (FastAPI + services) · `frontend/` (React/Vite workspace) · `mobile/`
+(Android field agent) · `desktop-importer/` (bulk evidence upload script) · `scripts/`
+(mDNS LAN advertisement) · `docs/` (architecture, ADRs).
+
+**API surface** (all under `/api/v1`): auth, users, cases, victims, entities/relationships, evidence and
+ingestion, collections + package import (`/import/packages`), field devices (approve / revoke /
+heartbeat / verify-key), graph + analytics, findings, hypotheses, reports, timeline, IoT devices/events,
+audit. Interactive docs at `/docs`.
 
 **Verification** (re-verified on `main`, 2026-09-13): **390** backend tests pass · **80** frontend tests
 pass · ruff/mypy clean (127 files) · `tsc` + ESLint + Vite build pass · Android unit tests pass · Android
