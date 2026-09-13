@@ -80,8 +80,11 @@ def test_neo4j_postgres_minio_ulimits_declared(I01_fix=True):
 def test_readme_no_longer_calls_frontend_a_placeholder(C02_fix=True):
     """C02: README must reflect the real shipped frontend, not an empty placeholder."""
     text = README.read_text()
-    assert "empty placeholder" not in text
-    assert "Vite + React 19 UI" in text
+    low = text.lower()
+    assert "placeholder" not in low, "README must not describe the frontend as a placeholder"
+    assert "react" in low, "README must identify the frontend framework (React)"
+    assert "vite" in low, "README must identify the frontend build tool (Vite)"
+    assert "frontend" in low, "README must reference the shipped frontend application"
 
 
 def test_design_system_drops_dead_components_and_fixes_hex_claim(F11_C03_fix=True):
