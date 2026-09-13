@@ -14,10 +14,9 @@ from __future__ import annotations
 import hashlib
 
 import pytest
+from app.services.devices import _derive_fingerprint
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-
-from app.services.devices import _derive_fingerprint
 
 # A fixed Ed25519 key in PEM.
 KEY_PEM = """-----BEGIN PUBLIC KEY-----

@@ -223,7 +223,7 @@ function PairDeviceDialog({ onClose }: { onClose: () => void }) {
             <Input
               value={rawBase}
               onChange={(e) => setRawBase(e.target.value)}
-              placeholder="http://192.168.0.127:8000"
+              placeholder="http://192.168.1.100:8000"
               className="font-mono"
               onKeyDown={(e) => {
                 if (e.key === "Enter") void generate();

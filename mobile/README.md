@@ -65,7 +65,7 @@ The live backend integration test (`LiveBackendIntegrationTest`) runs automatica
 
 1. Start the backend stack (`docker compose up`) and, for LAN discovery, the mDNS advertiser (`docker compose --profile discovery up -d`).
 2. The admin seed account is `admin` / `admin-dev-password`.
-3. Point the app at your machine's **LAN address** — `http://<host-LAN-ip>:8000` (e.g. `http://192.168.0.127:8000`). `localhost` only works on the emulator; the emulator alias is `http://10.0.2.2:8000`. Prefer pairing via the web UI's "Devices → Pair" QR code or the in-app LAN discovery / manual server screen, which also verifies the server fingerprint.
+3. Point the app at your machine's **LAN address** — `http://<host-LAN-ip>:8000` (e.g. `http://192.168.1.100:8000`). `localhost` only works on the emulator; the emulator alias is `http://10.0.2.2:8000`. Prefer pairing via the web UI's "Devices → Pair" QR code or the in-app LAN discovery / manual server screen, which also verifies the server fingerprint.
 4. Have an admin approve the device via the backend web UI (Devices tab).
 5. Open a case, start a collection, capture evidence, hash → seal → submit.
 6. Alternatively, export the signed package to USB/MTP and run the desktop importer.

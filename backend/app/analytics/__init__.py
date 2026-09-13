@@ -1,8 +1,8 @@
 """Investigation intelligence engine.
 
-Deterministic, explainable analytics over a case's resolved knowledge graph.
-See docs/architecture/phase-3.md for the full methodology, formulas and
-thresholds.
+Deterministic, explainable analytics over a case's resolved knowledge graph
+(see README "Graph Analytics" and docs/adr/006-entity-resolution.md for the
+methodology; thresholds live in the engine modules below).
 """
 
 from __future__ import annotations

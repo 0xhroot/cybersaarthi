@@ -10,6 +10,7 @@ __pycache__/
 .venv/
 venv/
 build/
+**/build/
 dist/
 .mypy_cache/
 .pytest_cache/
@@ -39,7 +40,38 @@ phase3_api_complete_dump.txt
 # Android / Gradle
 local.properties
 .gradle/
+**/.gradle/
 .kotlin/
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Local-only / generated documents (kept out of the public repository)
+# These are either device-specific E2E run artifacts or superseded audit/
+# milestone reports; they remain in local history and working tree.
+docs/test-reports/
+docs/rreport.zip
+docs/PROJECT_VIEW_REPORT.md
+docs/project-view/
+docs/audit/
+CYBERSARTHI_COMPLETE_DOCUMENTATION.md
+PROJECT_COMPLETE_AUDIT.md
+PROJECT_COMPLETE_AUDIT.json
+docs/architecture/phase-1.md
+docs/architecture/phase-2.md
+docs/architecture/phase-3.md
+docs/architecture/phase-4.md
+docs/architecture/phase-4-final-report.md
+docs/architecture/phase-4-security-checklist.md
+docs/architecture/phase-5-final-report.md
+docs/architecture/implementation-plan.md
+docs/architecture/complete-implementation-report.md
+docs/architecture/complete-project-status-report.md
+docs/architecture/functional-verification-602d688.md
+docs/architecture/master-remediation-report.md
+docs/architecture/remediation-602d688-followup.md
+docs/architecture/real-mode-sih-demo-rehearsal.md
 
 # OS junk
 .DS_Store

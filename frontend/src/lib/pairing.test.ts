@@ -24,8 +24,8 @@ describe("sha256Hex", () => {
 
 describe("toBase64Url", () => {
   it("produces unpadded URL-safe encoding", () => {
-    expect(toBase64Url("http://192.168.0.127:8000/api/v1")).toBe(
-      Buffer.from("http://192.168.0.127:8000/api/v1", "utf8").toString("base64url"),
+    expect(toBase64Url("http://192.168.1.100:8000/api/v1")).toBe(
+      Buffer.from("http://192.168.1.100:8000/api/v1", "utf8").toString("base64url"),
     );
     expect(toBase64Url("hello")).toBe("aGVsbG8");
   });
@@ -40,7 +40,7 @@ describe("toBase64Url", () => {
 
 describe("normalizeApiBase", () => {
   it("adds a scheme when missing", () => {
-    expect(normalizeApiBase("192.168.0.127:8000")).toBe("http://192.168.0.127:8000/api/v1");
+    expect(normalizeApiBase("192.168.1.100:8000")).toBe("http://192.168.1.100:8000/api/v1");
   });
 
   it("appends the api/v1 path and keeps the scheme/port", () => {
@@ -55,7 +55,7 @@ describe("normalizeApiBase", () => {
 
 describe("buildPairingUri", () => {
   it("encodes the cybersaarthi://connect payload with u/fp/nonce/exp", () => {
-    const baseUrl = "http://192.168.0.127:8000/api/v1";
+    const baseUrl = "http://192.168.1.100:8000/api/v1";
     const fingerprint = "34EDCF12e59a5c1b846bca384e9a89c6ecb39139c61daf14bdace2f04ef28e78";
     const nonce = "ab12cd34ef56";
     const exp = 1776000000000;

@@ -25,9 +25,9 @@
 
 | | | | |
 |---|---|---|---|
-| 🟢 **SIH DEMO READY** | **379** Backend Tests Passed | **67** Frontend Tests Passed | **Real-Mode E2E Verified** |
+| 🟢 **SIH DEMO READY** | **390** Backend Tests Passed | **80** Frontend Tests Passed | **Real-Mode E2E Verified** |
 | Persistent Multi-Store | RBAC + JWT | Evidence Provenance | Victim + IoT Intelligence |
-| Graph Analytics | REST API + UI | Audit Trail | Docker Compose |
+| Graph Analytics | REST API + UI | Audit Trail | Android Field Agent |
 
 </div>
 
@@ -63,6 +63,7 @@
 - [Victim Intelligence](#victim-intelligence)
 - [Criminal Intelligence](#criminal-intelligence)
 - [Graph Analytics](#graph-analytics)
+- [Field Agent (Android)](#field-agent-android)
 - [IoT Integration](#iot-integration)
 - [Security](#security)
 - [Technology Stack](#technology-stack)
@@ -218,6 +219,9 @@ flowchart LR
 - Object storage in MinIO with case-scoped keys
 - Provenance metadata and ingestion jobs
 - Every mutation recorded in the audit log
+- **Field capture** — Android agent captures evidence offline, hashes and signs
+  a canonical package, then submits it; the backend re-verifies the signature
+  against the enrolled device key
 
 ### Graph Intelligence
 
@@ -485,6 +489,38 @@ The analytics engine implements: **centrality**, **communities**, **network DNA*
 
 ---
 
+## Field Agent (Android)
+
+A Kotlin + Compose Android app (`mobile/`) lets investigators capture evidence in
+the field — **offline-first, zero cloud**:
+
+- **Offline-first** — evidence is captured, hashed and packaged on the device
+  itself; a signed package can be submitted later from the offline hub when the
+  agent is back online or handed off via the desktop importer (`desktop-importer/`).
+- **LAN, not internet** — the agent finds the backend over the same LAN via
+  manual server entry, in-app mDNS discovery, or QR pairing, and establishes
+  trust from the backend identity fingerprint.
+- **Enrollment & approval** — the agent mints a hardware-backed RSA-2048 keypair
+  (Android Keystore); the operator approves or revokes the device in the web
+  **Devices** tab.
+- **Signed liveness heartbeat** — every 60 s the agent signs a canonical
+  heartbeat message so the backend shows "last seen" per field device.
+- **Provable evidence** — each capture is SHA-256 hashed, assembled into a
+  canonical manifest and signed with the device key; the backend re-verifies the
+  signature against the registered public key.
+
+```
+Field capture (offline) → hash + canonical manifest → sign (RSA-2048)
+  → submit package (online / LAN) → backend verifies signature → case evidence
+```
+
+Refer to [`mobile/README.md`](mobile/README.md) for the agent's modules and
+build/test commands, and
+[`docs/architecture/android-connectivity.md`](docs/architecture/android-connectivity.md)
+for the LAN/trust/heartbeat design (verified end-to-end on a physical device).
+
+---
+
 ## IoT Integration
 
 ```mermaid
@@ -553,7 +589,8 @@ any real system, it is **never "100% secure"**.
 | Object storage | MinIO (S3 API) + boto3 | — |
 | NLP / extraction | spaCy 3.8 with `en_core_web_sm` + RapidFuzz | — |
 | Serialization | Pydantic | 2.13 |
-| Containers | Docker Compose (`backend`, `postgres`, `neo4j`, `redis`, `minio`, `backend-dev`) | — |
+| Containers | Docker Compose (`backend`, `postgres`, `neo4j`, `redis`, `minio`, plus `discovery` mDNS profile and `backend-dev` test image) | — |
+| Field agent | Android (Kotlin + Compose, CameraX, Android Keystore RSA signing, OkHttp) | — |
 | Testing | pytest + Vitest | — |
 | Tooling | Ruff · mypy · ESLint · Prettier | — |
 
@@ -585,9 +622,14 @@ CyberSaarthi/
 │   ├── src/app/pages/       # dashboard, cases, victims, iot, evidence, graph, ...
 │   ├── src/api/             # mock + real adapters (mock disabled for the demo)
 │   └── src/components/ui/   # design-system components
-├── docs/                    # architecture reports · ADRs · audit
+├── mobile/                  # Android Field Agent (Kotlin + Compose)
+│   ├── app/                 # Compose UI: login → dashboard → case → capture
+│   └── *-lib/               # offline signature · hashing · manifest · state-machine libraries
+├── desktop-importer/        # desktop utility to import signed USB packages into the backend
+├── scripts/                 # mDNS advertiser + demo seed helpers
+├── docs/                    # ADRs · connectivity design · screenshots · tooling
 ├── screenshots/             # UI previews from the demo dataset
-├── docker-compose.yml       # postgres · neo4j · redis · minio · backend
+├── docker-compose.yml       # postgres · neo4j · redis · minio · backend (+ discovery)
 ├── Makefile                 # dev workflow (make up / seed / test / ...)
 ├── .env.example             # documented configuration template
 ├── LICENSE                  # MIT
@@ -695,7 +737,15 @@ make logs          # tail all services
 ```
 
 Services: `backend`, `postgres` (16-alpine), `neo4j` (5-community), `redis` (7-alpine, with AOF
-persistence), `minio` (+ one-shot `minio-init`), and the dev-only `backend-dev` test image.
+persistence), `minio` (+ one-shot `minio-init`), the mDNS advertiser `discovery`
+(on an opt-in profile) and the dev-only `backend-dev` test image.
+
+For the field-agent LAN discovery the mDNS advertiser must publish on the host
+network (UDP 5353). Start it when needed:
+
+```bash
+docker compose --profile discovery up -d discovery
+```
 
 ---
 
@@ -766,6 +816,8 @@ All endpoints live under `/api/v1`. Summary of the main surface:
 | Victims | `GET/POST /cases/{id}/victims`, `GET/PUT /cases/{id}/victims/{vid}` | Victim subsystem |
 | IoT | `/cases/{id}/iot/devices`, `/cases/{id}/iot/devices/{did}`, `/cases/{id}/iot/devices/{did}/stats`, `/cases/{id}/iot/events` | Device + telemetry |
 | Evidence | `POST /cases/{id}/evidence`, `GET /cases/{id}/evidence`, `POST /cases/{id}/ingest` | Upload + integrity + ingestion |
+| Field devices | `/cases/{id}/devices`, `/cases/{id}/devices/{device_id}/heartbeat`, admin `approve`/`revoke` | Field-agent enrollment + liveness |
+| Collections | `/cases/{id}/collections`, `/cases/{id}/collections/{cid}`, `POST .../seal`, `POST /cases/{id}/import/packages` | Signed field-agent evidence packages |
 | Entities | `/cases/{id}/entities`, `/cases/{id}/entities/{eid}`, `/cases/{id}/relationships` | Resolved intelligence |
 | Graph | `/cases/{id}/graph`, `/cases/{id}/graph/stats`, `/cases/{id}/graph/entity/{eid}` | Network views |
 | Analytics | `/cases/{id}/analytics/{summary,centrality,communities,network-dna,priorities,strength,paths,patterns,hypotheses}`, `POST /cases/{id}/analytics/run` | Deterministic analytics |
@@ -778,21 +830,28 @@ Interactive API documentation is generated by FastAPI at `/docs`.
 
 ## Testing and Verification
 
-Every number below is a **verified current result** from this build (commit `7e3e74b`), not a
+Every number below is a **verified current result** from this build (commit `a57d087`), not a
 theoretical claim.
 
 | Gate | Result |
 |---|---|
-| Backend tests (pytest: unit + API + integration) | **379 passed** |
-| Frontend tests (Vitest) | **67 passed** (13 files) |
+| Backend tests (pytest: unit + API + integration) | **390 passed** |
+| Frontend tests (Vitest) | **80 passed** (15 files) |
+| Backend lint (ruff) · typecheck (mypy) | **PASS** (127 files) |
+| TypeScript (`tsc -b --noEmit`) · ESLint · Vite build | **PASS** |
+| Android unit tests (`gradle testDebugUnitTest`) | **PASS** |
+| Android lint (`gradle lintDebug`) | **PASS** (0 errors) |
 | SIH primary-flow E2E checks | **28/28 passed** |
 | Real-browser E2E (headless Chromium, production build) | **6/6 passed** |
+| Android Field Agent E2E (physical device vs live stack) | **PASS** on 2026-09-13 |
 | Persistence (restart · down/up · reload · logout/login) | **PASS** |
-| Ruff lint | **PASS** |
-| Mypy typecheck | **PASS** (107 files) |
-| TypeScript (`tsc -b --noEmit`) | **PASS** |
-| ESLint | **PASS** |
-| Vite production build | **PASS** |
+
+The Android Field Agent run covered, on a physical device: LAN discovery + manual
+server entry, enrollment → web approval, live heartbeat (`last seen`), offline
+capture → SHA-256 → canonical manifest → RSA signature → package submission with
+backend signature verification, and forced-offline recovery. Details of the
+connectivity/trust design are in
+[`docs/architecture/android-connectivity.md`](docs/architecture/android-connectivity.md).
 
 <details>
 <summary>How to run the verification yourself</summary>
@@ -801,7 +860,7 @@ Everything runs in Docker — nothing needs to be installed on the host for the 
 
 ```bash
 # backend
-docker compose --profile dev run --rm -T backend-dev pytest       # 379 tests
+docker compose --profile dev run --rm -T backend-dev pytest       # 390 tests
 docker compose --profile dev run --rm -T backend-dev ruff check . # lint
 docker compose --profile dev run --rm -T backend-dev mypy app     # typecheck
 
@@ -811,6 +870,11 @@ npm run lint
 npx tsc -b --noEmit
 npx vitest run
 npx vite build
+
+# Android field agent (JDK 17+ and Android SDK API 35 required)
+cd mobile
+gradle testDebugUnitTest   # unit tests (29 total)
+gradle lintDebug           # lint (0 errors expected)
 ```
 </details>
 

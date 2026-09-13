@@ -30,9 +30,10 @@ Older release branches are supported on a best-effort basis.
 
 This project is **not** advertised as "100% secure" — no software is. It ships
 with defense-in-depth controls (JWT auth, RBAC, case isolation, IDOR guards,
-rate-limited login throttling, token revocation, audit logging) that are
-continuously reviewed. See [`docs/audit/`](docs/audit/) for the security
-audit summary and controls.
+rate-limited login throttling, token revocation, audit logging, security
+headers) that are continuously reviewed. The security model is summarized in
+the [README](README.md#security); architectural rationale lives in the
+[architecture decision records](docs/adr/).
 
 ## Do not expose secrets
 

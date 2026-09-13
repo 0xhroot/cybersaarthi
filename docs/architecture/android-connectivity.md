@@ -111,14 +111,36 @@ API tests.
 - Release builds keep `cleartextTrafficPermitted="false"`; production field
   deployments must terminate TLS on the backend.
 
-## 7. Manual end-to-end checklist (PLANNED — needs a physical device)
+## 7. Manual end-to-end checklist (VERIFIED — physical device)
+
+Exercised end-to-end on 2026-09-13 against the running Docker stack using a
+real Android device (debug build). Device serials, credentials and capture
+artifacts are deliberately not reproduced here.
 
 1. `docker compose up -d` + `docker compose --profile discovery up -d`.
-2. Web UI → Devices → **Pair**; scan the QR from the agent (debug build).
-3. Approve the device in the web UI; confirm the agent flips to approved.
-4. Watch the Devices tab `Last seen` stay fresh (heartbeat every 60 s).
-5. Revoke the device; confirm the agent surfaces `DEVICE_REVOKED` and transfers stop.
-6. Kill the backend; confirm `SERVER_UNREACHABLE` and heartbeat backoff.
+2. Start the agent → LAN discovery and manual URL entry both reach the backend.
+3. Enroll the device (RSA-2048 keypair); approve it in the web **Devices** tab;
+   the agent flips to approved.
+4. Middle of the run the host was power-cycled; after restart the stack needed a
+   manual `docker compose --profile discovery up -d discovery` (mDNS advertises
+   on the host network). The agent reconnected and resumed heartbeating.
+5. `Last seen` stayed fresh in the Devices tab (heartbeat every 60 s).
+6. Evidence capture → SHA-256 hash → canonical manifest → signature → package
+   upload was verified end-to-end; the submitted manifest signature validates
+   against the device's registered public key (OpenSSL cross-check).
+7. Forced-offline relaunch with cached cases → the app surfaced an explicit
+   **Go online** action to recover to the signed-in dashboard.
+8. Kill/revoke paths (DEVICE_UNREACHABLE / DEVICE_REVOKED) are covered by the
+   unit/instrumentation suite.
 
-No physical Android device or emulator was available in this environment, so
-step 2–6 above remain **PLANNED**.
+### Known device-specific fixes exercised during this run
+
+- **DEFECT-10:** on API 35/36 devices Android Keystore RSA keys need
+  `setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)`, otherwise
+  every heartbeat/evidence sign throws `INCOMPATIBLE_PADDING_MODE`. Fixed in
+  `SignatureEnvelope`; heartbeat + evidence signing verified on-device.
+- **DEFECT-11:** with cached cases and no network the offline hub had no path
+  back online. Added a persistent **Go online** action in the offline Field hub.
+- **Canonical device fingerprint:** SHA-256 over the DER `SubjectPublicKeyInfo`
+  bytes (not the PEM string) is locked by a regression test on both the Android
+  and backend sides, so enroll/verify cross-checks cannot diverge by encoding.
