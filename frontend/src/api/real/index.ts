@@ -538,8 +538,10 @@ const reportService: ApiReportService = {
     const blob = await response.blob();
     const disposition = response.headers.get("content-disposition") ?? "";
     const match = /filename="?([^";]+)"?/.exec(disposition);
-    const fallback = match?.[1] ?? `report-${reportId}.json`;
-    return { blob, filename: fallback };
+    // Cross-origin responses only expose Content-Disposition when the server
+    // opts in (expose_headers). When absent, return an empty filename so the
+    // caller falls back to its report-metadata-derived name.
+    return { blob, filename: match?.[1] ?? "" };
   },
 };
 

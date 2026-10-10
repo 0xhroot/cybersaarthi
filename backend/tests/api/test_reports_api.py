@@ -201,6 +201,29 @@ async def test_pdf_report_generates_and_downloads(http_client, report_case, repo
         assert "na\u00efve caf\u00e9" in text.replace("\n", " ")
 
 
+async def test_cross_origin_download_exposes_content_disposition(http_client, report_case) -> None:
+    """The web client names saved files from Content-Disposition; for
+    cross-origin fetches that header must be CORS-exposed."""
+    case_id, _ = report_case
+    resp = await _generate(
+        http_client,
+        case_id,
+        {"report_type": "timeline", "format": "pdf", "title": "cors exposure"},
+    )
+    assert resp.status_code == 201, resp.text
+    report = resp.json()
+    assert report["status"] == "ready", report.get("failure_reason")
+
+    download = await http_client.get(
+        f"{PREFIX}/cases/{case_id}/reports/{report['id']}/download",
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert download.status_code == 200
+    exposed = download.headers.get("access-control-expose-headers", "")
+    assert "Content-Disposition" in exposed
+    assert "X-Request-ID" in exposed
+
+
 @pytest.mark.parametrize("report_type", REPORT_TYPES)
 async def test_json_report_generates_and_downloads(http_client, report_case, report_type) -> None:
     case_id, _ = report_case
