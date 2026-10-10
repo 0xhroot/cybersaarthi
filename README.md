@@ -14,7 +14,7 @@
 ![Neo4j](https://img.shields.io/badge/Neo4j-5-4581C3?style=flat&logo=neo4j&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-Kotlin%20Compose-3DDC84?style=flat&logo=android&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-390%20passed-2ea44f?style=flat)
+![Tests](https://img.shields.io/badge/Tests-432%20passed-2ea44f?style=flat)
 
 **📱 Field Collection** → **🔐 Verified Evidence** → **🕸️ Network Intelligence** → **🔎 Investigation**
 
@@ -23,6 +23,9 @@
 CyberSaarthi unifies case management, victim, person, phone and financial intelligence, evidence
 provenance, and criminal-network analysis in one persistent web workspace — paired with an **Android
 field agent** that captures evidence offline, signs it, and hands it to the same case.
+
+The investigator workspace ships with light and dark themes, English / हिन्दी labels, breadcrumbs, and
+a Ctrl+K command palette — all driven by the same typed API client against the live backend.
 
 Built for investigators, verified end-to-end on a real device.
 
@@ -124,13 +127,17 @@ Captured on a physical device (RSA-2048 Android Keystore identity), in the order
 
 ### Web investigator
 
-#### Investigation
+The integrated investigator workspace — light and dark themes, English / हिन्दी labels, and a
+Ctrl+K command palette. Every screen below was captured from the running application against the
+live backend.
+
+#### Workspace
 
 <table>
 <tr>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/dashboard.png" width="100%" alt="Dashboard"/><b>Workspace</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/case.png" width="100%" alt="Case"/><b>Case</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/victims.png" width="100%" alt="Victim"/><b>Victim</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/dashboard.png" width="100%" alt="Dashboard"/><b>Dashboard</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/cases.png" width="100%" alt="Cases register"/><b>Cases</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/case.png" width="100%" alt="Case overview"/><b>Case</b></p></td>
 </tr>
 </table>
 
@@ -142,15 +149,19 @@ Captured on a physical device (RSA-2048 Android Keystore identity), in the order
 <td width="33%"><p align="center"><img src="docs/screenshots/web/graph.png" width="100%" alt="Knowledge graph"/><b>Graph</b></p></td>
 <td width="33%"><p align="center"><img src="docs/screenshots/web/analytics.png" width="100%" alt="Analytics"/><b>Analytics</b></p></td>
 </tr>
+<tr>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/findings.png" width="100%" alt="Findings"/><b>Findings</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/timeline.png" width="100%" alt="Timeline"/><b>Timeline</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/audit.png" width="100%" alt="Audit log"/><b>Audit log</b></p></td>
+</tr>
 </table>
 
-#### Evidence
+#### Evidence and reports
 
 <table>
 <tr>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/evidence.png" width="100%" alt="Evidence"/><b>Evidence</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/timeline.png" width="100%" alt="Timeline"/><b>Timeline</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/provenance.png" width="100%" alt="Provenance"/><b>Provenance</b></p></td>
+<td width="50%"><p align="center"><img src="docs/screenshots/web/evidence.png" width="100%" alt="Evidence"/><b>Evidence</b></p></td>
+<td width="50%"><p align="center"><img src="docs/screenshots/web/reports.png" width="100%" alt="Reports with a generated PDF"/><b>Reports (PDF ready)</b></p></td>
 </tr>
 </table>
 
@@ -160,6 +171,15 @@ Captured on a physical device (RSA-2048 Android Keystore identity), in the order
 <tr>
 <td width="50%"><p align="center"><img src="docs/screenshots/web/devices.png" width="100%" alt="Field devices"/><b>Field devices</b></p></td>
 <td width="50%"><p align="center"><img src="docs/screenshots/web/iot.png" width="100%" alt="IoT devices"/><b>IoT</b></p></td>
+</tr>
+</table>
+
+#### Mobile
+
+<table>
+<tr>
+<td width="50%"><p align="center"><img src="docs/screenshots/web/mobile-dashboard.png" width="60%" alt="Mobile dashboard"/><b>Dashboard · 390px</b></p></td>
+<td width="50%"><p align="center"><img src="docs/screenshots/web/mobile-cases.png" width="60%" alt="Mobile cases"/><b>Cases · 390px</b></p></td>
 </tr>
 </table>
 
@@ -301,7 +321,7 @@ hash-integrity, and duplicate/replay, then stores the package.
 | Layer | Technology |
 |---|---|
 | API | FastAPI · Python 3.12 · SQLAlchemy 2 (async) · Alembic |
-| Web | React 19 · TypeScript 5.7 · Vite · Tailwind CSS 4 |
+| Web | React 19 · TypeScript 5.7 · Vite · Tailwind CSS 4 · Radix UI · TanStack Query · Zustand |
 | Data | PostgreSQL 16 · Neo4j 5 · Redis 7 · MinIO (S3) |
 | Mobile | Kotlin · Jetpack Compose · Android Keystore (RSA-2048) |
 | Ops | Docker Compose · Make · GitHub Actions CI |
@@ -352,10 +372,11 @@ ingestion, collections + package import (`/import/packages`), field devices (app
 heartbeat / verify-key), graph + analytics, findings, hypotheses, reports, timeline, IoT devices/events,
 audit. Interactive docs at `/docs`.
 
-**Verification** (re-verified on `main`, 2026-09-13): **390** backend tests pass · **80** frontend tests
-pass · ruff/mypy clean (127 files) · `tsc` + ESLint + Vite build pass · Android unit tests pass · Android
-lint 0 errors · physical-device E2E passed (enrollment → approval → signed heartbeat → offline capture →
-signature verification).
+**Verification** (re-verified on `main`, 2026-10-10): **432** backend tests pass (431 unit/API + 1
+infrastructure readiness) · **80** frontend tests pass · ruff/mypy clean (127 files) · `tsc` + ESLint +
+Vite build pass · browser audit **24/24** across 15 workspace screens at 1440×900 and 390×844 ·
+PDF/JSON/CSV report generation and download verified end to end through the UI · Android unit tests
+pass · Android lint 0 errors.
 
 **Documentation**: [`docs/`](docs/README.md) index · [Android ↔ backend connectivity](docs/architecture/android-connectivity.md)
 (design + physical-device verification) · [Architecture decision records](docs/adr/) · [Android agent](mobile/README.md).
