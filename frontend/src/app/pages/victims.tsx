@@ -4,7 +4,8 @@ import { Plus, Search, UserX } from "lucide-react";
 import { useVictims, useCreateVictim } from "@/hooks/queries";
 import { useDebounce } from "@/hooks/ui";
 import { useCan } from "@/lib/permissions";
-import { PageContainer, PageHeader } from "@/components/layout/page";
+import { PageContainer } from "@/components/layout/page";
+import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -36,12 +37,12 @@ const STATUSES: { value: string; label: string }[] = [
 ];
 
 const STATUS_COLORS: Record<VictimStatus, string> = {
-  reported: "bg-muted text-muted",
+  reported: "bg-muted text-muted-foreground",
   under_investigation: "bg-blue-500/15 text-blue-500",
   evidence_collected: "bg-amber-500/15 text-amber-500",
   recovery_initiated: "bg-purple-500/15 text-purple-500",
   recovered: "bg-emerald-500/15 text-emerald-500",
-  closed: "bg-muted text-muted",
+  closed: "bg-muted text-muted-foreground",
 };
 
 function VictimStatusBadge({ status }: { status: VictimStatus }) {
@@ -85,7 +86,7 @@ export default function VictimsPage() {
 
   return (
     <PageContainer>
-      <PageHeader
+      <InvestigationHeader
         eyebrow="Case intelligence"
         title="Victims"
         description="People and organizations harmed in this investigation."

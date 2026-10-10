@@ -77,6 +77,8 @@ export function CytoGraph({
       })),
     ];
 
+    const dark = document.documentElement.classList.contains("dark");
+
     const cy = cytoscape({
       container: containerRef.current,
       elements,
@@ -89,13 +91,13 @@ export function CytoGraph({
           style: {
             "background-color": (el) => NODE_COLORS[el.data("entity_type") as string] ?? FALLBACK_COLOR,
             "border-width": 1,
-            "border-color": "rgba(255,255,255,0.18)",
+            "border-color": "#ffffff",
             label: "data(display_value)",
-            color: "#f3f7fa",
+            color: dark ? "#f3f7fa" : "#17212b",
+            "text-outline-width": 2,
+            "text-outline-color": dark ? "#0d141c" : "#ffffff",
             "font-size": 11,
             "font-weight": 600,
-            "text-outline-width": 2,
-            "text-outline-color": "#0d141c",
             "font-family": "Inter Variable, Inter, system-ui, sans-serif",
             "text-valign": "bottom",
             "text-margin-y": 6,
@@ -107,8 +109,8 @@ export function CytoGraph({
           selector: "edge",
           style: {
             width: 1.2,
-            "line-color": "#607286",
-            "target-arrow-color": "#607286",
+            "line-color": dark ? "#607286" : "#7b8a99",
+            "target-arrow-color": dark ? "#607286" : "#7b8a99",
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
             "arrow-scale": 0.8,

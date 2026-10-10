@@ -35,7 +35,7 @@ export function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-dialog max-h-[90vh] w-[min(92vw,480px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto",
+          "fixed left-1/2 top-1/2 z-dialog max-h-[90vh] w-[min(92vw,480px)] overflow-y-auto -translate-x-1/2 -translate-y-1/2",
           "rounded-lg border border-border-strong bg-surface p-5 shadow-2xl shadow-black/50",
           "data-[state=open]:animate-scale-in data-[state=closed]:animate-scale-out",
           className,

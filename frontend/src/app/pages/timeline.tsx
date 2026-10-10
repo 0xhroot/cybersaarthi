@@ -1,6 +1,7 @@
 import { useParams } from "react-router-dom";
 import { useTimeline } from "@/hooks/queries";
-import { PageContainer, PageHeader } from "@/components/layout/page";
+import { PageContainer } from "@/components/layout/page";
+import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/loading";
@@ -41,7 +42,7 @@ export default function TimelinePage() {
 
   return (
     <PageContainer>
-      <PageHeader
+      <InvestigationHeader
         eyebrow="Case timeline"
         title="Timeline"
         description="Every transition recorded on this case in order — evidence uploaded or restored, collections sealed, devices approved, hypotheses tracked, reports generated."

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { QrCode, Scan, ShieldCheck, ShieldOff, Smartphone } from "lucide-react";
+import { Activity, QrCode, Scan, ShieldCheck, ShieldOff, Smartphone, Wifi, WifiOff } from "lucide-react";
 import QRCode from "qrcode";
 import {
   useApproveFieldDevice,
@@ -19,22 +19,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { toast } from "@/components/ui/toast";
 import { cn, formatRelative } from "@/lib/utils";
+import { DeviceStatusBadge } from "@/components/layout/device-status";
 import { buildPairingUri, computeServerFingerprint, normalizeApiBase, randomHex } from "@/lib/pairing";
 import type { FieldDeviceStatus } from "@/types/domain";
-
-const STATUS_COLORS: Record<FieldDeviceStatus, string> = {
-  pending: "bg-amber-500/15 text-amber-500",
-  approved: "bg-emerald-500/15 text-emerald-500",
-  revoked: "bg-rose-500/15 text-rose-500",
-};
-
-function DeviceStatusBadge({ status }: { status: FieldDeviceStatus }) {
-  return (
-    <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium", STATUS_COLORS[status] ?? "")}>
-      {status}
-    </span>
-  );
-}
 
 export default function FieldDevicesPage() {
   const { caseId = "" } = useParams();
@@ -78,8 +65,14 @@ export default function FieldDevicesPage() {
         }
       />
 
-      <Card className="mt-4">
-        <CardContent className="p-0">
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <FieldMetric icon={Smartphone} label="Enrolled" value={devices.data?.total ?? "…"} detail="Field agents registered" />
+        <FieldMetric icon={Activity} label="Approved" value={devices.isLoading ? "…" : devices.data?.items.filter((d) => d.status === "approved").length ?? 0} detail="Trusted devices" tone="green" />
+        <FieldMetric icon={WifiOff} label="Pending" value={devices.isLoading ? "…" : devices.data?.items.filter((d) => d.status === "pending").length ?? 0} detail="Awaiting approval" tone="amber" />
+      </div>
+
+      <Card className="mt-5 overflow-hidden">
+        <CardContent className="border-b border-border bg-surface-2/60 p-4"><div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold text-foreground">Enrolled field agents</h2><p className="mt-0.5 text-xs text-dim">Signed Android agents authorized to submit evidence for this case.</p></div><Wifi className="size-4 text-dim" /></div></CardContent><CardContent className="p-0">
           {devices.isLoading ? (
             <div className="divide-y divide-border">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -157,6 +150,11 @@ export default function FieldDevicesPage() {
       {showPair && <PairDeviceDialog onClose={() => setShowPair(false)} />}
     </PageContainer>
   );
+}
+
+function FieldMetric({ icon: Icon, label, value, detail, tone = "slate" }: { icon: typeof Smartphone; label: string; value: string | number; detail: string; tone?: "slate" | "green" | "amber" }) {
+  const toneClass = { slate: "bg-slate-50 text-slate-700", green: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700" }[tone];
+  return <div className="rounded-xl border border-border bg-surface p-4"><div className="flex items-center gap-3"><span className={cn("grid size-9 place-items-center rounded-lg", toneClass)}><Icon className="size-4" /></span><div><p className="text-xs font-semibold text-foreground">{label}</p><p className="text-[11px] text-dim">{detail}</p></div></div><p className="mt-3 text-2xl font-semibold tracking-tight text-foreground">{value}</p></div>;
 }
 
 function PairDeviceDialog({ onClose }: { onClose: () => void }) {

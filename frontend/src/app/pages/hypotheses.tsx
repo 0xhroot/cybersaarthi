@@ -9,7 +9,8 @@ import {
   useUpdateInvestigationHypothesisStatus,
 } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
-import { PageContainer, PageHeader } from "@/components/layout/page";
+import { PageContainer } from "@/components/layout/page";
+import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge } from "@/components/status";
 import { RELATIONSHIP_TYPE_META } from "@/components/status";
@@ -89,7 +90,7 @@ export default function HypothesesPage() {
 
   return (
     <PageContainer>
-      <PageHeader
+      <InvestigationHeader
         eyebrow="Doctorial reasoning"
         title="Hypotheses"
         description="Candidate explanations assembled from weaker or partial signals. These are prompts for investigation, not conclusions."

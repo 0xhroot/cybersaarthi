@@ -16,7 +16,8 @@ import {
   useFieldDevices,
 } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
-import { PageContainer, PageHeader } from "@/components/layout/page";
+import { PageContainer } from "@/components/layout/page";
+import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -167,7 +168,7 @@ export default function EvidencePage() {
 
   return (
     <PageContainer className="max-w-none">
-      <PageHeader
+      <InvestigationHeader
         eyebrow="Source material"
         title="Evidence"
         description="Uploaded source records, their checksums, and ingestion status. Every extracted fact can be traced to a stored file."

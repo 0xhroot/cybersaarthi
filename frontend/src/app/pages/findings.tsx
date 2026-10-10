@@ -1,7 +1,8 @@
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { Flag } from "lucide-react";
 import { useFindingStats, useFindings } from "@/hooks/queries";
-import { PageContainer, PageHeader } from "@/components/layout/page";
+import { PageContainer } from "@/components/layout/page";
+import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { FindingStatusBadge, FindingTypeBadge, SeverityBadge } from "@/components/status";
 import { FINDING_TYPE_META, SEVERITY_META } from "@/components/status";
@@ -46,7 +47,7 @@ export default function FindingsPage() {
 
   return (
     <PageContainer>
-      <PageHeader
+      <InvestigationHeader
         eyebrow="Review queue"
         title="Findings"
         description="Patterns, anomalies and network insights. Each one carries the approach and the source records behind it."

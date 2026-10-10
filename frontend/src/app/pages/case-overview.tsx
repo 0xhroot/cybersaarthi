@@ -28,8 +28,8 @@ import type { CaseMemberRole } from "@/types/domain";
 
 function StatTile({ label, value, icon: Icon, accent }: { label: string; value: string | number; icon: typeof Network; accent: string }) {
   return (
-    <Card>
-      <CardContent className="flex items-center gap-3">
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-sm">
+      <CardContent className="flex items-center gap-3 p-4 sm:p-5">
         <span className="grid size-9 shrink-0 place-items-center rounded-lg border bg-surface-2" style={{ color: accent, borderColor: "var(--color-border)" }}>
           <Icon className="size-4" />
         </span>
@@ -169,6 +169,16 @@ export default function CaseOverviewPage() {
 
   return (
     <PageContainer>
+      <section className="mb-6 overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-border bg-surface-2/50 p-5 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent">Case intelligence</p>
+            <h2 className="mt-1 text-lg font-bold tracking-tight text-foreground">Investigation snapshot</h2>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">A live operational view of the evidence graph, analytical signals, findings and people connected to this case.</p>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-dim"><span className="size-1.5 rounded-full bg-success" /> Live case data</div>
+        </div>
+        <div className="p-4 sm:p-5">
       {summary.isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
@@ -192,6 +202,9 @@ export default function CaseOverviewPage() {
           </div>
         </div>
       )}
+
+        </div>
+      </section>
 
       <div className="mt-6">
         <CaseAccessCard caseId={caseId} />

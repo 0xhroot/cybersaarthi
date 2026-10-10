@@ -34,12 +34,12 @@ describe("route guards", () => {
       error: null,
     });
     renderApp("/app/cases");
-    expect(await screen.findByText(/Sign in to continue/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Sign in to CyberSaarthi/i)).toBeInTheDocument();
   });
 
   it("boots to the login screen when no session is stored", async () => {
     renderApp("/");
-    expect(await screen.findByText(/Sign in to continue/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Sign in to CyberSaarthi/i)).toBeInTheDocument();
   });
 
   it("keeps a direct nested /app/* URL while the session is validating (no redirect to login)", async () => {
@@ -62,7 +62,7 @@ describe("route guards", () => {
     renderApp("/app/cases");
     // Boot screen (brand + spinner) is shown; we must NOT have redirected to
     // login (which is what previously dropped the requested nested route).
-    expect(screen.queryByText(/Sign in to continue/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to CyberSaarthi/i)).not.toBeInTheDocument();
     expect(screen.getByText("Cyber")).toBeInTheDocument();
     expect(screen.getByText("Saarthi")).toBeInTheDocument();
   });
@@ -84,7 +84,7 @@ describe("route guards", () => {
     });
 
     renderApp("/app/cases/abc123/graph");
-    expect(screen.queryByText(/Sign in to continue/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to CyberSaarthi/i)).not.toBeInTheDocument();
   });
 
   it("renders the dashboard for an authenticated administrator", async () => {
@@ -95,7 +95,7 @@ describe("route guards", () => {
     expect(
       await screen.findByText(/Good (morning|afternoon|evening), admin/i, {}, { timeout: 4000 }),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Sign in to continue/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sign in to CyberSaarthi/i)).not.toBeInTheDocument();
   });
 
   it("blocks the audit log for viewers whose role lacks audit.read", async () => {

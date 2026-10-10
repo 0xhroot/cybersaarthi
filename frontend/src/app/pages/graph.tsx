@@ -75,7 +75,7 @@ export default function GraphPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-5 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
         <div>
           <h2 className="text-base font-semibold tracking-tight text-foreground">Network graph</h2>
           <p className="text-xs text-dim">
@@ -94,7 +94,7 @@ export default function GraphPage() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-0 lg:flex-row">
-        <div className="relative min-h-[420px] min-w-0 flex-1 bg-[radial-gradient(ellipse_at_center,rgba(214,161,78,0.05),transparent_65%)] lg:min-h-0">
+        <div className="relative min-h-[420px] min-w-0 flex-1 bg-[radial-gradient(ellipse_at_center,rgba(16,67,107,0.035),transparent_65%)] lg:min-h-0">
           {graph.isLoading ? (
             <div className="grid h-full place-items-center px-6">
               <Skeleton className="h-[420px] w-full" />
@@ -120,13 +120,13 @@ export default function GraphPage() {
             />
           )}
 
-          <div className="pointer-events-none absolute bottom-3 left-3 max-w-[70%] rounded-md border border-border bg-surface/90 px-2.5 py-1.5 text-[11px] leading-relaxed text-dim shadow-lg backdrop-blur">
+          <div className="pointer-events-none absolute bottom-3 left-3 max-w-[70%] rounded-md border border-border bg-surface/95 px-3 py-2 text-[11px] leading-relaxed text-dim shadow-sm backdrop-blur">
             Drag to pan · scroll to zoom · click a node or edge to inspect. The layout is cosmetic — positions
             carry no evidential meaning.
           </div>
         </div>
 
-        <aside className="w-full shrink-0 border-t border-border bg-surface-2 lg:w-[300px] lg:border-l lg:border-t-0">
+        <aside className="w-full shrink-0 border-t border-border bg-surface-2 lg:w-[320px] lg:border-l lg:border-t-0">
           <div className="space-y-5 p-4">
             <div>
               <p className="mb-2 text-[11px] uppercase tracking-wider text-dim">Entity types</p>
@@ -170,7 +170,7 @@ export default function GraphPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-border bg-surface p-3">
+            <div className="rounded-xl border border-border bg-surface p-4 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
               {selectedNode ? (
                 <div>
                   <div className="flex items-start justify-between gap-2">

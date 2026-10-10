@@ -7,33 +7,33 @@
 /* Design tokens                                                        */
 /* ------------------------------------------------------------------ */
 @theme {
-  /* Surfaces */
-  --color-background: #0a0c10;
-  --color-surface: #10141a;
-  --color-surface-2: #161b23;
-  --color-surface-3: #1d232d;
-  --color-border: #242b36;
-  --color-border-strong: #303947;
+  /* Government/public-service surfaces */
+  --color-background: #f7f9fb;
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f4f7;
+  --color-surface-3: #e8edf2;
+  --color-border: #d7dee6;
+  --color-border-strong: #b8c4d0;
 
   /* Text */
-  --color-foreground: #e9ebf1;
-  --color-muted: #98a0ae;
-  --color-dim: #626c7d;
-  --color-on-accent: #14100a;
+  --color-foreground: #18212b;
+  --color-muted: #526171;
+  --color-dim: #6b7785;
+  --color-on-accent: #ffffff;
 
-  /* Accent (single restrained "signal" tone) */
-  --color-accent: #d6a14e;
-  --color-accent-strong: #e6b768;
-  --color-accent-muted: #6b5426;
-  --color-accent-soft: rgba(214, 161, 78, 0.14);
+  /* Institutional accent: restrained navy + Indian tricolour references */
+  --color-accent: #174a7e;
+  --color-accent-strong: #123b66;
+  --color-accent-muted: #6f8eab;
+  --color-accent-soft: rgba(23, 74, 126, 0.10);
 
-  /* Semantic severity */
-  --color-critical: #e03c43;
-  --color-high: #e5703a;
-  --color-medium: #c9933a;
-  --color-low: #7e8a99;
-  --color-success: #4cb782;
-  --color-info: #6d9ec2;
+  /* Semantic status */
+  --color-critical: #b42318;
+  --color-high: #c2410c;
+  --color-medium: #a16207;
+  --color-low: #64748b;
+  --color-success: #18794e;
+  --color-info: #2563a6;
 
   /* Typography */
   --font-sans:
@@ -43,18 +43,18 @@
     "SFMono-Regular", ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo,
     Consolas, monospace;
 
-  /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  /* Public-sector interfaces favour restrained geometry */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
 
   /* Motion */
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 120ms;
-  --duration-base: 200ms;
-  --duration-slow: 320ms;
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
 
   /* Z-index */
   --z-sidebar: 40;
@@ -69,12 +69,12 @@
   --animate-fade-out: fade-out 160ms var(--ease-standard) forwards;
   --animate-overlay-in: fade-in var(--duration-base) var(--ease-standard);
   --animate-overlay-out: fade-out 160ms var(--ease-standard) forwards;
-  --animate-scale-in: dialog-in 260ms var(--ease-emphasized);
+  --animate-scale-in: dialog-in 220ms var(--ease-emphasized);
   --animate-scale-out: dialog-out 160ms var(--ease-standard) forwards;
-  --animate-drawer-in: drawer-in 300ms var(--ease-emphasized);
-  --animate-drawer-out: drawer-out 200ms var(--ease-standard) forwards;
-  --animate-toast-in: toast-in 320ms var(--ease-emphasized);
-  --animate-toast-out: toast-out 200ms var(--ease-standard) forwards;
+  --animate-drawer-in: drawer-in 260ms var(--ease-emphasized);
+  --animate-drawer-out: drawer-out 180ms var(--ease-standard) forwards;
+  --animate-toast-in: toast-in 260ms var(--ease-emphasized);
+  --animate-toast-out: toast-out 180ms var(--ease-standard) forwards;
 }
 
 @keyframes fade-in {
@@ -166,6 +166,10 @@
   }
 
   html {
+    color-scheme: light;
+  }
+
+  html.dark {
     color-scheme: dark;
   }
 
@@ -206,6 +210,35 @@
   }
 }
 
+
+/* Theme overrides: the same semantic tokens drive both modes. */
+html.dark {
+  --color-background: #0d141c;
+  --color-surface: #111b25;
+  --color-surface-2: #17232f;
+  --color-surface-3: #21303e;
+  --color-border: #2b3a49;
+  --color-border-strong: #425466;
+  --color-foreground: #edf3f8;
+  --color-muted: #b7c4cf;
+  --color-dim: #8fa0ae;
+  --color-accent: #78aee0;
+  --color-accent-strong: #a9cdf0;
+  --color-accent-muted: #6e8eab;
+  --color-accent-soft: rgba(120, 174, 224, 0.14);
+  --color-success: #5fc995;
+  --color-info: #78b8f2;
+  --color-critical: #ff8b83;
+  --color-high: #ffae78;
+  --color-medium: #e9c46a;
+  --color-low: #9aa8b5;
+}
+
+html.dark .bg-white { background-color: var(--color-surface); }
+html.dark .text-white { color: var(--color-foreground); }
+html.dark .hover\:bg-white:hover { background-color: var(--color-surface-2); }
+html.dark .border-white { border-color: var(--color-border); }
+
 /* ------------------------------------------------------------------ */
 /* Utilities                                                            */
 /* ------------------------------------------------------------------ */
@@ -234,6 +267,31 @@
   display: none;
 }
 
+/* Page transition fade */
+.page-fade-in {
+  animation: page-fade-in var(--duration-base) var(--ease-standard);
+}
+
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Professional scanline accent for header areas */
+.scanline {
+  background-image: linear-gradient(
+    transparent 50%,
+    rgba(255, 255, 255, 0.008) 50%
+  );
+  background-size: 100% 4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -243,12 +301,104 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  .page-fade-in {
+    animation: none;
+  }
 }
-/* ------------------------------------------------------------------ */
-/* Accessibility + responsive foundation (ported from reference UI)     */
-/* ------------------------------------------------------------------ */
 
-/* Keyboard skip link: hidden until focused, then pinned to the top. */
+/* ------------------------------------------------------------------ */
+/* Application shell                                                    */
+/* ------------------------------------------------------------------ */
+.gov-top-rule {
+  height: 3px;
+  background: linear-gradient(90deg, #e87b24 0 33.33%, #ffffff 33.33% 66.66%, #16854a 66.66% 100%);
+}
+
+.gov-tricolour {
+  background: linear-gradient(90deg, #e87b24 0 33.33%, #ffffff 33.33% 66.66%, #16854a 66.66% 100%);
+}
+
+.section-rule {
+  border-top: 1px solid var(--color-border);
+}
+
+/* Phase 6 — investigation workspace */
+.investigation-header {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 0.15rem 0 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.investigation-header::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 4.25rem;
+  height: 2px;
+  background: var(--color-accent);
+}
+
+.investigation-header__copy { min-width: 0; }
+.investigation-header__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.investigation-header__marker {
+  width: .42rem;
+  height: .42rem;
+  border-radius: 999px;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.investigation-header h1 {
+  margin: 0;
+  color: var(--color-foreground);
+  font-size: clamp(1.45rem, 2vw, 1.75rem);
+  font-weight: 750;
+  letter-spacing: -.025em;
+}
+.investigation-header p {
+  max-width: 48rem;
+  margin: .45rem 0 0;
+  color: var(--color-muted);
+  font-size: .875rem;
+  line-height: 1.65;
+}
+.investigation-header__actions { display: flex; align-items: center; gap: .5rem; }
+
+/* Dense data surfaces should feel like records, not floating SaaS cards. */
+[data-slot="card"], .card {
+  box-shadow: 0 1px 2px rgba(15,23,42,.025);
+}
+
+/* Keyboard users should always see where they are. */
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .investigation-header { align-items: flex-start; }
+  .investigation-header__actions { width: 100%; }
+  .investigation-header__actions > * { max-width: 100%; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Phase 9 — responsive + accessibility foundation                    */
+/* ------------------------------------------------------------------ */
 .skip-link {
   position: fixed;
   left: 1rem;
@@ -261,7 +411,7 @@
   color: var(--color-foreground);
   font-size: 0.8rem;
   font-weight: 700;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
   transition: top 120ms ease;
 }
 
@@ -276,11 +426,36 @@
   overflow-wrap: anywhere;
 }
 
-button,
-a,
-input,
-textarea,
-select,
-[role="button"] {
+button, a, input, textarea, select, [role="button"] {
   -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 639px) {
+  /* Preserve usable tap targets on touch screens without making the desktop UI bulky. */
+  button:not([data-compact]),
+  [role="button"]:not([data-compact]) {
+    min-height: 2.5rem;
+  }
+
+  input, textarea, select {
+    font-size: 16px;
+  }
+
+  .page-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

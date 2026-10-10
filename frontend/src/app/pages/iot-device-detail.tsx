@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, MapPin, RadioTower, Smartphone, Trash2, Plus } from "lucide-react";
+import { Activity, ArrowLeft, Clock3, MapPin, RadioTower, Smartphone, Trash2, Plus, ShieldCheck, Wifi } from "lucide-react";
 import { useIoTDevice, useIoTDeviceStats, useIoTEvents, useUpdateIoTDevice, useDeleteIoTDevice, useRecordIoTEvent } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
 import { PageContainer, PageHeader } from "@/components/layout/page";
@@ -38,6 +38,11 @@ const EVENT_TONES: Record<IoTEventType, string> = {
   custom: "text-muted bg-muted",
 };
 
+function DetailMetric({ icon: Icon, label, value, tone = "slate" }: { icon: typeof Activity; label: string; value: string | number; tone?: "slate" | "green" | "amber" | "blue" }) {
+  const toneClass = { slate: "bg-slate-50 text-slate-700", green: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", blue: "bg-blue-50 text-blue-700" }[tone];
+  return <div className="rounded-xl border border-border bg-surface p-4"><div className="flex items-center gap-2.5"><span className={cn("grid size-8 place-items-center rounded-lg", toneClass)}><Icon className="size-4" /></span><span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-dim">{label}</span></div><p className="mt-3 break-words text-sm font-semibold capitalize text-foreground">{value}</p></div>;
+}
+
 function KeyVal({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div>
@@ -60,7 +65,7 @@ export default function IoTDeviceDetailPage() {
   const deleteDevice = useDeleteIoTDevice(caseId);
   const recordEvent = useRecordIoTEvent(caseId);
 
-  const [newStatus] = useState<IoTDeviceStatus>("active");
+  const [newStatus, setNewStatus] = useState<IoTDeviceStatus | null>(null);
   const [showNoteForm, setShowNoteForm] = useState(false);
   const [noteDesc, setNoteDesc] = useState("");
   const [noteType, setNoteType] = useState<IoTEventType>("custom");
@@ -129,8 +134,9 @@ export default function IoTDeviceDetailPage() {
           canUpdate && d.status !== "removed" ? (
             <div className="flex items-center gap-2">
               <select
-                value={newStatus}
-                onChange={(e) => void changeStatus(e.target.value as IoTDeviceStatus)}
+                aria-label="Device status"
+                value={newStatus ?? d.status}
+                onChange={(e) => { const next = e.target.value as IoTDeviceStatus; setNewStatus(next); void changeStatus(next); }}
                 className="rounded-lg border border-border-strong bg-surface px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent"
               >
                 {(["active", "inactive", "seized", "removed"] as const).map((s) => (
@@ -145,8 +151,15 @@ export default function IoTDeviceDetailPage() {
         }
       />
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <DetailMetric icon={Activity} label="Current status" value={(d.status ?? "unknown").replace(/_/g, " ")} tone={d.status === "active" ? "green" : d.status === "seized" ? "blue" : "amber"} />
+        <DetailMetric icon={Clock3} label="Last seen" value={d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "Never"} />
+        <DetailMetric icon={ShieldCheck} label="Recorded events" value={stats.data?.event_count ?? d.event_count ?? 0} />
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
+        <Card className="overflow-hidden">
+          <CardContent className="border-b border-border bg-surface-2/60 p-4"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-lg bg-blue-50 text-blue-700"><Smartphone className="size-4" /></span><div><h2 className="text-sm font-semibold text-foreground">Device identity</h2><p className="text-xs text-dim">Registered identifiers and ownership details.</p></div></div></CardContent>
           <CardContent className="p-5">
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
               <KeyVal label="Type" value={d.device_type.replace(/_/g, " ")} />
@@ -177,8 +190,9 @@ export default function IoTDeviceDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-5 space-y-3">
+        <Card className="overflow-hidden">
+          <CardContent className="border-b border-border bg-surface-2/60 p-4"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-lg bg-emerald-50 text-emerald-700"><Wifi className="size-4" /></span><div><h2 className="text-sm font-semibold text-foreground">Telemetry</h2><p className="text-xs text-dim">Latest recorded device activity.</p></div></div><Activity className="size-4 text-dim" /></div></CardContent>
+          <CardContent className="space-y-3 p-5">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-medium text-dim">Telemetry feed</h3>
               {canUpdate && (

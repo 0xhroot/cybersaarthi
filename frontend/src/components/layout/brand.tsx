@@ -8,13 +8,18 @@ export function Brand({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-2.5", className)}>
-      <span className="relative grid size-8 shrink-0 place-items-center rounded-lg bg-accent/15 ring-1 ring-accent/30">
-        <MarkIcon className="size-4 text-accent" />
+    <div className={cn("flex min-w-0 items-center gap-3", className)}>
+      <span className="relative grid size-9 shrink-0 place-items-center border border-accent/25 bg-accent-soft text-accent shadow-sm">
+        <MarkIcon className="size-5" />
       </span>
       {!compact ? (
-        <span className="text-sm font-semibold tracking-tight text-foreground">
-          Cyber<span className="text-accent">Saarthi</span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-bold tracking-tight text-foreground">
+            Cyber<span className="text-accent">Saarthi</span>
+          </span>
+          <span className="block truncate text-[9px] font-medium uppercase tracking-[0.13em] text-dim">
+            Investigation Platform
+          </span>
         </span>
       ) : null}
     </div>

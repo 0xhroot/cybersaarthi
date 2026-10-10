@@ -4,7 +4,8 @@ import { Search, Users, Merge, Check, X } from "lucide-react";
 import { useEntities, useReviewResolution, useAcceptMatch, useRejectMatch, useMergeEntities } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
 import { useDebounce } from "@/hooks/ui";
-import { PageContainer, PageHeader } from "@/components/layout/page";
+import { PageContainer } from "@/components/layout/page";
+import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { EntityTypeBadge, EntityStatusBadge } from "@/components/status";
 import { Input, Label } from "@/components/ui/input";
@@ -112,7 +113,7 @@ export default function EntitiesPage() {
 
   return (
     <PageContainer>
-      <PageHeader
+      <InvestigationHeader
         eyebrow="Knowledge graph"
         title="Entities"
         description="Who and what participates in this network — people, telephones, vehicles, accounts and more."

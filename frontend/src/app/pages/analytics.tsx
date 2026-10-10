@@ -13,7 +13,8 @@ import {
   useStrength,
 } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
-import { PageContainer, PageHeader } from "@/components/layout/page";
+import { PageContainer } from "@/components/layout/page";
+import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PriorityBadge, ProfileTierBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
@@ -89,7 +90,7 @@ export default function AnalyticsPage() {
 
   return (
     <PageContainer className="max-w-none">
-      <PageHeader
+      <InvestigationHeader
         eyebrow="Network intelligence"
         title="Analytics"
         description="Structural measurements of the case network. All values are derived from ingested evidence and clearly attributed."

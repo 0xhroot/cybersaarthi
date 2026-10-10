@@ -3,7 +3,8 @@ import { useParams } from "react-router-dom";
 import { FileText, Download, RefreshCw } from "lucide-react";
 import { api } from "@/api";
 import { useReports, useGenerateReport } from "@/hooks/queries";
-import { PageContainer, PageHeader } from "@/components/layout/page";
+import { PageContainer } from "@/components/layout/page";
+import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,15 +23,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import { formatBytes, formatRelative, shortId } from "@/lib/utils";
-import type { Report } from "@/types/domain";
+import { formatBytes, formatRelative } from "@/lib/utils";
 
 const REPORT_TYPES = [
   { value: "case_summary", label: "Case summary" },
   { value: "intelligence", label: "Intelligence" },
   { value: "evidence_manifest", label: "Evidence manifest" },
-  { value: "network_analysis", label: "Network analysis" },
   { value: "timeline", label: "Timeline" },
+  { value: "network_analysis", label: "Network analysis" },
 ];
 
 const REPORT_FORMATS = [
@@ -42,7 +42,19 @@ const REPORT_FORMATS = [
 function statusMeta(status: string): { label: string; tone: "success" | "info" | "critical" | "high" } {
   if (status === "ready") return { label: "Ready", tone: "success" };
   if (status === "failed") return { label: "Failed", tone: "critical" };
-  return { label: "Generating", tone: "high" };
+  return { label: "Generating", tone: "info" };
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  case_summary: "Case summary",
+  intelligence: "Intelligence",
+  evidence_manifest: "Evidence manifest",
+  timeline: "Timeline",
+  network_analysis: "Network analysis",
+};
+
+function typeLabel(reportType: string) {
+  return TYPE_LABELS[reportType] ?? reportType.replace(/_/g, " ");
 }
 
 export default function ReportsPage() {
@@ -54,53 +66,23 @@ export default function ReportsPage() {
   const [format, setFormat] = useState("json");
   const [title, setTitle] = useState("");
 
-  const triggerGenerate = async () => {
+  const triggerGenerate = async (input?: { report_type: string; format: string; title?: string }) => {
+    const payload = input ?? { report_type: reportType, format, title: title || undefined };
     try {
-      const result = await generate.mutateAsync({
-        report_type: reportType,
-        format,
-        title: title || undefined,
-      });
+      const created = await generate.mutateAsync(payload);
+      if (created.status === "ready") {
+        toast({ title: "Report ready", description: `The ${typeLabel(created.report_type)} report was generated and is ready to download.` });
+      } else if (created.status === "failed") {
+        toast({ title: "Report failed", description: created.failure_reason ?? "Generation failed — retry from the reports list." });
+      } else {
+        toast({ title: "Report queued", description: `${typeLabel(created.report_type)} will be ready shortly.` });
+      }
       setOpen(false);
       setTitle("");
-      announce(result);
     } catch (err) {
-      toast({ title: "Could not generate report", description: (err as Error).message, variant: "error" });
+      toast({ title: "Could not generate report", description: (err as Error).message });
     }
   };
-
-  const retryGenerate = async (report: Report) => {
-    try {
-      const result = await generate.mutateAsync({
-        report_type: report.report_type,
-        format: report.format,
-        title: report.title,
-      });
-      announce(result);
-    } catch (err) {
-      toast({ title: "Could not retry report", description: (err as Error).message, variant: "error" });
-    }
-  };
-
-  // Generation is synchronous: the response already carries the final status.
-  function announce(result: Report) {
-    const label = result.report_type.replace("_", " ");
-    if (result.status === "ready") {
-      toast({
-        title: "Report ready",
-        description: `The ${label} report was generated and is ready to download.`,
-        variant: "success",
-      });
-    } else if (result.status === "failed") {
-      toast({
-        title: "Report generation failed",
-        description: result.failure_reason ?? `The ${label} report could not be generated.`,
-        variant: "error",
-      });
-    } else {
-      toast({ title: "Report queued", description: `Generating the ${label} report…` });
-    }
-  }
 
   const downloadReport = async (reportId: string, fallbackName: string) => {
     try {
@@ -118,7 +100,7 @@ export default function ReportsPage() {
 
   return (
     <PageContainer>
-      <PageHeader
+      <InvestigationHeader
         eyebrow="Exportable records"
         title="Reports"
         description="Generate and download case reports — summaries, intelligence, evidence manifests, timelines and network analysis in JSON, CSV or PDF."
@@ -176,17 +158,22 @@ export default function ReportsPage() {
                           </Button>
                         ) : report.status === "failed" ? (
                           <div className="flex flex-col items-end gap-1">
-                            <span
-                              className="block max-w-[190px] truncate text-[10px] text-critical"
-                              title={report.failure_reason ?? undefined}
-                            >
-                              {report.failure_reason ?? `${shortId(report.id)} failed`}
-                            </span>
+                            {report.failure_reason ? (
+                              <span className="max-w-[220px] truncate text-[10px] text-critical" title={report.failure_reason}>
+                                {report.failure_reason}
+                              </span>
+                            ) : null}
                             <Button
                               size="sm"
                               variant="ghost"
                               disabled={generate.isPending}
-                              onClick={() => void retryGenerate(report)}
+                              onClick={() =>
+                                void triggerGenerate({
+                                  report_type: report.report_type,
+                                  format: report.format,
+                                  title: report.title,
+                                })
+                              }
                             >
                               <RefreshCw className="size-3.5" /> Retry
                             </Button>
