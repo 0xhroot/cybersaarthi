@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Clock3,
   FileSearch,
+  FileText,
   FolderKanban,
   Plus,
   Search,
@@ -258,6 +259,7 @@ export default function DashboardPage() {
               <QuickAction icon={<FolderKanban className="size-4" />} label="Case register" description="Review all investigations" onClick={() => navigate("/app/cases")} />
               {focusCase ? <QuickAction icon={<FileSearch className="size-4" />} label="Evidence" description="Review the case record" onClick={() => navigate(`/app/cases/${focusCase.id}/evidence`)} /> : null}
               {focusCase ? <QuickAction icon={<BarChart3 className="size-4" />} label="Analytics" description="Inspect network signals" onClick={() => navigate(`/app/cases/${focusCase.id}/analytics`)} /> : null}
+              {focusCase ? <QuickAction icon={<FileText className="size-4" />} label="Reports" description="Generate and download PDFs" onClick={() => navigate(`/app/cases/${focusCase.id}/reports`)} /> : null}
               {canAudit ? <QuickAction icon={<ShieldCheck className="size-4" />} label="Audit trail" description="Review recorded activity" onClick={() => navigate("/app/audit")} /> : null}
             </CardContent>
           </Card>

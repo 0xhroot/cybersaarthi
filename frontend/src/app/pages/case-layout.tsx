@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useParams } from "react-router-dom";
 import {
   Activity,
@@ -7,7 +7,7 @@ import {
   ChevronDown,
   ClipboardList,
   FileSearch,
-  GitBranch,
+  FileText,
   Layers3,
   ListChecks,
   Network,
@@ -40,12 +40,15 @@ const TABS = [
   { to: "analytics", label: "Analytics", icon: BarChart3, end: false },
   { to: "hypotheses", label: "Hypotheses", icon: Layers3, end: false },
   { to: "findings", label: "Findings", icon: ListChecks, end: false },
-  { to: "reports", label: "Reports", icon: GitBranch, end: false },
+  { to: "reports", label: "Reports", icon: FileText, end: false },
   { to: "timeline", label: "Timeline", icon: ClipboardList, end: false },
 ];
 
 export default function CaseLayout() {
   const { caseId = "" } = useParams();
+  const tabsRef = useRef<HTMLElement | null>(null);
+  const [tabsOverflow, setTabsOverflow] = useState(false);
+  const [tabsAtEnd, setTabsAtEnd] = useState(false);
   const caseQuery = useCase(caseId);
   const setActiveCaseId = useCaseNavStore((s) => s.setActiveCaseId);
   const canUpdate = useCan("case.update");
@@ -60,6 +63,25 @@ export default function CaseLayout() {
     setActiveCaseId(caseId);
     return () => setActiveCaseId(null);
   }, [caseId, setActiveCaseId]);
+
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const measure = () => {
+      setTabsOverflow(el.scrollWidth > el.clientWidth + 1);
+      setTabsAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 1);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    el.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
 
   function changeStatus(value: string) {
     if (value === caseQuery.data?.status) return;
@@ -142,14 +164,19 @@ export default function CaseLayout() {
 
         <div className="border-t border-border bg-surface-2/45">
           <PageContainer className="py-0">
-            <nav aria-label="Case workspace" className="no-scrollbar flex overflow-x-auto">
-              {TABS.map((tab) => {
-                const Icon = tab.icon;
-                return <NavLink key={tab.to} to={tab.to} end={tab.end} className={({ isActive }) => cn("relative flex shrink-0 items-center gap-2 border-b-2 border-transparent px-3 py-3 text-[12px] font-medium transition-colors", isActive ? "border-accent bg-surface text-accent" : "text-muted hover:bg-surface/70 hover:text-foreground")}>
-                  <Icon className="size-3.5" />{tab.label}
-                </NavLink>;
-              })}
-            </nav>
+            <div className="relative">
+              <nav ref={tabsRef} aria-label="Case workspace" className="no-scrollbar flex overflow-x-auto">
+                {TABS.map((tab) => {
+                  const Icon = tab.icon;
+                  return <NavLink key={tab.to} to={tab.to} end={tab.end} className={({ isActive }) => cn("relative flex shrink-0 items-center gap-2 border-b-2 border-transparent px-3 py-3 text-[12px] font-medium transition-colors", isActive ? "border-accent bg-surface text-accent" : "text-muted hover:bg-surface/70 hover:text-foreground")}>
+                    <Icon className="size-3.5" />{tab.label}
+                  </NavLink>;
+                })}
+              </nav>
+              {tabsOverflow && !tabsAtEnd ? (
+                <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-surface-2/95 to-transparent" />
+              ) : null}
+            </div>
           </PageContainer>
         </div>
       </div>
