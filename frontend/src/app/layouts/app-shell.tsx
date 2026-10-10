@@ -103,7 +103,7 @@ export function AppShell() {
           </Button>
         </div>
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+        <nav aria-label="Primary navigation" className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
           {navItems.map((item) => (
             <NavLink
               key={item.to}

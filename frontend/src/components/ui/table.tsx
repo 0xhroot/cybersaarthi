@@ -10,7 +10,12 @@ import { cn } from "@/lib/utils";
 export function Table({ className, ...props }: TableHTMLAttributes<HTMLTableElement>) {
   return (
     <div className="w-full overflow-x-auto">
-      <table className={cn("w-full border-collapse text-sm", className)} {...props} />
+      {/* min-w keeps data columns readable on narrow viewports: the wrapper
+          scrolls horizontally instead of the auto layout crushing cells. */}
+      <table
+        className={cn("w-full min-w-[640px] border-collapse text-sm", className)}
+        {...props}
+      />
     </div>
   );
 }

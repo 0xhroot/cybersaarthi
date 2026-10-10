@@ -108,12 +108,12 @@ export default function DashboardPage() {
               <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent/15 ring-1 ring-accent/30">
                 <span className="text-sm font-semibold text-accent">{initials(highlight.title)}</span>
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-48">
                 <p className="text-[11px] font-medium uppercase tracking-wider text-accent/80">{highlight.case_number}</p>
                 <h2 className="mt-0.5 truncate text-base font-semibold tracking-tight text-foreground">{highlight.title}</h2>
                 <p className="mt-1 line-clamp-1 text-xs text-dim">{highlight.description ?? "No description provided."}</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-3">
                 <CaseStatusBadge value={highlight.status} />
                 <span className="flex items-center gap-1 text-xs text-dim">
                   Updated {formatDate(highlight.updated_at)}
@@ -125,8 +125,8 @@ export default function DashboardPage() {
         </motion.div>
       ) : null}
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <Card>
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <Card className="min-w-0">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>Recent cases</CardTitle>
             <Link to="/app/cases" className="text-xs text-accent hover:text-accent-strong">
@@ -173,7 +173,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Quick actions</CardTitle>

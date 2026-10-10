@@ -154,7 +154,7 @@ export default function CaseLayout() {
         </PageContainer>
 
         {/* Workspace tabs */}
-        <div className="no-scrollbar overflow-x-auto border-t border-border/70">
+        <nav aria-label="Case workspace" className="no-scrollbar overflow-x-auto border-t border-border/70">
           <PageContainer className="flex gap-0.5 py-0">
             {TABS.map((tab) => (
               <NavLink
@@ -179,7 +179,7 @@ export default function CaseLayout() {
               </NavLink>
             ))}
           </PageContainer>
-        </div>
+        </nav>
       </div>
 
       <Outlet />

@@ -26,8 +26,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
 
   restore() {
-    const restored = authSession.restore();
-    if (!restored) {
+    const { token } = authSession.restore();
+    if (!token) {
       set({ status: "anonymous", user: null, roles: [], permissions: [] });
       return;
     }
@@ -35,8 +35,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   async bootstrap() {
-    const restored = authSession.restore();
-    if (!restored) {
+    const { token } = authSession.restore();
+    if (!token) {
       set({ status: "anonymous", user: null, roles: [], permissions: [] });
       return;
     }
