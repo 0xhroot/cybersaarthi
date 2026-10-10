@@ -267,6 +267,26 @@ html.dark .border-white { border-color: var(--color-border); }
   display: none;
 }
 
+/* Subtle horizontal scrollbar for scrollable navigation strips.
+   Keeps pointer/keyboard access while staying visually quiet. */
+.subtle-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+.subtle-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+.subtle-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.subtle-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+}
+.subtle-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
 /* Page transition fade */
 .page-fade-in {
   animation: page-fade-in var(--duration-base) var(--ease-standard);
