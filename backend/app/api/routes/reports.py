@@ -9,14 +9,14 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_case_or_404, require_permission
 from app.core import rbac
 from app.core.config import Settings, get_settings
 from app.db.postgres import get_db_session
-from app.models import Report, User
+from app.models import REPORT_FORMATS, REPORT_TYPES, Report, User
 from app.services import audit as audit_svc
 from app.services import reporting as rpt_svc
 from app.services.timeline import record_event
@@ -27,7 +27,21 @@ router = APIRouter(prefix="/cases", tags=["reports"])
 class ReportGenerateRequest(BaseModel):
     report_type: str
     format: str = "json"
-    title: str | None = None
+    title: str | None = Field(default=None, max_length=255)
+
+    @field_validator("report_type")
+    @classmethod
+    def _known_report_type(cls, value: str) -> str:
+        if value not in REPORT_TYPES:
+            raise ValueError(f"unsupported report_type; expected one of: {', '.join(REPORT_TYPES)}")
+        return value
+
+    @field_validator("format")
+    @classmethod
+    def _known_format(cls, value: str) -> str:
+        if value not in REPORT_FORMATS:
+            raise ValueError(f"unsupported format; expected one of: {', '.join(REPORT_FORMATS)}")
+        return value
 
 
 class ReportOut(BaseModel):
@@ -87,6 +101,7 @@ async def generate_report(
         fmt=body.format,
         title=title,
         created_by=user.id,
+        correlation_id=getattr(request.state, "correlation_id", None),
     )
     await audit_svc.record_audit(
         session,
@@ -161,7 +176,16 @@ _CONTENT_TYPES = {"json": "application/json", "csv": "text/csv", "pdf": "applica
 
 
 def _safe_filename(value: str) -> str:
-    return re.sub(r'[\x00-\x1f\x7f"\r\n]', "", value).strip()
+    """Sanitise a report title for use in a Content-Disposition filename.
+
+    Control characters, quotes and path separators are removed so the header
+    cannot be split or turned into a path; whitespace collapses to ``_``.
+    """
+    cleaned = re.sub(r'[\x00-\x1f\x7f"\\\r\n/]', "", value)
+    cleaned = re.sub(r"\s+", "_", cleaned).strip("._")
+    # Header values must be Latin-1 encodable; restrict to printable ASCII.
+    cleaned = cleaned.encode("ascii", "ignore").decode("ascii").strip("._")
+    return (cleaned or "report")[:120]
 
 
 @router.get("/{case_id}/reports/{report_id}/download")
@@ -185,7 +209,7 @@ async def download_report(
     async def _iter() -> AsyncIterator[bytes]:
         yield content
 
-    filename = f"{_safe_filename(r.title).replace(' ', '_')}.{r.format}"
+    filename = f"{_safe_filename(r.title)}.{r.format}"
     return StreamingResponse(
         _iter(),
         media_type=_CONTENT_TYPES.get(r.format, "application/octet-stream"),

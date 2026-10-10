@@ -33,6 +33,9 @@ dev = [
     "ruff==0.16.5",
     "mypy==2.3.1",
     "types-python-dateutil",
+    # Parses generated report PDFs in tests (PDF validity is asserted with a
+    # real reader rather than by checking leading bytes).
+    "pypdf==6.20.0",
 ]
 
 [build-system]
