@@ -1,12 +1,13 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { UserRound, AtSign, LockKeyhole, ArrowRight, ShieldCheck } from "lucide-react";
+import { UserRound, AtSign, LockKeyhole, ArrowRight, ShieldCheck, Eye, EyeOff, Check } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { Brand } from "@/components/layout/brand";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { useDocumentTitle } from "@/hooks/ui";
+import { cn } from "@/lib/utils";
 
 export default function RegisterPage() {
   useDocumentTitle("Request access");
@@ -17,8 +18,18 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const requirements = useMemo(
+    () => ({
+      length: password.length >= 8,
+      match: password.length > 0 && password === confirm,
+    }),
+    [password, confirm],
+  );
 
   if (status === "authenticated") return <Navigate to="/app" replace />;
 
@@ -111,27 +122,65 @@ export default function RegisterPage() {
               <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-dim" />
               <Input
                 id="reg-password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="pl-9"
+                className="pl-9 pr-9"
                 placeholder="At least 8 characters"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-dim transition-colors hover:text-muted"
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
             </div>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="reg-confirm">Confirm password</Label>
-            <Input
-              id="reg-confirm"
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              placeholder="Repeat password"
-            />
+            <div className="relative">
+              <Input
+                id="reg-confirm"
+                type={showConfirm ? "text" : "password"}
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                className="pr-9"
+                placeholder="Repeat password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm((v) => !v)}
+                aria-label={showConfirm ? "Hide password confirmation" : "Show password confirmation"}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-dim transition-colors hover:text-muted"
+              >
+                {showConfirm ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
           </div>
+
+          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+            <li
+              className={cn(
+                "inline-flex items-center gap-1",
+                requirements.length ? "text-success" : "text-dim",
+              )}
+            >
+              <Check className="size-3" aria-hidden="true" /> At least 8 characters
+            </li>
+            <li
+              className={cn(
+                "inline-flex items-center gap-1",
+                requirements.match ? "text-success" : "text-dim",
+              )}
+            >
+              <Check className="size-3" aria-hidden="true" /> Passwords match
+            </li>
+          </ul>
 
           {error ? (
             <p role="alert" className="rounded-md border border-critical/30 bg-critical/10 px-3 py-2 text-xs text-critical">

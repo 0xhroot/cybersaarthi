@@ -23,12 +23,14 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { formatBytes, formatRelative, shortId } from "@/lib/utils";
+import type { Report } from "@/types/domain";
 
 const REPORT_TYPES = [
   { value: "case_summary", label: "Case summary" },
   { value: "intelligence", label: "Intelligence" },
   { value: "evidence_manifest", label: "Evidence manifest" },
   { value: "network_analysis", label: "Network analysis" },
+  { value: "timeline", label: "Timeline" },
 ];
 
 const REPORT_FORMATS = [
@@ -54,14 +56,51 @@ export default function ReportsPage() {
 
   const triggerGenerate = async () => {
     try {
-      await generate.mutateAsync({ report_type: reportType, format, title: title || undefined });
-      toast({ title: "Report queued", description: `${reportType.replace("_", " ")} will be ready shortly.` });
+      const result = await generate.mutateAsync({
+        report_type: reportType,
+        format,
+        title: title || undefined,
+      });
       setOpen(false);
       setTitle("");
+      announce(result);
     } catch (err) {
-      toast({ title: "Could not generate report", description: (err as Error).message });
+      toast({ title: "Could not generate report", description: (err as Error).message, variant: "error" });
     }
   };
+
+  const retryGenerate = async (report: Report) => {
+    try {
+      const result = await generate.mutateAsync({
+        report_type: report.report_type,
+        format: report.format,
+        title: report.title,
+      });
+      announce(result);
+    } catch (err) {
+      toast({ title: "Could not retry report", description: (err as Error).message, variant: "error" });
+    }
+  };
+
+  // Generation is synchronous: the response already carries the final status.
+  function announce(result: Report) {
+    const label = result.report_type.replace("_", " ");
+    if (result.status === "ready") {
+      toast({
+        title: "Report ready",
+        description: `The ${label} report was generated and is ready to download.`,
+        variant: "success",
+      });
+    } else if (result.status === "failed") {
+      toast({
+        title: "Report generation failed",
+        description: result.failure_reason ?? `The ${label} report could not be generated.`,
+        variant: "error",
+      });
+    } else {
+      toast({ title: "Report queued", description: `Generating the ${label} report…` });
+    }
+  }
 
   const downloadReport = async (reportId: string, fallbackName: string) => {
     try {
@@ -82,7 +121,7 @@ export default function ReportsPage() {
       <PageHeader
         eyebrow="Exportable records"
         title="Reports"
-        description="Generate and download case reports — summaries, evidence manifests and network analysis in JSON, CSV or PDF."
+        description="Generate and download case reports — summaries, intelligence, evidence manifests, timelines and network analysis in JSON, CSV or PDF."
         actions={
           <Button onClick={() => setOpen(true)}>
             <FileText className="size-4" /> Generate report
@@ -98,7 +137,7 @@ export default function ReportsPage() {
         ) : reports.isError ? (
           <Card><ErrorState error={reports.error} onRetry={() => void reports.refetch()} /></Card>
         ) : (reports.data?.items ?? []).length === 0 ? (
-          <Card><EmptyState title="No reports yet" description="Generate a case summary, evidence manifest or network analysis export." /></Card>
+          <Card><EmptyState title="No reports yet" description="Generate a case summary, evidence manifest, timeline or network analysis export." /></Card>
         ) : (
           <Card>
             <Table>
@@ -136,7 +175,22 @@ export default function ReportsPage() {
                             <Download className="size-3.5" /> Download
                           </Button>
                         ) : report.status === "failed" ? (
-                          <span className="text-[10px] text-critical">{shortId(report.id)} failed</span>
+                          <div className="flex flex-col items-end gap-1">
+                            <span
+                              className="block max-w-[190px] truncate text-[10px] text-critical"
+                              title={report.failure_reason ?? undefined}
+                            >
+                              {report.failure_reason ?? `${shortId(report.id)} failed`}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={generate.isPending}
+                              onClick={() => void retryGenerate(report)}
+                            >
+                              <RefreshCw className="size-3.5" /> Retry
+                            </Button>
+                          </div>
                         ) : (
                           <Button size="sm" variant="ghost" disabled>
                             <RefreshCw className="size-3.5 animate-spin" />

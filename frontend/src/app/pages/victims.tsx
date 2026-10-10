@@ -36,12 +36,12 @@ const STATUSES: { value: string; label: string }[] = [
 ];
 
 const STATUS_COLORS: Record<VictimStatus, string> = {
-  reported: "bg-muted text-muted-foreground",
+  reported: "bg-muted text-muted",
   under_investigation: "bg-blue-500/15 text-blue-500",
   evidence_collected: "bg-amber-500/15 text-amber-500",
   recovery_initiated: "bg-purple-500/15 text-purple-500",
   recovered: "bg-emerald-500/15 text-emerald-500",
-  closed: "bg-muted text-muted-foreground",
+  closed: "bg-muted text-muted",
 };
 
 function VictimStatusBadge({ status }: { status: VictimStatus }) {

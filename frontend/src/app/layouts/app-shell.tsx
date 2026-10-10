@@ -1,4 +1,4 @@
-import { NavLink, useNavigate, Outlet } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -18,6 +18,8 @@ import { useCan } from "@/lib/permissions";
 import { api } from "@/api";
 import { cn, initials } from "@/lib/utils";
 import { Brand } from "@/components/layout/brand";
+import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { hasBreadcrumbs } from "@/lib/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +41,9 @@ export function AppShell() {
   const canAudit = useCan("audit.read");
   const canManageUsers = useCan("users.manage");
   const navigate = useNavigate();
+  const location = useLocation();
   const isDemo = api.src === "mock";
+  const showCrumbs = hasBreadcrumbs(location.pathname);
 
   const navItems = [
     ...NAV,
@@ -56,6 +60,9 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       {/* Mobile scrim */}
       {sidebarOpen ? (
         <button
@@ -159,6 +166,12 @@ export function AppShell() {
             <Menu className="size-5" />
           </button>
 
+          {showCrumbs ? (
+            <div className="hidden min-w-0 shrink-0 sm:block">
+              <Breadcrumbs />
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
@@ -190,7 +203,13 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1">
+        {showCrumbs ? (
+          <div className="border-b border-border bg-background/90 px-4 py-2 sm:hidden">
+            <Breadcrumbs />
+          </div>
+        ) : null}
+
+        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 outline-none">
           <Outlet />
         </main>
       </div>

@@ -18,11 +18,11 @@ import { cn } from "@/lib/utils";
 import type { IoTDeviceStatus, IoTDeviceType } from "@/types/domain";
 
 const STATUS_COLORS: Record<IoTDeviceStatus, string> = {
-  registered: "bg-muted text-muted-foreground",
+  registered: "bg-muted text-muted",
   active: "bg-emerald-500/15 text-emerald-500",
   inactive: "bg-amber-500/15 text-amber-500",
   seized: "bg-blue-500/15 text-blue-500",
-  removed: "bg-muted text-muted-foreground",
+  removed: "bg-muted text-muted",
 };
 
 function DeviceStatusBadge({ status }: { status: IoTDeviceStatus }) {

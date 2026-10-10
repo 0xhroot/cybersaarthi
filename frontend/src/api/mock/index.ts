@@ -1992,7 +1992,7 @@ export const mockApi: Api = {
       await delay(MOCK_LATENCY * 2);
       assertCaseAccess(caseId);
       const now = new Date().toISOString();
-      const known = ["case_summary", "intelligence", "evidence_manifest", "network_analysis"];
+      const known = ["case_summary", "intelligence", "evidence_manifest", "network_analysis", "timeline"];
       const report: Report = {
         id: uid(2600 + reportsState.length),
         case_id: caseId,

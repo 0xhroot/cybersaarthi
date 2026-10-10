@@ -958,7 +958,7 @@ export interface HealthResponse {
 
 /* -------------------------------- Reports -------------------------------- */
 
-export type ReportStatus = "pending" | "ready" | "failed";
+export type ReportStatus = "generating" | "ready" | "failed";
 
 export type ReportFormat = "json" | "csv" | "pdf";
 
