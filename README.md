@@ -127,9 +127,10 @@ Captured on a physical device (RSA-2048 Android Keystore identity), in the order
 
 ### Web investigator
 
-The integrated investigator workspace — light and dark themes, English / हिन्दी labels, and a
-Ctrl+K command palette. Every screen below was captured from the running application against the
-live backend.
+The integrated investigator workspace — light and dark themes, English / हिन्दी labels, a
+Ctrl+K command palette, and a case tab strip that fits all twelve sections on one line at
+desktop widths (with a subtle scroll strip on smaller screens). Every screen below was
+captured from the running application against the live backend.
 
 #### Workspace
 
@@ -137,7 +138,7 @@ live backend.
 <tr>
 <td width="33%"><p align="center"><img src="docs/screenshots/web/dashboard.png" width="100%" alt="Dashboard"/><b>Dashboard</b></p></td>
 <td width="33%"><p align="center"><img src="docs/screenshots/web/cases.png" width="100%" alt="Cases register"/><b>Cases</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/case.png" width="100%" alt="Case overview"/><b>Case</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/case.png" width="100%" alt="Case workspace with all twelve tabs visible on one line"/><b>Case · 12 tabs</b></p></td>
 </tr>
 </table>
 
