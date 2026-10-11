@@ -33,7 +33,7 @@ export default function SettingsPage() {
     REJECTED: "neutral",
   };
 
-  const apiLabel = isMockMode ? "Mock adapter (deterministic demo data)" : "Live Harmony API";
+  const apiLabel = isMockMode ? "Mock adapter (deterministic demo data)" : "Live CyberSaarthi API";
 
   return (
     <PageContainer>
@@ -79,7 +79,7 @@ export default function SettingsPage() {
               <p className="text-foreground">{apiLabel}</p>
               <p className="text-xs leading-relaxed text-dim">
                 The UI talks to a single adapter facade. In mock mode everything is deterministic seed data; point
-                the app at the Harmony backend with <code className="font-mono">VITE_USE_MOCK_API=false</code>.
+                the app at the CyberSaarthi backend with <code className="font-mono">VITE_USE_MOCK_API=false</code>.
               </p>
             </CardContent>
           </Card>
