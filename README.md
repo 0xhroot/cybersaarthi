@@ -147,13 +147,13 @@ captured from the running application against the live backend.
 <table>
 <tr>
 <td width="33%"><p align="center"><img src="docs/screenshots/web/entities.png" width="100%" alt="Entities"/><b>Entities</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/graph.png" width="100%" alt="Knowledge graph"/><b>Graph</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/analytics.png" width="100%" alt="Analytics"/><b>Analytics</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/victims.png" width="100%" alt="Victims"/><b>Victims</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/hypotheses.png" width="100%" alt="Hypotheses"/><b>Hypotheses</b></p></td>
 </tr>
 <tr>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/graph.png" width="100%" alt="Knowledge graph"/><b>Graph</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/analytics.png" width="100%" alt="Analytics"/><b>Analytics</b></p></td>
 <td width="33%"><p align="center"><img src="docs/screenshots/web/findings.png" width="100%" alt="Findings"/><b>Findings</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/timeline.png" width="100%" alt="Timeline"/><b>Timeline</b></p></td>
-<td width="33%"><p align="center"><img src="docs/screenshots/web/audit.png" width="100%" alt="Audit log"/><b>Audit log</b></p></td>
 </tr>
 </table>
 
@@ -161,8 +161,9 @@ captured from the running application against the live backend.
 
 <table>
 <tr>
-<td width="50%"><p align="center"><img src="docs/screenshots/web/evidence.png" width="100%" alt="Evidence"/><b>Evidence</b></p></td>
-<td width="50%"><p align="center"><img src="docs/screenshots/web/reports.png" width="100%" alt="Reports with a generated PDF"/><b>Reports (PDF ready)</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/evidence.png" width="100%" alt="Evidence"/><b>Evidence</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/timeline.png" width="100%" alt="Timeline"/><b>Timeline</b></p></td>
+<td width="33%"><p align="center"><img src="docs/screenshots/web/reports.png" width="100%" alt="Reports with a generated PDF"/><b>Reports (PDF ready)</b></p></td>
 </tr>
 </table>
 
@@ -172,6 +173,15 @@ captured from the running application against the live backend.
 <tr>
 <td width="50%"><p align="center"><img src="docs/screenshots/web/devices.png" width="100%" alt="Field devices"/><b>Field devices</b></p></td>
 <td width="50%"><p align="center"><img src="docs/screenshots/web/iot.png" width="100%" alt="IoT devices"/><b>IoT</b></p></td>
+</tr>
+</table>
+
+#### Administration
+
+<table>
+<tr>
+<td width="50%"><p align="center"><img src="docs/screenshots/web/audit.png" width="100%" alt="Audit log"/><b>Audit log</b></p></td>
+<td width="50%"><p align="center"><img src="docs/screenshots/web/settings.png" width="100%" alt="Settings"/><b>Settings</b></p></td>
 </tr>
 </table>
 
