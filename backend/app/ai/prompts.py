@@ -112,12 +112,34 @@ SPECIALIZED = {
     ),
 }
 
+# Think-mode response contract. This is a *presentation* contract over already
+# authorized evidence — it does not widen the tool set, the record scope or the
+# context budget, and it never asks the model to reveal hidden chain-of-thought.
+THINK_STRUCTURE = (
+    "This is a Think-mode answer. Be complete where the evidence warrants it and "
+    "brief where it does not — never pad with generic prose. Use exactly these "
+    "sections, omitting any that have nothing to support them:\n"
+    "1. **Rationale** — 1-3 sentences on how you reached the conclusion and which "
+    "records you relied on. This is a summary of the approach, not hidden "
+    "reasoning; never fabricate intermediate steps.\n"
+    "2. **Facts** — bullet points, each ending with a citation to the record id, "
+    "filename or entity id it came from.\n"
+    "3. **Uncertainty** — what the evidence does not establish, and how confident "
+    "the underlying data actually is.\n"
+    "4. **Alternative explanations** — other plausible readings of the same "
+    "records, or 'none supported by the current data'.\n"
+    "5. **Open questions** — concrete next things to verify.\n"
+    "If a required record was unavailable or a lookup failed, say so in "
+    "**Uncertainty** instead of guessing."
+)
+
 
 def build_system_prompt(
     mode: str,
     *,
     tool_list: str | None = None,
     has_case_data: bool = False,
+    structured: bool = False,
 ) -> str:
     """Assemble the versioned system prompt for one completion."""
     parts = [BASE_PREAMBLE, SPECIALIZED.get(mode, SPECIALIZED["general"])]
@@ -142,6 +164,8 @@ def build_system_prompt(
                 "when the question explicitly asks for distinct or different "
                 "entities."
             )
+    if structured:
+        parts.append(THINK_STRUCTURE)
     if tool_list:
         # Replace manually: TOOL_INSTRUCTION contains literal JSON braces that
         # str.format would misinterpret as format fields.

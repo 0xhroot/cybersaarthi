@@ -33,7 +33,19 @@ interface ChatMessage {
   grounded?: boolean;
   pending?: boolean;
   error?: string;
+  /** Live status from `progress` SSE events ("retrieving…" / "synthesizing…"). */
+  progress?: string;
 }
+
+/** User-controlled latency/quality trade-off sent as `profile`. */
+type ChatProfile = "quick" | "think";
+
+const PROFILE_LABEL: Record<ChatProfile, string> = { quick: "Quick", think: "Think" };
+
+const PHASE_LABEL: Record<string, string> = {
+  retrieving: "Retrieving authorized records…",
+  synthesizing: "Synthesizing answer…",
+};
 
 type PanelView = "chat" | "history";
 
@@ -92,6 +104,7 @@ export function Assistant() {
   const [view, setView] = useState<PanelView>("chat");
   const [ready, setReady] = useState<boolean | null>(null);
   const [input, setInput] = useState("");
+  const [profile, setProfile] = useState<ChatProfile>("quick");
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -230,13 +243,16 @@ export function Assistant() {
             mode: caseId ? "case" : "general",
             case_id: caseId,
             conversation_id: activeConversationId,
+            profile,
           },
           {
             onToken: (text) => {
               sawToken = true;
               answer += text;
-              patchAssistant({ content: answer });
+              patchAssistant({ content: answer, progress: undefined });
             },
+            onProgress: (info) =>
+              patchAssistant({ progress: PHASE_LABEL[info.phase] ?? `Working (${info.phase})…` }),
             onSources: (sources) => patchAssistant({ sources }),
             onTool: (event) => {
               // Tokens streamed before a `tool` event are the raw tool fence
@@ -249,6 +265,7 @@ export function Assistant() {
             onError: (message) => {
               patchAssistant({
                 pending: false,
+                progress: undefined,
                 error: message,
                 content: answer || "",
               });
@@ -256,6 +273,7 @@ export function Assistant() {
             onDone: (info) => {
               patchAssistant({
                 pending: false,
+                progress: undefined,
                 content:
                   answer ||
                   info.answer ||
@@ -289,7 +307,7 @@ export function Assistant() {
         setBusy(false);
       }
     },
-    [input, busy, caseId, conversationId],
+    [input, busy, caseId, conversationId, profile],
   );
 
   const stop = useCallback(() => {
@@ -543,7 +561,7 @@ export function Assistant() {
                       {message.role === "assistant" && message.pending && !message.content && (
                         <span className="inline-flex items-center gap-1.5 text-dim">
                           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-                          Thinking…
+                          {message.progress ?? "Thinking…"}
                         </span>
                       )}
                       {message.content &&
@@ -799,6 +817,30 @@ export function Assistant() {
               <label htmlFor="assistant-input" className="sr-only">
                 Ask the assistant
               </label>
+              <div
+                role="radiogroup"
+                aria-label="Response mode"
+                className="flex shrink-0 rounded-md border border-border bg-surface-3 p-0.5"
+              >
+                {(["quick", "think"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={profile === value}
+                    data-testid={`assistant-profile-${value}`}
+                    onClick={() => setProfile(value)}
+                    className={cn(
+                      "rounded px-2 py-1 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                      profile === value
+                        ? "bg-accent-soft text-accent-strong"
+                        : "text-muted hover:text-foreground",
+                    )}
+                  >
+                    {PROFILE_LABEL[value]}
+                  </button>
+                ))}
+              </div>
               <textarea
                 id="assistant-input"
                 ref={textareaRef}

@@ -714,7 +714,7 @@ const healthService: ApiHealthService = {
 };
 
 interface AiStreamEvent {
-  type: "token" | "sources" | "tool" | "done" | "error";
+  type: "token" | "sources" | "tool" | "progress" | "done" | "error";
   text?: string;
   answer?: string;
   conversation_id?: string;
@@ -730,6 +730,11 @@ interface AiStreamEvent {
   completion_tokens?: number | null;
   code?: string;
   message?: string;
+  // `progress` event only.
+  phase?: string;
+  profile?: string;
+  iteration?: number;
+  of?: number;
 }
 
 const aiService: ApiAiService = {
@@ -786,6 +791,14 @@ const aiService: ApiAiService = {
           switch (event.type) {
             case "token":
               if (event.text) callbacks.onToken?.(event.text);
+              break;
+            case "progress":
+              callbacks.onProgress?.({
+                phase: event.phase ?? "working",
+                profile: event.profile,
+                iteration: event.iteration,
+                of: event.of,
+              });
               break;
             case "sources":
               callbacks.onSources?.(event.sources ?? []);

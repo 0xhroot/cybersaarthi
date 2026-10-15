@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from app.ai.prompts import build_system_prompt
 from app.ai.schemas import SourceRef
 from app.ai.service import AIService, _profile_for
 from app.api.errors import ApiHTTPException
@@ -146,3 +147,150 @@ def test_profile_budgets_are_respected_by_engine_settings(service: AIService) ->
         p = _profile_for(settings, name)
         assert p.max_tokens > 0
         assert p.tool_iterations >= 1
+
+
+# -- think mode (Phase 1) --------------------------------------------------
+
+
+def test_think_maps_onto_the_deep_budget(service: AIService) -> None:
+    """`think` is an alias for `deep`'s budget — one source of truth, no drift."""
+    settings = get_settings()
+    think = _profile_for(settings, "think")
+    deep = _profile_for(settings, "deep")
+    assert think.max_tokens == deep.max_tokens
+    assert think.tool_iterations == deep.tool_iterations
+
+
+def test_think_requests_structured_and_deep_does_not(service: AIService) -> None:
+    """Only `think` opts into the structured rationale/uncertainty contract."""
+    settings = get_settings()
+    assert _profile_for(settings, "think").structured is True
+    assert _profile_for(settings, "deep").structured is False
+    assert _profile_for(settings, "standard").structured is False
+    assert _profile_for(settings, "quick").structured is False
+
+
+def test_think_is_case_insensitive_and_trimmed(service: AIService) -> None:
+    """A client may send any casing; budgets must not silently fall back."""
+    settings = get_settings()
+    resolved = _profile_for(settings, "  THINK ")
+    assert resolved.name == "think"
+    assert resolved.structured is True
+
+
+def test_think_still_spends_more_than_quick(service: AIService) -> None:
+    """Think must genuinely be the larger budget, not a relabelled quick."""
+    settings = get_settings()
+    think = _profile_for(settings, "think")
+    quick = _profile_for(settings, "quick")
+    assert think.max_tokens > quick.max_tokens
+    assert think.tool_iterations > quick.tool_iterations
+
+
+def test_think_prompt_contract_has_required_sections() -> None:
+    """The Think prompt must demand rationale, facts, uncertainty, alternatives
+    and open questions — and must never ask for hidden chain-of-thought."""
+    prompt = build_system_prompt("general", structured=True)
+    for section in (
+        "Rationale",
+        "Facts",
+        "Uncertainty",
+        "Alternative explanations",
+        "Open questions",
+    ):
+        assert section in prompt, section
+    # Explicitly out of scope: the contract asks for a *summary* of the
+    # approach, never fabricated intermediate reasoning steps.
+    assert "not hidden reasoning" in prompt
+    assert "never fabricate intermediate steps" in prompt
+
+
+def test_structured_prompt_is_only_added_when_requested() -> None:
+    assert "Think-mode" not in build_system_prompt("general")
+    assert "Think-mode" in build_system_prompt("general", structured=True)
+
+
+# -- context budget enforcement (Phase 1) ----------------------------------
+
+
+def test_history_is_clamped_when_prompt_would_overflow(service: AIService) -> None:
+    """Oldest turns are dropped first; system/data/question are never touched."""
+    huge = "word " * 20_000  # ~25k tokens, far over the 8192-token slot
+    history = [
+        {"role": "user", "content": huge},
+        {"role": "assistant", "content": huge},
+        {"role": "user", "content": "recent question"},
+    ]
+    trimmed = service._clamp_history_to_budget(
+        "SYSTEM", "", "current question", history, max_tokens=768
+    )
+    # The two huge oldest turns are gone; the recent turn survives.
+    assert all(huge not in m["content"] for m in trimmed)
+    assert trimmed == [{"role": "user", "content": "recent question"}]
+
+
+def test_history_is_left_intact_when_it_already_fits(service: AIService) -> None:
+    history = [
+        {"role": "user", "content": "short q"},
+        {"role": "assistant", "content": "short a"},
+    ]
+    trimmed = service._clamp_history_to_budget(
+        "SYSTEM", "", "q", list(history), max_tokens=160
+    )
+    assert trimmed == history
+
+
+def test_clamp_reserves_generation_room(service: AIService) -> None:
+    """A larger max_tokens budget leaves less room for history."""
+    history = [{"role": "user", "content": "filler " * 1_000}]
+    small = service._clamp_history_to_budget("S", "", "q", list(history), max_tokens=160)
+    large = service._clamp_history_to_budget("S", "", "q", list(history), max_tokens=768)
+    assert len(large) <= len(small)
+
+
+# -- cancellation (Phase 1) -------------------------------------------------
+
+
+async def test_closing_the_sse_generator_cancels_the_producer(
+    service: AIService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stop/disconnect contract: closing the event generator must cancel the
+    in-flight llama.cpp generation, not merely abandon it."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from starlette.requests import Request
+
+    cancelled = asyncio.Event()
+
+    async def slow_stream(messages, *, max_tokens, temperature=0.2, stop=None):
+        try:
+            yield "token-1 "
+            await asyncio.sleep(30)
+            yield "token-2"  # pragma: no cover - never reached
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    async def noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(service.client, "chat_stream", slow_stream)
+    monkeypatch.setattr(service, "ensure_ready", noop)
+    monkeypatch.setattr(service, "check_rate_limit", noop)
+
+    request = Request(
+        {"type": "http", "method": "POST", "path": "/ai/chat/stream", "headers": []}
+    )
+    user = SimpleNamespace(id=uuid.uuid4())
+
+    gen = service.ask_stream(request, None, user, question="hi")  # type: ignore[arg-type]
+    first = await gen.__anext__()
+    assert first["type"] == "progress"
+
+    # Client disconnect / Stop button: the ASGI layer closes the generator.
+    await gen.aclose()
+
+    # `aclose()` runs ask_stream's finally block, which cancels and awaits the
+    # producer task — so cancellation must already be visible.
+    assert cancelled.is_set(), "producer kept generating after the client left"

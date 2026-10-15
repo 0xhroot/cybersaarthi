@@ -66,6 +66,13 @@ TOOL_FENCE_RE = re.compile(
 MAX_QUESTION_CHARS = 4_000
 DEFAULT_MAX_TOKENS = 512
 TITLE_MAX_CHARS = 80
+# Appended to the last in-budget TOOL_RESULT when the model has already spent
+# its tool rounds: the next completion must be a direct answer, so a tool fence
+# can never be returned verbatim as the response.
+FINAL_ROUND_NUDGE = (
+    "\nFINAL ROUND: answer the original question now from the data above, "
+    "citing source ids. Do not call any more tools."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,31 +82,40 @@ class AnswerProfile:
     ``max_tokens`` bounds the generated answer; ``tool_iterations`` bounds the
     tool loop. Both are floors — a profile never disables grounding, citations
     or the security fences, it only spends fewer of them.
+
+    ``structured`` requests the Think-style response contract (concise
+    rationale, facts with citations, uncertainty, alternatives, open questions).
+    It never widens authorization or the tool set; it only changes how the
+    existing authorized evidence is presented.
     """
 
     name: str
     max_tokens: int
     tool_iterations: int
+    structured: bool = False
 
 
 def _profile_for(settings: Settings, name: str | None) -> AnswerProfile:
     """Map a requested profile (or the configured default) to its budgets.
 
-    An unknown profile falls back to the configured default rather than
-    raising, so a stale client can never hard-fail a chat turn.
+    ``think`` reuses the ``deep`` budget definition (single source of truth for
+    the larger generation/tool budget) and additionally requests the structured
+    response contract. An unknown profile falls back to the configured default
+    rather than raising, so a stale client can never hard-fail a chat turn.
     """
-    resolved = name or settings.AI_DEFAULT_PROFILE
+    resolved = (name or settings.AI_DEFAULT_PROFILE).strip().lower()
     if resolved == "quick":
         return AnswerProfile(
             "quick",
             settings.AI_PROFILE_QUICK_MAX_TOKENS,
             settings.AI_PROFILE_QUICK_TOOL_ITERATIONS,
         )
-    if resolved == "deep":
+    if resolved in {"deep", "think"}:
         return AnswerProfile(
-            "deep",
+            resolved,
             settings.AI_PROFILE_DEEP_MAX_TOKENS,
             settings.AI_PROFILE_DEEP_TOOL_ITERATIONS,
+            structured=resolved == "think",
         )
     return AnswerProfile(
         "standard",
@@ -349,7 +365,14 @@ class AIService:
         conversation: AIConversation | None = None,
         profile: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """SSE event stream. Events: sources | tool | token | done | error."""
+        """SSE event stream.
+
+        Events: ``progress`` | ``sources`` | ``tool`` | ``token`` | ``done`` |
+        ``error``. ``progress`` carries a ``phase`` (``retrieving`` |
+        ``synthesizing``), the active ``profile`` and iteration counters so the
+        client can show a live status while generation runs. Closing the
+        connection cancels the in-flight generation (see ``finally`` below).
+        """
         try:
             await self.ensure_ready()
             await self.check_rate_limit(request, user)
@@ -486,6 +509,7 @@ class AIService:
             mode,
             tool_list=tool_list_for_prompt(enabled_tools) if enabled_tools else None,
             has_case_data=bool(data_block),
+            structured=answer_profile.structured,
         )
 
         ctx = ToolContext(request=request, session=session, user=user, case=case)
@@ -496,6 +520,9 @@ class AIService:
         history = await load_history_messages(
             session, conversation, self.settings.AI_MAX_HISTORY_MESSAGES
         ) if conversation else []
+        history = self._clamp_history_to_budget(
+            system_prompt, data_block, question, history, max_tokens
+        )
         messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         if data_block:
             messages.append({"role": "system", "content": data_block})
@@ -503,8 +530,20 @@ class AIService:
         messages.append({"role": "user", "content": question})
 
         async with self._generation_semaphore:
-            for iteration in range(max(1, answer_profile.tool_iterations)):
-                final = iteration >= answer_profile.tool_iterations - 1
+            if stream_events is not None:
+                await stream_events(
+                    {
+                        "type": "progress",
+                        "phase": "retrieving",
+                        "profile": answer_profile.name,
+                        "iteration": 1,
+                        "of": max(1, answer_profile.tool_iterations),
+                    }
+                )
+            budget = max(1, answer_profile.tool_iterations)
+            rounds = 0
+            forced_answer = False
+            while True:
                 if stream_events is not None:
                     # Stream every iteration so tokens reach the client as soon
                     # as they exist (the previous iteration buffered the whole
@@ -531,8 +570,19 @@ class AIService:
                     prompt_tokens = result.prompt_tokens
                     first_token_ms = None
 
+                rounds += 1
+                budget_exhausted = rounds >= budget
                 proposal = self._parse_tool_call(answer)
-                if proposal is not None and not final and proposal.tool not in enabled_tools:
+
+                if proposal is not None and forced_answer:
+                    # The model fenced even after being told this was the final
+                    # round. Fail with an honest protocol error — never return a
+                    # raw tool fence as the answer.
+                    raise InferenceProtocolError(
+                        "model returned a tool call instead of the final answer"
+                    )
+
+                if proposal is not None and proposal.tool not in enabled_tools:
                     # Fabricated/unknown tool: never execute, but tell the model
                     # so it can recover with a real answer on the next turn.
                     if stream_events is not None:
@@ -569,11 +619,14 @@ class AIService:
                                 "=== END TOOL_RESULT ===\n"
                                 "Call a valid tool if needed, or answer the original "
                                 "question directly."
+                                + (FINAL_ROUND_NUDGE if budget_exhausted else "")
                             ),
                         }
                     )
+                    if budget_exhausted:
+                        forced_answer = True
                     continue
-                if proposal is not None and not final and proposal.tool in enabled_tools:
+                if proposal is not None:
                     if stream_events is not None:
                         args = _safe_args(proposal.arguments)
                         await stream_events(
@@ -611,15 +664,27 @@ class AIService:
                                 "=== END TOOL_RESULT ===\n"
                                 "Call another tool if needed, or answer the original question "
                                 "grounded in the data with source ids."
+                                + (FINAL_ROUND_NUDGE if budget_exhausted else "")
                             ),
                         }
                     )
+                    if budget_exhausted:
+                        forced_answer = True
                     continue
 
                 # Final answer (or model declined to call a tool).
                 sources = self._filter_sources(_dedupe_sources(all_sources), case)
                 grounded = bool(sources)
                 if stream_events is not None:
+                    await stream_events(
+                        {
+                            "type": "progress",
+                            "phase": "synthesizing",
+                            "profile": answer_profile.name,
+                            "iteration": rounds,
+                            "of": budget,
+                        }
+                    )
                     # Tokens were streamed live during this iteration.
                     await stream_events(
                         {"type": "sources", "sources": [s.model_dump() for s in sources]}
@@ -635,9 +700,10 @@ class AIService:
                     completion_tokens=completion_tokens,
                     duration_ms=duration_ms,
                     first_token_ms=first_token_ms,
-                    iterations=iteration + 1,
+                    iterations=rounds,
                 )
 
+        # Unreachable safety net: the loop above always returns or raises.
         raise InferenceProtocolError("tool loop exhausted without a final answer")
 
     def _parse_tool_call(self, answer: str) -> ToolCallProposal | None:
@@ -654,6 +720,42 @@ class AIService:
         if not isinstance(arguments, dict):
             return None
         return ToolCallProposal(tool=str(data["tool"])[:64], arguments=arguments)
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """Cheap token estimate (~4 chars/token) for context-budget checks."""
+        return (len(text) + 3) // 4
+
+    def _clamp_history_to_budget(
+        self,
+        system_prompt: str,
+        data_block: str,
+        question: str,
+        history: list[dict[str, str]],
+        max_tokens: int,
+    ) -> list[dict[str, str]]:
+        """Drop the oldest history turns until the prompt fits one context slot.
+
+        The per-slot budget is ``AI_CONTEXT_LENGTH``; the model needs room to
+        generate ``max_tokens`` on top of the prompt. Overflow here would make
+        llama.cpp truncate unpredictably (or fail), so we shed the least
+        recent, least relevant turns first and never touch the system prompt,
+        the case data block or the current question.
+        """
+        budget = self.settings.AI_CONTEXT_LENGTH
+        # Reserve generation room plus a small safety margin for templating.
+        prompt_budget = max(512, budget - max_tokens - 256)
+        fixed = self._estimate_tokens(system_prompt + data_block + question)
+
+        def total(msgs: list[dict[str, str]]) -> int:
+            return fixed + sum(
+                self._estimate_tokens(m.get("content", "")) for m in msgs
+            )
+
+        trimmed = list(history)
+        while trimmed and total(trimmed) > prompt_budget:
+            trimmed.pop(0)
+        return trimmed
 
     def _filter_sources(self, sources: list[SourceRef], case: Case | None) -> list[SourceRef]:
         """Belt-and-braces: drop any source pointing at a different case."""

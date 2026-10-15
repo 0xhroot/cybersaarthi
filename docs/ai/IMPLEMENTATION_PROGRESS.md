@@ -261,3 +261,63 @@ passed** + tsc + eslint clean, ruff + mypy clean (141 files). **Eval 33/33 exit
 NULL-owner cases are empty shells (`owner_id` NULL → invisible to non-admins,
 never populated).
 
+
+---
+
+## 2026-10-16 — AI Expansion Phase 0 + Phase 1 (Think mode)
+
+**Phase 0 audit** recorded in `docs/ai/AI_EXPANSION_AUDIT.md` (HEAD `f983883`).
+Key reconciliations: the "Analysis page" is the `/analytics` route; Think maps
+onto the existing `deep` profile (Stage B budget machinery reused, not
+duplicated); hypothesis confidence is an explicit heuristic
+(`0.35 + 0.15*neighbors`) that must never be relabelled as a probability.
+
+**Phase 1 — Quick/Think mode:**
+- `AiProfile` gains `think`: same budget as `deep` (`AI_PROFILE_DEEP_*`, one
+  source of truth) plus `AnswerProfile.structured`.
+- Think structured-response contract (`prompts.THINK_STRUCTURE`): Rationale /
+  Facts (cited) / Uncertainty / Alternative explanations / Open questions —
+  explicitly a presentation contract, never hidden chain-of-thought, never a
+  widening of tools or record scope.
+- New SSE `progress` events (`retrieving` | `synthesizing`, profile + iteration
+  counters) streamed to the client; frontend shows live status instead of a
+  bare spinner.
+- Context-budget enforcement: `_clamp_history_to_budget()` drops oldest
+  history turns first when prompt + max_tokens would exceed the per-slot
+  `AI_CONTEXT_LENGTH`; system prompt, case data and current question are never
+  truncated.
+- Cancellation: client Stop/disconnect closes the SSE generator, whose
+  `finally` cancels and awaits the in-flight generation (contract now tested).
+- Frontend: Quick/Think segmented toggle in the floating assistant, `profile`
+  on every request, `onProgress` callback wired through contract → real adapter.
+- **Tool-loop defect found and fixed (pre-existing since Stage B):** if the
+  model emitted a tool fence on its last allowed round, the raw fence was
+  returned verbatim as the answer (live-confirmed: quick "summarize
+  SHOW-2026-001" answered with JSON). Now the last in-budget round still
+  executes the authorized tool and forces one answer round
+  (`FINAL_ROUND_NUDGE`); if the model fences again the API fails closed with an
+  honest 503 instead of leaking the fence. Bounded: at most
+  `tool_iterations + 1` completions.
+
+**Tests:** backend hermetic **595 passed** (591+4 tool-loop + cancellation test
+in unit), integration **8 passed**, frontend **110 passed** (18 files) + tsc +
+eslint clean, ruff + mypy clean (141 files).
+
+**Eval:** `./scripts/ai/eval_model.sh` → **33/33, exit 0**; gates
+`abstention_100pct`, `zero_ungrounded_answers`, `zero_invalid_sources` all
+true; fact recall **1.0** (53/53), groundedness **1.0** (1043/1043),
+abstention 4/4; latency avg **1011 ms**, max 3196 ms over 29 completions.
+
+**Live (after `docker compose restart backend`, llama-server 200):**
+- quick "Summarize case SHOW-2026-001" → grounded 506-char answer, 2 tool
+  calls, no fence, wall 2349 ms (was: raw tool fence).
+- think same question → structured Rationale/Facts answer, 1434 chars,
+  grounded, wall 4057 ms.
+- Both streams emitted `progress: retrieving → synthesizing`.
+- Server config unchanged: `--ctx-size 16384 --parallel 2` (8192/slot); no
+  context, parallelism or model changes.
+
+**Known limitations:** Think wall time is ~1.7× quick on showcase questions
+(measured, n=1 per mode — not a statistical claim); progress phases are coarse
+(two states); the forced-answer round adds at most one extra completion when a
+model refuses to stop calling tools.

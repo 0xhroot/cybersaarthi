@@ -402,6 +402,11 @@ export interface AiChatInput {
   mode?: "general" | "case" | "evidence" | "graph" | "copilot" | "report" | "knowledge";
   case_id?: string | null;
   conversation_id?: string | null;
+  /**
+   * Latency/quality trade-off. `think` spends the larger budget and asks for a
+   * structured rationale/uncertainty/citations answer. Omitted = server default.
+   */
+  profile?: "quick" | "standard" | "deep" | "think";
 }
 
 export interface AiChatResult {
@@ -422,6 +427,17 @@ export interface AiStreamCallbacks {
   onToken?: (text: string) => void;
   onSources?: (sources: AiSource[]) => void;
   onTool?: (event: AiToolEvent) => void;
+  /**
+   * Live status while generation runs (`progress` SSE event). Lets the UI show
+   * "retrieving…" / "synthesizing…" instead of a bare spinner. Optional so
+   * existing consumers are unaffected.
+   */
+  onProgress?: (info: {
+    phase: "retrieving" | "synthesizing" | string;
+    profile?: string;
+    iteration?: number;
+    of?: number;
+  }) => void;
   onDone?: (info: {
     answer?: string;
     /**

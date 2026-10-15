@@ -13,7 +13,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 AiMode = Literal["general", "case", "evidence", "graph", "copilot", "report", "knowledge"]
-AiProfile = Literal["quick", "standard", "deep"]
+# ``think`` is the user-facing name for the ``deep`` budget plus a structured
+# rationale/uncertainty response (see AnswerProfile.structured). ``deep`` is
+# kept for compatibility — the two share one budget definition.
+AiProfile = Literal["quick", "standard", "deep", "think"]
 
 
 class AiSourceOut(BaseModel):
@@ -40,8 +43,10 @@ class AiChatRequest(BaseModel):
 
     ``profile`` selects a latency/quality trade-off: ``quick`` (short answers,
     fewer tool iterations), ``standard`` (default), ``deep`` (larger budget,
-    more tool iterations). Defaults to the server-configured
-    ``AI_DEFAULT_PROFILE`` when omitted, so existing clients are unaffected.
+    more tool iterations), ``think`` (the ``deep`` budget plus a structured
+    rationale/uncertainty/citations response and streamed progress states).
+    Defaults to the server-configured ``AI_DEFAULT_PROFILE`` when omitted, so
+    existing clients are unaffected.
     """
 
     question: str = Field(min_length=1, max_length=4000)

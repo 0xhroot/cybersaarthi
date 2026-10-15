@@ -1158,3 +1158,211 @@ async def test_deep_profile_uses_a_larger_generation_budget(
 
     assert deep_tokens == settings.AI_PROFILE_DEEP_MAX_TOKENS
     assert deep_tokens > default_tokens
+
+
+# -- think mode (Phase 1) --------------------------------------------------
+
+
+async def test_chat_accepts_the_think_profile(
+    http_client, ai_service, monkeypatch
+) -> None:
+    """`think` is a first-class profile value (alias for the deep budget)."""
+    prefix = get_settings().API_V1_PREFIX
+    _stub_chat(ai_service, monkeypatch, ["ok"])
+    resp = await http_client.post(
+        f"{prefix}/ai/chat", json={"question": "hi", "profile": "think"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["answer"] == "ok"
+
+
+async def test_think_spends_the_deep_budget(
+    http_client, ai_service, monkeypatch
+) -> None:
+    """Think reuses the deep generation budget rather than inventing its own."""
+    prefix = get_settings().API_V1_PREFIX
+    settings = get_settings()
+    _, seen_max_tokens = _stub_chat(ai_service, monkeypatch, ["ok", "ok"])
+
+    await http_client.post(f"{prefix}/ai/chat", json={"question": "a", "profile": "deep"})
+    deep_tokens = seen_max_tokens[-1]
+    await http_client.post(f"{prefix}/ai/chat", json={"question": "b", "profile": "think"})
+    think_tokens = seen_max_tokens[-1]
+
+    assert think_tokens == deep_tokens == settings.AI_PROFILE_DEEP_MAX_TOKENS
+
+
+async def test_think_sends_the_structured_contract_to_the_model(
+    http_client, ai_service, monkeypatch
+) -> None:
+    """The Think system prompt must carry the rationale/uncertainty contract."""
+    prefix = get_settings().API_V1_PREFIX
+    seen, _ = _stub_chat(ai_service, monkeypatch, ["ok"])
+
+    await http_client.post(f"{prefix}/ai/chat", json={"question": "hi", "profile": "think"})
+    think_prompt = seen[-1][0]["content"]
+
+    await http_client.post(f"{prefix}/ai/chat", json={"question": "hi", "profile": "quick"})
+    quick_prompt = seen[-1][0]["content"]
+
+    assert "Uncertainty" in think_prompt
+    assert "Alternative explanations" in think_prompt
+    assert "Uncertainty" not in quick_prompt
+
+
+async def test_stream_emits_progress_states(http_client, ai_service, monkeypatch) -> None:
+    """Progress events reach the client so Think can show live status."""
+    prefix = get_settings().API_V1_PREFIX
+    _stub_chat(ai_service, monkeypatch, ["Streamed hello."])
+
+    events = []
+    async with http_client.stream(
+        "POST", f"{prefix}/ai/chat/stream", json={"question": "hello"}
+    ) as resp:
+        assert resp.status_code == 200
+        async for line in resp.aiter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[len("data: "):]))
+
+    progress = [e for e in events if e["type"] == "progress"]
+    assert progress, "expected at least one progress event"
+    phases = [p["phase"] for p in progress]
+    assert phases[0] == "retrieving"
+    assert "synthesizing" in phases
+    for p in progress:
+        assert p["of"] >= 1
+        assert 1 <= p["iteration"] <= p["of"]
+
+
+async def test_stream_progress_carries_the_requested_profile(
+    http_client, ai_service, monkeypatch
+) -> None:
+    """Progress echoes the active profile so the UI can label the mode."""
+    prefix = get_settings().API_V1_PREFIX
+    _stub_chat(ai_service, monkeypatch, ["Streamed."])
+
+    events = []
+    async with http_client.stream(
+        "POST", f"{prefix}/ai/chat/stream", json={"question": "hi", "profile": "think"}
+    ) as resp:
+        async for line in resp.aiter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[len("data: "):]))
+
+    progress = [e for e in events if e["type"] == "progress"]
+    assert progress and all(p["profile"] == "think" for p in progress)
+
+
+async def test_progress_never_reorders_before_done(
+    http_client, ai_service, monkeypatch
+) -> None:
+    """`done` must remain the terminal event for existing clients."""
+    prefix = get_settings().API_V1_PREFIX
+    _stub_chat(ai_service, monkeypatch, ["final"])
+
+    events = []
+    async with http_client.stream(
+        "POST", f"{prefix}/ai/chat/stream", json={"question": "hi"}
+    ) as resp:
+        async for line in resp.aiter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[len("data: "):]))
+
+    assert events[-1]["type"] == "done"
+
+
+# -- tool loop budget enforcement (Phase 1) --------------------------------
+
+
+def _fence(tool: str, case_id: str) -> str:
+    return f'```tool_call\n{{"tool": "{tool}", "arguments": {{"case_id": "{case_id}"}}}}\n```'
+
+
+async def test_tool_fence_on_the_last_round_never_becomes_the_answer(
+    http_client, ai_service, monkeypatch, _owned_case
+) -> None:
+    """If the model keeps calling tools until its budget runs out, the loop
+    executes the last call and forces one answer round — a raw tool fence must
+    never be returned verbatim as the final answer."""
+    prefix = get_settings().API_V1_PREFIX
+    case_id = str(_owned_case)
+    fence = _fence("get_case_summary", case_id)
+    _stub_chat(ai_service, monkeypatch, [fence, fence, "Grounded answer."])
+
+    resp = await http_client.post(
+        f"{prefix}/ai/chat",
+        json={"question": "summarize", "mode": "case", "case_id": case_id, "profile": "quick"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["answer"] == "Grounded answer."
+    assert "tool_call" not in body["answer"]
+    assert len(body["tool_events"]) == 2
+    assert all(e["ok"] for e in body["tool_events"])
+
+
+async def test_budget_round_appends_an_explicit_final_round_nudge(
+    http_client, ai_service, monkeypatch, _owned_case
+) -> None:
+    """The completion after budget exhaustion must see the FINAL ROUND nudge."""
+    prefix = get_settings().API_V1_PREFIX
+    case_id = str(_owned_case)
+    fence = _fence("get_case_summary", case_id)
+    seen, _ = _stub_chat(ai_service, monkeypatch, [fence, fence, "Grounded answer."])
+
+    await http_client.post(
+        f"{prefix}/ai/chat",
+        json={"question": "summarize", "mode": "case", "case_id": case_id, "profile": "quick"},
+    )
+
+    # The third completion (the forced answer round) receives the nudge.
+    forced = seen[-1]
+    assert "FINAL ROUND" in forced[-1]["content"]
+    # Earlier rounds must NOT be told the round is final.
+    assert all("FINAL ROUND" not in m["content"] for m in seen[0])
+
+
+async def test_a_model_that_only_emits_tool_calls_fails_closed(
+    http_client, ai_service, monkeypatch, _owned_case
+) -> None:
+    """If the model still fences after the forced answer round, the API fails
+    with an honest error instead of returning the fence or inventing text."""
+    prefix = get_settings().API_V1_PREFIX
+    case_id = str(_owned_case)
+    fence = _fence("get_case_summary", case_id)
+    _stub_chat(ai_service, monkeypatch, [fence, fence, fence, fence])
+
+    resp = await http_client.post(
+        f"{prefix}/ai/chat",
+        json={"question": "summarize", "mode": "case", "case_id": case_id, "profile": "quick"},
+    )
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["error"]["code"] == "AI_UNAVAILABLE"
+
+
+async def test_stream_never_uses_a_tool_fence_as_done_answer(
+    http_client, ai_service, monkeypatch, _owned_case
+) -> None:
+    """Streaming variant: `done.answer` carries real text, and each streamed
+    fence is followed by a `tool` event so clients clear the buffer."""
+    prefix = get_settings().API_V1_PREFIX
+    case_id = str(_owned_case)
+    fence = _fence("get_case_summary", case_id)
+    _stub_chat(ai_service, monkeypatch, [fence, fence, "Streamed answer."])
+
+    events = []
+    async with http_client.stream(
+        "POST",
+        f"{prefix}/ai/chat/stream",
+        json={"question": "summarize", "mode": "case", "case_id": case_id, "profile": "quick"},
+    ) as resp:
+        assert resp.status_code == 200
+        async for line in resp.aiter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[len("data: "):]))
+
+    done = events[-1]
+    assert done["type"] == "done"
+    assert done["answer"] == "Streamed answer."
+    tool_events = [e for e in events if e["type"] == "tool"]
+    assert len(tool_events) == 2
