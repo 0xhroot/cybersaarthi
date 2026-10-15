@@ -28,6 +28,10 @@ class AiToolEventOut(BaseModel):
     ok: bool
     arguments: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+    # Structured outcome (case_not_found_or_not_accessible / case_found_but_empty
+    # / case_found_with_data / case_ambiguous / lookup_error) so clients can tell
+    # an authorized miss from an empty case from a hard lookup failure.
+    status: str | None = None
     duration_ms: int | None = None
 
 

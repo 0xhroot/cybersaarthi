@@ -474,12 +474,11 @@ class AIService:
                 data_block = ""
 
         enabled_tools: dict[str, ToolSpec] = dict(TOOLS)
-        if case is None:
-            enabled_tools.pop("list_evidence", None)
-            enabled_tools.pop("get_timeline", None)
-            enabled_tools.pop("get_analytics_summary", None)
-            enabled_tools.pop("get_case_summary", None)
-            enabled_tools.pop("rank_entities", None)
+        # Case tools are safe even without a route-bound case: each resolves its
+        # own reference (UUID / case number / exact name) and re-checks the
+        # caller's authorization before returning any record. Keeping them
+        # enabled in general mode is what lets the chatbot find a case by name
+        # or number and then summarize it — the exact flow that was broken.
         if not self.settings.AI_KNOWLEDGE_ENABLED:
             enabled_tools.pop("search_knowledge", None)
 
@@ -589,15 +588,19 @@ class AIService:
                             "ok": exec_result.ok,
                             "arguments": _safe_args(proposal.arguments),
                             "error": exec_result.error,
+                            "status": exec_result.status,
                             "duration_ms": None,
                         }
                     )
                     all_sources.extend(exec_result.sources)
-                    payload = (
-                        json.dumps(exec_result.payload, default=str)[:6000]
-                        if exec_result.ok
-                        else f"ERROR: {exec_result.error}"
-                    )
+                    if exec_result.ok:
+                        payload = json.dumps(exec_result.payload, default=str)[:6000]
+                    else:
+                        # Surface the structured status so the model can tell a
+                        # permission-scoped miss from a hard lookup failure —
+                        # never collapse either into "the case does not exist".
+                        status = f" [{exec_result.status}]" if exec_result.status else ""
+                        payload = f"ERROR{status}: {exec_result.error}"[:6000]
                     messages.append({"role": "assistant", "content": answer})
                     messages.append(
                         {

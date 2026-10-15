@@ -13,6 +13,9 @@ loaded into prompts.
 from __future__ import annotations
 
 import asyncio
+import logging
+import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import func, select
@@ -46,6 +49,8 @@ METRICS_LIMIT = 12
 CASE_SEARCH_LIMIT = 10
 MAX_FIELD_CHARS = 300
 
+logger = logging.getLogger(__name__)
+
 
 def _clip(value: str | None, limit: int = MAX_FIELD_CHARS) -> str:
     if not value:
@@ -58,8 +63,15 @@ def _iso(value: Any) -> str:
     return value.isoformat(sep=" ", timespec="seconds") if value is not None else ""
 
 
-async def case_summary(session: AsyncSession, case: Case) -> tuple[str, list[SourceRef]]:
-    """Compact case header plus record counts."""
+async def case_summary(
+    session: AsyncSession, case: Case
+) -> tuple[str, list[SourceRef], dict[str, int]]:
+    """Compact case header plus record counts.
+
+    Returns ``(text, sources, counts)``. ``counts`` lets callers distinguish a
+    case that exists but is empty from one that carries records without
+    re-querying.
+    """
     case_id = str(case.id)
 
     async def count(model: Any) -> int:
@@ -68,13 +80,20 @@ async def case_summary(session: AsyncSession, case: Case) -> tuple[str, list[Sou
             .scalar_one()
         )
 
-    entity_count, evidence_count, finding_count = await asyncio.gather(
-        count(Entity), count(EvidenceFile), count(Finding)
+    entity_count, evidence_count, finding_count, timeline_count = await asyncio.gather(
+        count(Entity), count(EvidenceFile), count(Finding), count(TimelineEvent)
     )
     victim_count = int(
         (await session.execute(select(func.count(Victim.id)).where(Victim.case_id == case.id)))
         .scalar_one()
     )
+    counts: dict[str, int] = {
+        "entities": entity_count,
+        "evidence": evidence_count,
+        "findings": finding_count,
+        "victims": victim_count,
+        "timeline": timeline_count,
+    }
     lines = [
         f"case_id: {case_id}",
         f"case_number: {case.case_number}",
@@ -89,7 +108,7 @@ async def case_summary(session: AsyncSession, case: Case) -> tuple[str, list[Sou
     sources = [
         SourceRef(type="case", id=case_id, label=case.case_number, url=f"/cases/{case_id}")
     ]
-    return "\n".join(lines), sources
+    return "\n".join(lines), sources, counts
 
 
 async def evidence_digest(
@@ -340,7 +359,7 @@ async def build_case_context(
     blocks: list[str] = []
     all_sources: list[SourceRef] = []
 
-    summary_text, sources = await case_summary(session, case)
+    summary_text, sources, _counts = await case_summary(session, case)
     blocks.append(fence_data("case summary", summary_text))
     all_sources.extend(sources)
 
@@ -379,14 +398,15 @@ async def build_case_context(
     return "\n\n".join(blocks), all_sources
 
 
-async def accessible_cases(
-    session: AsyncSession,
-    user: User,
-    *,
-    query: str | None = None,
-    limit: int = CASE_SEARCH_LIMIT,
-) -> list[Case]:
-    """Cases the user may read (owner, member, or admin) — used by search tool."""
+async def _visibility_condition(
+    session: AsyncSession, user: User
+) -> Any | None:
+    """Owner/member predicate for *user*; ``None`` means "every case" (admin).
+
+    Single source of truth for case visibility, shared by the ``search_cases``
+    tool and the case resolver so the AI can never observe a different case set
+    than the normal case API (``app.api.routes.cases._case_filters``).
+    """
     from app.core import rbac
 
     roles = list(
@@ -400,15 +420,107 @@ async def accessible_cases(
         ).scalars()
     )
     if any(rbac.is_admin_role(role) for role in roles):
-        stmt = select(Case)
-    else:
-        stmt = select(Case).where(
-            (Case.owner_id == user.id)
-            | (Case.id.in_(select(CaseMember.case_id).where(CaseMember.user_id == user.id)))
-        )
+        return None
+    member_ids = select(CaseMember.case_id).where(CaseMember.user_id == user.id)
+    return (Case.owner_id == user.id) | (Case.id.in_(member_ids))
+
+
+@dataclass(slots=True)
+class CaseResolution:
+    """Outcome of resolving a user/model case reference to an authorized case.
+
+    ``status`` is one of ``found`` / ``ambiguous`` / ``not_found`` / ``error``.
+    ``not_found`` deliberately merges "no such case" with "not visible to this
+    user" so a case existence oracle cannot be built through the tool.
+    """
+
+    status: str
+    case: Case | None = None
+    # Authorized matches only (already filtered by the visibility predicate).
+    candidates: list[Case] = field(default_factory=list)
+    error: str | None = None
+
+
+async def resolve_case_reference(
+    session: AsyncSession, user: User, reference: Any
+) -> CaseResolution:
+    """Resolve a case by internal UUID, public case number, or exact name.
+
+    Authorization is applied *before* any case is returned: matches are scoped
+    by the same owner/member/admin predicate the normal case API uses, so this
+    can never disclose a case the caller may not read. A reference that exists
+    but is not accessible resolves exactly like one that does not exist.
+    Database failures surface as ``error`` — never as "not found".
+    """
+    ref = str(reference if reference is not None else "").strip()
+    if not ref:
+        return CaseResolution(status="error", error="case reference is empty")
+
+    # Internal UUID path.
+    try:
+        parsed_uuid: uuid.UUID | None = uuid.UUID(ref)
+    except ValueError:
+        parsed_uuid = None
+
+    try:
+        condition = await _visibility_condition(session, user)
+        if parsed_uuid is not None:
+            stmt = select(Case).where(Case.id == parsed_uuid)
+            if condition is not None:
+                stmt = stmt.where(condition)
+            case = (await session.execute(stmt)).scalar_one_or_none()
+            if case is None:
+                return CaseResolution(status="not_found")
+            return CaseResolution(status="found", case=case)
+
+        # Exact public case number (case-insensitive) — unique, at most one.
+        stmt = select(Case).where(func.lower(Case.case_number) == ref.lower())
+        if condition is not None:
+            stmt = stmt.where(condition)
+        case = (await session.execute(stmt)).scalar_one_or_none()
+        if case is not None:
+            return CaseResolution(status="found", case=case)
+
+        # Exact case name/title (case-insensitive) — may be ambiguous.
+        stmt = select(Case).where(func.lower(Case.title) == ref.lower())
+        if condition is not None:
+            stmt = stmt.where(condition)
+        stmt = stmt.order_by(Case.created_at, Case.id).limit(8)
+        matches = list((await session.execute(stmt)).scalars())
+        if len(matches) == 1:
+            return CaseResolution(status="found", case=matches[0])
+        if len(matches) > 1:
+            return CaseResolution(status="ambiguous", candidates=matches)
+        return CaseResolution(status="not_found")
+    except Exception:
+        logger.exception("case reference lookup failed")
+        return CaseResolution(status="error", error="case lookup failed")
+
+
+async def accessible_cases(
+    session: AsyncSession,
+    user: User,
+    *,
+    query: str | None = None,
+    limit: int = CASE_SEARCH_LIMIT,
+) -> list[Case]:
+    """Cases the user may read (owner, member, or admin) — used by search tool."""
+    condition = await _visibility_condition(session, user)
+    stmt = select(Case)
+    if condition is not None:
+        stmt = stmt.where(condition)
     if query:
-        pattern = f"%{query.strip()}%"
-        stmt = stmt.where((Case.title.ilike(pattern)) | (Case.case_number.ilike(pattern)))
+        needle = query.strip()
+        pattern = f"%{needle}%"
+        cond = (Case.title.ilike(pattern)) | (Case.case_number.ilike(pattern))
+        # A UUID query should match the internal id too, not only number/title.
+        try:
+            parsed = uuid.UUID(needle)
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            cond = cond | (Case.id == parsed)
+        stmt = stmt.where(cond)
     cases = (
         (await session.execute(stmt.order_by(Case.updated_at.desc().nullslast()).limit(limit)))
         .scalars()

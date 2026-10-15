@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 import httpx
 import pytest
+from app.ai.service import AIService
 from app.core.auth import create_access_token
 from app.core.config import Settings, get_settings
 from app.db.neo4j import GraphStore
@@ -163,3 +164,18 @@ async def http_client(api_user: ApiUser):
         transport=transport, base_url="http://testserver", headers=headers
     ) as async_client:
         yield async_client
+
+
+@pytest.fixture
+async def ai_service(monkeypatch) -> AIService:
+    """Wire a real AIService with a ready runtime onto the shared app."""
+    service = AIService(get_settings())
+
+    async def _ready() -> bool:
+        return True
+
+    monkeypatch.setattr(service.runtime, "ensure_ready", _ready)
+    service.runtime._ready = True
+    app.state.ai_service = service
+    yield service
+    del app.state.ai_service

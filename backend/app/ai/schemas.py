@@ -47,6 +47,17 @@ class ToolCallProposal(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+# Structured outcome for case lookups. These distinguish "no such case / not
+# yours to see" from "the case exists but is empty" from a hard lookup failure,
+# so the model can never collapse a permission denial or a database error into
+# a flat "the case does not exist".
+CASE_NOT_FOUND_OR_NOT_ACCESSIBLE = "case_not_found_or_not_accessible"
+CASE_FOUND_BUT_EMPTY = "case_found_but_empty"
+CASE_FOUND_WITH_DATA = "case_found_with_data"
+CASE_AMBIGUOUS = "case_ambiguous"
+LOOKUP_ERROR = "lookup_error"
+
+
 class ToolExecutionResult(BaseModel):
     """Outcome of one validated tool execution."""
 
@@ -55,6 +66,9 @@ class ToolExecutionResult(BaseModel):
     # JSON-serializable payload handed back to the model as data (not truth).
     payload: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+    # Structured outcome (one of the CASE_* / LOOKUP_ERROR constants) so the
+    # model sees an explicit, non-collapsible status instead of only ok/error.
+    status: str | None = None
     sources: list[SourceRef] = Field(default_factory=list)
 
 

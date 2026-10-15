@@ -205,3 +205,59 @@ next task = Stage 5 full re-runs + commit. Verify HEAD and runtime first."
 ## E. Session log
 
 (append below as stages complete)
+
+---
+
+### Session: AI case-retrieval failure — root-cause audit and fix (2026-10-15)
+
+**Task:** chatbot claimed a case "does not exist" when asked to summarize it by
+case ID/name; appeared to see only a couple of empty cases. Production-blocking.
+
+**Confirmed root cause** (proven by execution, NOT the LLM/DB/env/scoping — see
+`docs/ai/CASE_RETRIEVAL_DIAGNOSIS.md`): four compounding defects in
+`backend/app/ai/`:
+1. `search_cases` read only `query` while the model emitted `case_id` → the
+   user's filter was **silently dropped** → an unfiltered default window (10
+   recent empty `heartbeat` cases for admin) → the requested case never
+   returned. *This is where records disappeared.*
+2. `_authorize_case` was UUID-only — a case number or name raised ValueError.
+3. `get_case_summary` was disabled in general mode (`unknown tool`).
+4. Tool results couldn't distinguish not-found / empty / error, so the model
+   collapsed all three into "the case does not exist."
+
+Environment ruled out: API total (117) == DB count (117); UI and AI share the
+backend, DB, JWT principal and visibility predicate. Data ruled out: 0 orphaned
+evidence/entities; SHOW-2026-001 fully populated (5 evidence / 247 entities /
+6 timeline) and summarized correctly when bound by UUID.
+
+**Fix** (smallest correct change, existing architecture):
+- `search_cases` accepts `query|case_id|case_number|case_name|q|name|title`.
+- New `resolve_case_reference()` + `_visibility_condition()` (single source of
+  truth shared with the normal case API); `_lookup_case()` in tools re-runs
+  `assert_case_access` as defense in depth.
+- Case tools enabled in general mode (each resolves+authorizes its own ref).
+- Structured `status` on `ToolExecutionResult`, surfaced to client (schema +
+  route) and model; `get_case_summary` distinguishes empty vs missing via counts;
+  DB failure → `lookup_error`. Honest general-mode prompt.
+- `ai_service` fixture moved to `tests/api/conftest.py`.
+
+**Tests:** new `tests/api/test_ai_case_resolution.py` (14 tests). Backend
+hermetic **576 passed** (562+14), integration **8 passed**, frontend **110
+passed** + tsc + eslint clean, ruff + mypy clean (141 files). **Eval 33/33 exit
+0** (fact recall 1.0, groundedness 1.0, abstention 4/4).
+
+**Live proof** (after `docker compose restart backend` — uvicorn runs without
+`--reload`, so restart is mandatory for code changes):
+- "Summarize case SHOW-2026-001" (admin) → real summary, both tools
+  `case_found_with_data`, source SHOW-2026-001. Was: "does not exist".
+- "Summarize case SHOW-2026-003" (investigator) → real summary (243 entities).
+- "Which cases do I have access to?" (investigator) → lists 5 showcase cases.
+  Was: "you have no cases".
+- Cross-tenant probe (investigator → CS-CF503AE6) →
+  `case_not_found_or_not_accessible`, honest "not accessible to your account…
+  does not prove it does not exist." **No leak.**
+
+**Flagged for ingestion owner (outside AI tool path):** the 104 `CS-*`
+NULL-owner cases are empty shells (`owner_id` NULL → invisible to non-admins,
+never populated).
+

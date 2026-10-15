@@ -189,6 +189,7 @@ async def chat(
                 ok=bool(event.get("ok")),
                 arguments=event.get("arguments") or {},
                 error=event.get("error"),
+                status=event.get("status"),
                 duration_ms=event.get("duration_ms"),
             )
             for event in outcome.tool_events

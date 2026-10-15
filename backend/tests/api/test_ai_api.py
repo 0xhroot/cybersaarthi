@@ -35,21 +35,6 @@ def _client(token: str) -> AsyncClient:
 
 
 @pytest.fixture
-async def ai_service(monkeypatch) -> AIService:
-    """Wire a real AIService with a ready runtime onto the shared app."""
-    service = AIService(get_settings())
-
-    async def _ready() -> bool:
-        return True
-
-    monkeypatch.setattr(service.runtime, "ensure_ready", _ready)
-    service.runtime._ready = True
-    app.state.ai_service = service
-    yield service
-    del app.state.ai_service
-
-
-@pytest.fixture
 async def _owned_case(database: Database, api_user: ApiUser) -> uuid.UUID:
     case = Case(
         id=uuid.uuid4(),
