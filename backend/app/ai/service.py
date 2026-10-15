@@ -433,6 +433,7 @@ class AIService:
             enabled_tools.pop("get_timeline", None)
             enabled_tools.pop("get_analytics_summary", None)
             enabled_tools.pop("get_case_summary", None)
+            enabled_tools.pop("rank_entities", None)
         if not self.settings.AI_KNOWLEDGE_ENABLED:
             enabled_tools.pop("search_knowledge", None)
 

@@ -14,6 +14,7 @@ EXPECTED_TOOLS = {
     "get_entity",
     "get_timeline",
     "get_analytics_summary",
+    "rank_entities",
     "search_knowledge",
 }
 

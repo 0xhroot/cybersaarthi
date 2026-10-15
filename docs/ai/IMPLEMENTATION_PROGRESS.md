@@ -1,8 +1,8 @@
 # AI Implementation — Progress Checkpoint
 
-**Repo:** `/home/xhroot/Documents/ai/CyberSaarthi` · **HEAD:** `9c17007`
-"Add local AI assistant: llama.cpp gateway, grounded chat, floating copilot"
-· Working tree was clean at session start (all prior work committed).
+**Repo:** `/home/xhroot/Documents/ai/CyberSaarthi` · **HEAD at prior checkpoint:** `8269313`
+(Hardening commit). Stages 0–5 recorded §C; the Accuracy & Performance session
+(§F, Stages A–E) began from a clean tree at `8269313`.
 
 ## A. Current state audit (this session, reverified — not trusted from docs)
 
@@ -143,6 +143,45 @@ The three screenshot observations are genuine and re-confirmed.
     totals line corrected (was stale: real counts 42 ✅ · 2 🟡).
   - `docs/ai/EVALUATION.md` §5 rewritten: design → implemented + run evidence
     + honest misses + the ctx-per-slot bug the harness caught.
+
+---
+
+## F. Accuracy & performance session (2026-10-15, this session) — Stages A–E
+
+New work: `docs/ai/ACCURACY_PERFORMANCE_PLAN.md` created with measured baselines.
+
+### Stage A — deterministic entity ranking (accuracy fix). ✅ DONE
+- **Root cause found:** `app/analytics` (`compute_centrality`, `pagerank`,
+  `build_graph`) was **never imported by `app/ai/`** — the model was the only
+  thing doing ranking, reading a sorted digest by eye. All 5 `*-top-entity`
+  golden questions failed.
+- **Fix:** new `app/ai/ranking.py` (authoritative, case-scoped; explicit metrics
+  `relationship_count` / `distinct_neighbors` / `pagerank` / `degree`; typed
+  record; deterministic tie-break value-desc/id-asc). New read-only
+  `rank_entities` tool (`_authorize_case` re-checks access; returns typed record
+  + entity-id sources). Prompt steers ranking questions to the tool and says
+  report output verbatim. `service.py` pops `rank_entities` when no case.
+- **Bugs caught in my own code:** `.items()` applied to the `_relationship_counts`
+  coroutine before `await`; unused `ranking` import; unused `ids`; `case.id`
+  (UUID) passed where `str` expected. All fixed; ruff + mypy clean.
+- **Semantics finding:** PageRank on an all-outbound star ranks the *sinks*
+  highest — a poor "most connected" proxy. Pinned by
+  `test_pagerank_on_directed_sink_is_not_a_degree_proxy`. `relationship_count`
+  counts relationship *rows* (matches digest's "59" and golden fact s001);
+  model told to use `distinct_neighbors` only when the question says "distinct".
+- **Regression tests** (`tests/unit/ai/test_ranking.py`, 11 tests): correct top,
+  top-N order, deterministic ties, empty set, missing metric (raises, not
+  substituted), unauthorized id (empty, no leak), non-active excluded, PageRank,
+  sink semantics. Tool-registry test updated.
+- **Verified live** (both metrics agree on all 5): 001 Delhi, 002 NDA Consultants,
+  003 Nashik, 004 Vijayawada, 005 Dehradun. s001 `relationship_count` = Delhi(59) ✓
+- **Live eval (model actually calls the tool):**
+  fact recall **0.9434 → 1.0 (53/53)**; top-entity **0/5 → 5/5**; groundedness
+  1.0 (held); abstention 4/4 (held); gates pass (held); avg latency 629→1017ms
+  (+388ms, ranking questions only). Correctness-over-speed, only where a
+  ranking is requested.
+- **Suite:** backend hermetic **553 passed** (was 542, +11 new), integration
+  **8 passed**, ruff clean, mypy clean (141 files). Frontend unchanged (110).
 
 ## D. Next task at this checkpoint
 

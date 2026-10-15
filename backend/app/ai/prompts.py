@@ -113,6 +113,22 @@ def build_system_prompt(
             "When DATA for a case is present, prefer it over general knowledge "
             "for any case-specific question."
         )
+        if tool_list and "rank_entities" in tool_list:
+            # Deterministic ranking: the backend already computed the answer.
+            # The model explains the tool's output; it must never re-derive a
+            # ranking by eyeballing the entities digest (a known failure mode).
+            parts.append(
+                "For questions about which entity is most/least connected, has "
+                "the highest PageRank, or the top-N entities by relationship "
+                "count or degree, you MUST call the rank_entities tool and "
+                "report its output verbatim. Do NOT rank entities by reading "
+                "the entities digest — the tool is authoritative and the "
+                "digest is not sorted by every metric. For 'most connected' or "
+                "'how many relationships', pass metric=relationship_count (the "
+                "raw number of relationship rows). Use distinct_neighbors only "
+                "when the question explicitly asks for distinct or different "
+                "entities."
+            )
     if tool_list:
         # Replace manually: TOOL_INSTRUCTION contains literal JSON braces that
         # str.format would misinterpret as format fields.

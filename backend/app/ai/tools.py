@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai import knowledge, retrieval
+from app.ai import knowledge, ranking, retrieval
 from app.ai.schemas import SourceRef, ToolExecutionResult
 from app.models import Case, Entity, User
 from app.services.audit import record_audit
@@ -191,6 +191,66 @@ async def tool_get_analytics_summary(
     )
 
 
+async def tool_rank_entities(
+    ctx: ToolContext, arguments: dict[str, Any]
+) -> ToolExecutionResult:
+    """Authoritative top-N entity ranking — deterministic, case-scoped.
+
+    The model must call this instead of eyeballing the entities digest for
+    questions like "most connected entity" or "highest PageRank". It returns a
+    typed record with the exact metric, definition and ranked entity ids.
+    """
+    case, error = await _authorize_case(ctx, arguments)
+    if error or case is None:
+        return _err("rank_entities", error or "case unavailable")
+    metric = str(arguments.get("metric", "relationship_count")).strip()
+    raw_top = arguments.get("top_n", ranking.DEFAULT_TOP_N)
+    try:
+        top_n = int(raw_top)
+    except (TypeError, ValueError):
+        return _err("rank_entities", "top_n must be an integer")
+    try:
+        record = await ranking.rank_entities(
+            ctx.session, str(case.id), metric=metric, top_n=top_n
+        )
+    except ranking.UnsupportedMetricError as exc:
+        return _err("rank_entities", str(exc))
+
+    # Cite the top entities so every ranked id resolves to a real, authorized
+    # record. The model explains these; it cannot invent rows.
+    sources = [
+        SourceRef(
+            type="entity",
+            id=row["entity_id"],
+            label=str(row["label"])[:80],
+            url=f"/cases/{case.id}/entities",
+        )
+        for row in record["results"]
+    ]
+    payload = {
+        "text": _format_ranking(record),
+        "record": record,
+    }
+    return _ok("rank_entities", payload, sources)
+
+
+def _format_ranking(record: dict[str, Any]) -> str:
+    """Compact, unambiguous text rendering of an authoritative ranking."""
+    header = (
+        f"metric={record['metric']} ({record['metric_definition']}) "
+        f"unit={record['unit']} total_entities={record['total_entities']}"
+    )
+    lines = [header]
+    for row in record["results"]:
+        lines.append(
+            f"{row['rank']}. {row['label']} (entity_id={row['entity_id']}) "
+            f"{record['metric']}={row['value']}"
+        )
+    if record["total_entities"] == 0:
+        lines.append("(no active entities in this case)")
+    return "\n".join(lines)
+
+
 async def tool_search_knowledge(ctx: ToolContext, arguments: dict[str, Any]) -> ToolExecutionResult:
     from app.core.config import get_settings
 
@@ -292,6 +352,40 @@ TOOLS: dict[str, ToolSpec] = {
                 "required": ["case_id"],
             },
             handler=tool_get_analytics_summary,
+            case_scoped=True,
+        ),
+        ToolSpec(
+            name="rank_entities",
+            description=(
+                "Authoritative top-N entity ranking for one authorized case, "
+                "computed deterministically in the backend. Use this for any "
+                "question about the most/least connected entity, highest "
+                "PageRank, or top-N entities by relationship count or degree. "
+                "Returns the exact metric, its definition, and ranked entity "
+                "ids with values. Never guess a ranking from other text."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "case_id": {"type": "string", "description": "case UUID"},
+                    "metric": {
+                        "type": "string",
+                        "enum": [
+                            "relationship_count",
+                            "distinct_neighbors",
+                            "pagerank",
+                            "degree",
+                        ],
+                        "description": "which measure to rank by",
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "how many entities to return (default 5)",
+                    },
+                },
+                "required": ["case_id"],
+            },
+            handler=tool_rank_entities,
             case_scoped=True,
         ),
         ToolSpec(
