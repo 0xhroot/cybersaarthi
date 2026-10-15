@@ -359,6 +359,131 @@ export interface ApiHealthService {
   health(): Promise<HealthResponse>;
 }
 
+/* --------------------------- Local AI assistant --------------------------- */
+
+export interface AiStatus {
+  enabled: boolean;
+  ready: boolean;
+  managed: boolean;
+  model_configured: string;
+  model_valid: boolean;
+  context_length: number;
+  max_output_tokens: number;
+  gpu_layers: number;
+  started: boolean;
+  load_seconds: number | null;
+  restarts: number;
+  requests_total: number;
+  errors_total: number;
+  generations_active: number;
+  last_error: string | null;
+  prompt_version: string | null;
+  tools: string[];
+  feature_flags: Record<string, boolean>;
+}
+
+export interface AiSource {
+  type: string;
+  id: string;
+  label?: string;
+  url?: string | null;
+}
+
+export interface AiToolEvent {
+  tool: string;
+  ok: boolean;
+  arguments?: Record<string, unknown>;
+  error?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface AiChatInput {
+  question: string;
+  mode?: "general" | "case" | "evidence" | "graph" | "copilot" | "report" | "knowledge";
+  case_id?: string | null;
+  conversation_id?: string | null;
+}
+
+export interface AiChatResult {
+  answer: string;
+  conversation_id: string;
+  message_id?: string | null;
+  sources: AiSource[];
+  tool_events: AiToolEvent[];
+  grounded: boolean;
+  prompt_version: string;
+  duration_ms: number;
+  first_token_ms?: number | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+}
+
+export interface AiStreamCallbacks {
+  onToken?: (text: string) => void;
+  onSources?: (sources: AiSource[]) => void;
+  onTool?: (event: AiToolEvent) => void;
+  onDone?: (info: {
+    answer?: string;
+    /**
+     * Thread id for follow-ups. The real backend's SSE `done` event does not send
+     * this yet, so consumers must treat it as optional and fall back to the newest
+     * conversation (see the assistant widget) when it is missing.
+     */
+    conversation_id?: string;
+    grounded: boolean;
+    sources: AiSource[];
+    tool_events: AiToolEvent[];
+    duration_ms: number;
+    first_token_ms?: number | null;
+    completion_tokens?: number | null;
+  }) => void;
+  onError?: (message: string, code?: string) => void;
+}
+
+export interface AiConversation {
+  id: string;
+  case_id: string | null;
+  title: string;
+  mode: string;
+  status: string;
+  prompt_version: string | null;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string | null;
+}
+
+export interface AiMessage {
+  id: string;
+  role: string;
+  content: string;
+  sources?: AiSource[] | null;
+  tool_events?: AiToolEvent[] | null;
+  grounded: boolean;
+  prompt_version: string | null;
+  created_at: string;
+}
+
+export interface AiReportDraft {
+  draft: string;
+  sources: AiSource[];
+  grounded: boolean;
+  prompt_version: string;
+  duration_ms: number;
+}
+
+export interface ApiAiService {
+  status(signal?: AbortSignal): Promise<AiStatus>;
+  chat(input: AiChatInput, signal?: AbortSignal): Promise<AiChatResult>;
+  /** POST /ai/chat/stream over SSE; resolves when the stream completes. */
+  chatStream(input: AiChatInput, callbacks: AiStreamCallbacks, signal?: AbortSignal): Promise<void>;
+  reportDraft(caseId: string, signal?: AbortSignal): Promise<AiReportDraft>;
+  listConversations(params?: { case_id?: string; limit?: number }): Promise<{ items: AiConversation[]; total: number }>;
+  listMessages(conversationId: string): Promise<{ items: AiMessage[] }>;
+  /** PATCH /ai/conversations/{id} with `{ title }` — renames a stored thread. */
+  renameConversation(conversationId: string, title: string): Promise<AiConversation>;
+  deleteConversation(conversationId: string): Promise<void>;
+}
+
 export interface Api {
   readonly src: "mock" | "real";
   auth: ApiAuthService;
@@ -380,4 +505,5 @@ export interface Api {
   search: ApiSearchService;
   importPackages: ApiImportService;
   health: ApiHealthService;
+  ai: ApiAiService;
 }

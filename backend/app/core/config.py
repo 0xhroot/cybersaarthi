@@ -6,7 +6,9 @@ during development). Real credentials must never be hard-coded here or committed
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Self
 from urllib.parse import urlsplit
 
@@ -99,6 +101,39 @@ class Settings(BaseSettings):
     # compare against. Guards against accidental O(N^2) behaviour.
     MAX_CANDIDATE_TARGETS_PER_KEY: int = 25
 
+    # Local AI platform (llama.cpp server + Qwen3 GGUF). Inference is
+    # localhost-only; the browser never talks to the model server.
+    AI_ENABLED: bool = True
+    AI_MODEL_PATH: str = "Qwen3-8B-Q4_K_M.gguf"  # absolute, or relative to repo root
+    AI_SERVER_BINARY: str = "ai_runtime/llama.cpp/llama-server"  # relative to repo root
+    AI_SERVER_HOST: str = "127.0.0.1"
+    AI_SERVER_PORT: int = 8081
+    # Shared secret sent to llama-server (--api-key). Required whenever the
+    # inference server listens on a non-loopback interface (e.g. the Docker
+    # bridge); empty disables the header (loopback-only deployments).
+    AI_SERVER_API_KEY: str = ""
+    # Optional Unix domain socket path (see scripts/ai/socket_bridge.sh).
+    # When set, the backend talks to llama-server over the socket instead of
+    # TCP — used when host firewalls block Docker bridge → host traffic.
+    AI_SERVER_SOCKET: str = ""
+    AI_MANAGE_SERVER: bool = True  # spawn llama-server from the app lifespan
+    AI_CONTEXT_LENGTH: int = 8192
+    AI_MAX_OUTPUT_TOKENS: int = 512
+    AI_GPU_LAYERS: int = -1  # -1 offloads every layer; set >=0 for partial/CPU
+    AI_REQUEST_TIMEOUT_SECONDS: float = 180.0
+    AI_MAX_CONCURRENT_GENERATIONS: int = 2
+    AI_PER_USER_RATE_LIMIT: int = 20  # chat requests per minute; 0 disables
+    AI_MAX_HISTORY_MESSAGES: int = 12
+    AI_TOOL_MAX_ITERATIONS: int = 3
+    AI_CONVERSATION_RETENTION_DAYS: int = 90
+    AI_KNOWLEDGE_ENABLED: bool = True
+    AI_FEATURE_CASE: bool = True
+    AI_FEATURE_EVIDENCE: bool = True
+    AI_FEATURE_GRAPH: bool = True
+    AI_FEATURE_COPILOT: bool = True
+    AI_FEATURE_REPORT_DRAFT: bool = True
+    AI_LOG_PROMPTS: bool = False  # prompt/answer content is never logged by default
+
     # Security
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     SECRET_KEY: str = "change-me"
@@ -124,6 +159,36 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def repo_root(self) -> Path:
+        """Repository root for AI artifacts and docs.
+
+        Honors ``CYBERSAARTHI_REPO_ROOT`` (set by the dev container, which
+        mounts the whole repo at /repo); otherwise walks up from this file
+        (``backend/app/core`` → repo root).
+        """
+        override = os.environ.get("CYBERSAARTHI_REPO_ROOT")
+        if override:
+            return Path(override).resolve()
+        return Path(__file__).resolve().parents[3]
+
+    def resolve_path(self, value: str) -> Path:
+        """Resolve a configured path; relative paths anchor at the repo root."""
+        path = Path(value).expanduser()
+        return path if path.is_absolute() else (self.repo_root / path).resolve()
+
+    @property
+    def ai_model_file(self) -> Path:
+        return self.resolve_path(self.AI_MODEL_PATH)
+
+    @property
+    def ai_server_binary_file(self) -> Path:
+        return self.resolve_path(self.AI_SERVER_BINARY)
+
+    @property
+    def ai_base_url(self) -> str:
+        return f"http://{self.AI_SERVER_HOST}:{self.AI_SERVER_PORT}"
 
     @property
     def postgres_dsn(self) -> str:

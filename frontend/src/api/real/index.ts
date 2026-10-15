@@ -3,8 +3,18 @@ import { authSession } from "@/api/client/session";
 import { apiConfig } from "@/config/env";
 import type {
   AdminUserListParams,
+  AiChatInput,
+  AiChatResult,
+  AiConversation,
+  AiMessage,
+  AiReportDraft,
+  AiSource,
+  AiStatus,
+  AiStreamCallbacks,
+  AiToolEvent,
   Api,
   ApiAdminUserService,
+  ApiAiService,
   ApiAnalyticsService,
   ApiAuditService,
   ApiAuthService,
@@ -703,6 +713,140 @@ const healthService: ApiHealthService = {
   },
 };
 
+interface AiStreamEvent {
+  type: "token" | "sources" | "tool" | "done" | "error";
+  text?: string;
+  answer?: string;
+  conversation_id?: string;
+  sources?: AiSource[];
+  tool?: string;
+  arguments?: Record<string, unknown>;
+  grounded?: boolean;
+  tool_events?: AiToolEvent[];
+  duration_ms?: number;
+  first_token_ms?: number | null;
+  completion_tokens?: number | null;
+  code?: string;
+  message?: string;
+}
+
+const aiService: ApiAiService = {
+  status(signal) {
+    return request<AiStatus>("/ai/status", { signal });
+  },
+  chat(input, signal) {
+    return request<AiChatResult>("/ai/chat", { method: "POST", body: input, signal });
+  },
+  async chatStream(input: AiChatInput, callbacks: AiStreamCallbacks, signal?: AbortSignal) {
+    const token = authSession.getToken();
+    const url = `${apiConfig.apiUrl}/api/v1/ai/chat/stream`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(input),
+      signal,
+    });
+    if (!response.ok || !response.body) {
+      let message = `Assistant stream failed (HTTP ${response.status}).`;
+      let code: string | undefined;
+      try {
+        const body = (await response.json()) as { error?: { message?: string; code?: string } };
+        if (body.error?.message) message = body.error.message;
+        if (body.error?.code) code = body.error.code;
+      } catch {
+        /* keep default message */
+      }
+      callbacks.onError?.(message, code);
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const chunk = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          let event: AiStreamEvent;
+          try {
+            event = JSON.parse(line.slice(5).trim()) as AiStreamEvent;
+          } catch {
+            continue;
+          }
+          switch (event.type) {
+            case "token":
+              if (event.text) callbacks.onToken?.(event.text);
+              break;
+            case "sources":
+              callbacks.onSources?.(event.sources ?? []);
+              break;
+            case "tool":
+              callbacks.onTool?.({
+                tool: event.tool ?? "unknown",
+                ok: true,
+                arguments: event.arguments,
+              });
+              break;
+            case "done":
+              callbacks.onDone?.({
+                answer: event.answer,
+                // Optional today: the backend does not emit it yet, but forward it
+                // as soon as the stream starts carrying the thread id.
+                conversation_id: event.conversation_id,
+                grounded: event.grounded ?? false,
+                sources: event.sources ?? [],
+                tool_events: event.tool_events ?? [],
+                duration_ms: event.duration_ms ?? 0,
+                first_token_ms: event.first_token_ms,
+                completion_tokens: event.completion_tokens,
+              });
+              break;
+            case "error":
+              callbacks.onError?.(event.message ?? "Assistant request failed.", event.code);
+              break;
+          }
+        }
+      }
+    }
+  },
+  reportDraft(caseId, signal) {
+    return request<AiReportDraft>("/ai/report-draft", {
+      method: "POST",
+      body: { case_id: caseId },
+      signal,
+    });
+  },
+  listConversations(params = {}) {
+    return request<{ items: AiConversation[]; total: number }>(
+      `/ai/conversations${buildQuery({
+        ...(params.case_id ? { case_id: params.case_id } : {}),
+        limit: params.limit ?? 50,
+      })}`,
+    );
+  },
+  listMessages(conversationId) {
+    return request<{ items: AiMessage[] }>(`/ai/conversations/${conversationId}`);
+  },
+  renameConversation(conversationId, title) {
+    // `request` serializes the body to JSON itself, so pass the plain object.
+    return request<AiConversation>(`/ai/conversations/${conversationId}`, {
+      method: "PATCH",
+      body: { title },
+    });
+  },
+  deleteConversation(conversationId) {
+    return request<void>(`/ai/conversations/${conversationId}`, { method: "DELETE" });
+  },
+};
+
 export const realApi: Api = {
   src: "real",
   auth: authService,
@@ -724,4 +868,5 @@ export const realApi: Api = {
   search: searchService,
   importPackages: importService,
   health: healthService,
+  ai: aiService,
 };

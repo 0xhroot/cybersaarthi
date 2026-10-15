@@ -1,6 +1,12 @@
 """Import all models so that ``app.models.Base.metadata`` is complete and
 Alembic autogenerate / test fixtures can see the full schema."""
 
+from app.models.ai_conversation import (
+    AI_CONVERSATION_MODES,
+    AI_CONVERSATION_STATUSES,
+    AIConversation,
+)
+from app.models.ai_message import AIMessage
 from app.models.analytics_run import ANALYTICS_RUN_STATUSES, AnalyticsRun
 from app.models.audit_log import AuditLog
 from app.models.base import Base
@@ -48,6 +54,10 @@ from app.models.user_role import UserRole
 from app.models.victim import VICTIM_CLASSIFICATIONS, VICTIM_STATUSES, Victim
 
 __all__ = [
+    "AI_CONVERSATION_MODES",
+    "AI_CONVERSATION_STATUSES",
+    "AIConversation",
+    "AIMessage",
     "ANALYTICS_RUN_STATUSES",
     "AnalyticsRun",
     "AuditLog",

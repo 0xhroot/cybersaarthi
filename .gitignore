@@ -22,6 +22,10 @@ coverage.xml
 # Node
 node_modules/
 
+# Local AI artifacts (model weights + inference runtime)
+*.gguf
+ai_runtime/
+
 # Docker local data
 *.log
 data/minio/

@@ -44,6 +44,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.cache = cache
     app.state.storage = storage
 
+    # Local AI assistant: supervise the llama.cpp server (or attach to an
+    # externally managed one). Startup never blocks the API on inference —
+    # the /api/v1/ai/status endpoint reports readiness.
+    from app.ai.service import AIService
+
+    ai_service = AIService(settings)
+    app.state.ai_service = ai_service
+    if settings.AI_ENABLED:
+        try:
+            await ai_service.start()
+        except Exception:
+            logger.exception("AI service failed to start; /api/v1/ai/* will report unavailable")
+
     # Probe dependencies at startup. Failures are logged, not fatal: the
     # readiness endpoint reflects the real state of each service.
     probes = (
@@ -61,6 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    await ai_service.stop()
     await database.close()
     await graph_store.close()
     await cache.close()

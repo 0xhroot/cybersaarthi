@@ -1,0 +1,417 @@
+"""Authorization-first retrieval for AI prompts and tools.
+
+Every function here takes an already-validated ``Case`` row (loaded through
+``get_case_or_404``) or an already-validated user. Tool arguments coming from
+the model are re-checked in ``tools.py`` before these helpers run — nothing in
+this module trusts model output as an access-control input.
+
+Retrieved text is capped and formatted as DATA blocks: evidence summaries use
+metadata only (filenames, hashes, timestamps) — raw binary contents are never
+loaded into prompts.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.ai.prompts import fence_data
+from app.ai.schemas import SourceRef
+from app.models import (
+    Case,
+    CaseMember,
+    Entity,
+    EvidenceFile,
+    Finding,
+    MetricResult,
+    Relationship,
+    Role,
+    TimelineEvent,
+    User,
+    UserRole,
+    Victim,
+)
+
+# Caps keep an 8B model inside a small per-slot context window with room to
+# answer. Slots split the total context (--parallel), so stay conservative.
+EVIDENCE_LIMIT = 15
+ENTITIES_LIMIT = 15
+TIMELINE_LIMIT = 10
+FINDINGS_LIMIT = 8
+VICTIMS_LIMIT = 6
+METRICS_LIMIT = 12
+CASE_SEARCH_LIMIT = 10
+MAX_FIELD_CHARS = 300
+
+
+def _clip(value: str | None, limit: int = MAX_FIELD_CHARS) -> str:
+    if not value:
+        return ""
+    text = " ".join(value.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _iso(value: Any) -> str:
+    return value.isoformat(sep=" ", timespec="seconds") if value is not None else ""
+
+
+async def case_summary(session: AsyncSession, case: Case) -> tuple[str, list[SourceRef]]:
+    """Compact case header plus record counts."""
+    case_id = str(case.id)
+
+    async def count(model: Any) -> int:
+        return int(
+            (await session.execute(select(func.count(model.id)).where(model.case_id == case_id)))
+            .scalar_one()
+        )
+
+    entity_count, evidence_count, finding_count = await asyncio.gather(
+        count(Entity), count(EvidenceFile), count(Finding)
+    )
+    victim_count = int(
+        (await session.execute(select(func.count(Victim.id)).where(Victim.case_id == case.id)))
+        .scalar_one()
+    )
+    lines = [
+        f"case_id: {case_id}",
+        f"case_number: {case.case_number}",
+        f"title: {_clip(case.title, 200)}",
+        f"status: {case.status}",
+        f"created: {_iso(case.created_at)}",
+        f"updated: {_iso(case.updated_at)}",
+        f"description: {_clip(case.description) or '(none)'}",
+        f"counts: entities={entity_count} evidence={evidence_count} "
+        f"findings={finding_count} victims={victim_count}",
+    ]
+    sources = [
+        SourceRef(type="case", id=case_id, label=case.case_number, url=f"/cases/{case_id}")
+    ]
+    return "\n".join(lines), sources
+
+
+async def evidence_digest(
+    session: AsyncSession, case: Case, limit: int = EVIDENCE_LIMIT
+) -> tuple[str, list[SourceRef]]:
+    """Evidence metadata only — never file contents."""
+    rows = (
+        (
+            await session.execute(
+                select(EvidenceFile)
+                .where(EvidenceFile.case_id == str(case.id))
+                .order_by(EvidenceFile.created_at.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return "No evidence files registered for this case.", []
+    lines: list[str] = []
+    sources: list[SourceRef] = []
+    for row in rows:
+        lines.append(
+            f"- id={row.id} file={_clip(row.original_filename, 120)} "
+            f"type={_clip(row.content_type, 80)} size={row.file_size}B "
+            f"sha256={row.sha256[:16]}… uploaded={_iso(row.created_at)}"
+        )
+        sources.append(
+            SourceRef(type="evidence", id=str(row.id), label=row.original_filename)
+        )
+    return "\n".join(lines), sources
+
+
+async def entities_digest(
+    session: AsyncSession, case: Case, limit: int = ENTITIES_LIMIT
+) -> tuple[str, list[SourceRef]]:
+    """Most-connected entities plus their relationship counts."""
+    rows = (
+        await session.execute(
+            select(Entity, func.count(Relationship.id).label("rel_count"))
+            .outerjoin(
+                Relationship,
+                (Relationship.case_id == str(case.id))
+                & (
+                    (Relationship.source_entity_id == Entity.id)
+                    | (Relationship.target_entity_id == Entity.id)
+                ),
+            )
+            .where(Entity.case_id == str(case.id), Entity.status == "active")
+            .group_by(Entity.id)
+            .order_by(func.count(Relationship.id).desc(), Entity.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    if not rows:
+        return "No active entities extracted for this case.", []
+    lines: list[str] = []
+    sources: list[SourceRef] = []
+    for entity, rel_count in rows:
+        lines.append(
+            f"- id={entity.id} type={entity.entity_type} value={_clip(entity.display_value, 160)} "
+            f"confidence={entity.confidence} relationships={int(rel_count)}"
+        )
+        sources.append(
+            SourceRef(
+                type="entity",
+                id=str(entity.id),
+                label=_clip(entity.display_value, 80),
+                url=f"/cases/{case.id}/entities",
+            )
+        )
+    return "\n".join(lines), sources
+
+
+async def timeline_digest(
+    session: AsyncSession, case: Case, limit: int = TIMELINE_LIMIT
+) -> tuple[str, list[SourceRef]]:
+    rows = (
+        (
+            await session.execute(
+                select(TimelineEvent)
+                .where(TimelineEvent.case_id == str(case.id))
+                .order_by(TimelineEvent.occurred_at.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return "No timeline events recorded for this case.", []
+    lines: list[str] = []
+    sources: list[SourceRef] = []
+    for row in rows:
+        lines.append(
+            f"- id={row.id} when={_iso(row.occurred_at)} kind={row.kind} "
+            f"title={_clip(row.title, 160)} detail={_clip(row.description, 200) or '(none)'}"
+        )
+        sources.append(SourceRef(type="timeline", id=str(row.id), label=_clip(row.title, 80)))
+    return "\n".join(lines), sources
+
+
+async def findings_digest(
+    session: AsyncSession, case: Case, limit: int = FINDINGS_LIMIT
+) -> tuple[str, list[SourceRef]]:
+    rows = (
+        (
+            await session.execute(
+                select(Finding)
+                .where(Finding.case_id == str(case.id))
+                .order_by(Finding.score.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return "No findings recorded for this case.", []
+    lines: list[str] = []
+    sources: list[SourceRef] = []
+    for row in rows:
+        lines.append(
+            f"- id={row.id} severity={row.severity} status={row.status} score={row.score:.2f} "
+            f"type={row.finding_type} title={_clip(row.title, 160)} "
+            f"summary={_clip(row.summary, 200)}"
+        )
+        sources.append(
+            SourceRef(
+                type="finding",
+                id=str(row.id),
+                label=_clip(row.title, 80),
+                url=f"/cases/{case.id}/findings",
+            )
+        )
+    return "\n".join(lines), sources
+
+
+async def victims_digest(
+    session: AsyncSession, case: Case, limit: int = VICTIMS_LIMIT
+) -> tuple[str, list[SourceRef]]:
+    rows = (
+        (
+            await session.execute(
+                select(Victim)
+                .where(Victim.case_id == case.id)
+                .order_by(Victim.created_at.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return "No victims registered for this case.", []
+    lines: list[str] = []
+    sources: list[SourceRef] = []
+    for row in rows:
+        amount = row.amount_lost if row.amount_lost is not None else row.reported_amount
+        incident = _clip(row.incident_type, 80) or "n/a"
+        lines.append(
+            f"- id={row.id} name={_clip(row.name, 120)} type={incident} "
+            f"amount_lost={amount} {row.currency or ''} status={row.status}"
+        )
+        sources.append(SourceRef(type="victim", id=str(row.id), label=_clip(row.name, 80)))
+    return "\n".join(lines), sources
+
+
+async def analytics_digest(
+    session: AsyncSession, case: Case, limit: int = METRICS_LIMIT
+) -> tuple[str, list[SourceRef]]:
+    rows = (
+        await session.execute(
+            select(MetricResult)
+            .where(MetricResult.case_id == str(case.id))
+            .order_by(MetricResult.metric_name, MetricResult.rank.is_(None), MetricResult.rank)
+            .limit(limit)
+        )
+    ).scalars().all()
+    if not rows:
+        return "No graph analytics metrics computed for this case yet.", []
+    lines: list[str] = []
+    sources: list[SourceRef] = []
+    for row in rows:
+        lines.append(
+            f"- metric={row.metric_name} entity_id={row.entity_id or '-'} "
+            f"value={row.raw_value:.4f} score={row.normalized_score} rank={row.rank} "
+            f"note={_clip(row.explanation, 120)}"
+        )
+        sources.append(
+            SourceRef(type="metric", id=str(row.id), label=_clip(row.metric_name, 60))
+        )
+    return "\n".join(lines), sources
+
+
+async def graph_relationships_digest(
+    session: AsyncSession, case: Case, limit: int = 15
+) -> tuple[str, list[SourceRef]]:
+    """Relationship type histogram plus the strongest relationships."""
+    hist = (
+        await session.execute(
+            select(Relationship.relationship_type, func.count(Relationship.id))
+            .where(Relationship.case_id == str(case.id))
+            .group_by(Relationship.relationship_type)
+            .order_by(func.count(Relationship.id).desc())
+        )
+    ).all()
+    if not hist:
+        return "No relationships stored for this case.", []
+    top = (
+        (
+            await session.execute(
+                select(Relationship)
+                .where(Relationship.case_id == str(case.id))
+                .order_by(Relationship.confidence.desc().nullslast())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    lines = ["relationship counts by type:"]
+    lines += [f"- {rtype}: {int(count)}" for rtype, count in hist[:12]]
+    if top:
+        lines.append("strongest relationships:")
+        for rel in top:
+            lines.append(
+                f"- id={rel.id} type={rel.relationship_type} confidence={rel.confidence} "
+                f"source={rel.source_entity_id} target={rel.target_entity_id}"
+            )
+    sources = [
+        SourceRef(type="graph", id=str(case.id), label="case graph", url=f"/cases/{case.id}/graph")
+    ]
+    return "\n".join(lines), sources
+
+
+async def build_case_context(
+    session: AsyncSession,
+    case: Case,
+    *,
+    include_evidence: bool = True,
+    include_graph: bool = True,
+    include_victims: bool = True,
+    include_analytics: bool = False,
+) -> tuple[str, list[SourceRef]]:
+    """Assemble the fenced DATA block for one authorized case."""
+    blocks: list[str] = []
+    all_sources: list[SourceRef] = []
+
+    summary_text, sources = await case_summary(session, case)
+    blocks.append(fence_data("case summary", summary_text))
+    all_sources.extend(sources)
+
+    if include_evidence:
+        text, sources = await evidence_digest(session, case)
+        blocks.append(fence_data("evidence metadata", text))
+        all_sources.extend(sources)
+
+    text, sources = await entities_digest(session, case)
+    blocks.append(fence_data("entities", text))
+    all_sources.extend(sources)
+
+    text, sources = await findings_digest(session, case)
+    blocks.append(fence_data("findings", text))
+    all_sources.extend(sources)
+
+    text, sources = await timeline_digest(session, case)
+    blocks.append(fence_data("timeline", text))
+    all_sources.extend(sources)
+
+    if include_victims:
+        text, sources = await victims_digest(session, case)
+        blocks.append(fence_data("victims", text))
+        all_sources.extend(sources)
+
+    if include_graph:
+        text, sources = await graph_relationships_digest(session, case)
+        blocks.append(fence_data("graph", text))
+        all_sources.extend(sources)
+
+    if include_analytics:
+        text, sources = await analytics_digest(session, case)
+        blocks.append(fence_data("analytics", text))
+        all_sources.extend(sources)
+
+    return "\n\n".join(blocks), all_sources
+
+
+async def accessible_cases(
+    session: AsyncSession,
+    user: User,
+    *,
+    query: str | None = None,
+    limit: int = CASE_SEARCH_LIMIT,
+) -> list[Case]:
+    """Cases the user may read (owner, member, or admin) — used by search tool."""
+    from app.core import rbac
+
+    roles = list(
+        (
+            await session.execute(
+                select(Role.name)
+                .select_from(UserRole)
+                .join(Role, Role.id == UserRole.role_id)
+                .where(UserRole.user_id == user.id)
+            )
+        ).scalars()
+    )
+    if any(rbac.is_admin_role(role) for role in roles):
+        stmt = select(Case)
+    else:
+        stmt = select(Case).where(
+            (Case.owner_id == user.id)
+            | (Case.id.in_(select(CaseMember.case_id).where(CaseMember.user_id == user.id)))
+        )
+    if query:
+        pattern = f"%{query.strip()}%"
+        stmt = stmt.where((Case.title.ilike(pattern)) | (Case.case_number.ilike(pattern)))
+    cases = (
+        (await session.execute(stmt.order_by(Case.updated_at.desc().nullslast()).limit(limit)))
+        .scalars()
+        .all()
+    )
+    return list(cases)

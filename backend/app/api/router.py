@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api.routes import (
+    ai_router,
     analytics_router,
     audit_router,
     auth_router,
@@ -58,5 +59,8 @@ api_router.include_router(devices_router, prefix="/api/v1")
 api_router.include_router(timeline_router, prefix="/api/v1")
 api_router.include_router(hypotheses_router, prefix="/api/v1")
 api_router.include_router(reports_router, prefix="/api/v1")
+
+# Local AI assistant (llama.cpp gateway: status, conversations, chat, draft).
+api_router.include_router(ai_router, prefix="/api/v1")
 api_router.include_router(search_router, prefix="/api/v1")
 api_router.include_router(import_packages_router, prefix="/api/v1")

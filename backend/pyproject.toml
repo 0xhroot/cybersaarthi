@@ -23,6 +23,8 @@ dependencies = [
     "python-multipart==0.0.32",
     "cryptography==50.0.1",
     "fpdf2==2.8.8",
+    # AI gateway: async HTTP client for the local llama.cpp server.
+    "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]

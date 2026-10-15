@@ -22,6 +22,20 @@ x-backend-env: &backend-env
   S3_REGION: ${S3_REGION:-us-east-1}
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
   SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+  # Local AI assistant: inference runs as a host process (GPU access lives
+  # outside Docker); the container reaches it via host.docker.internal and
+  # never exposes the model server publicly.
+  AI_ENABLED: ${AI_ENABLED:-true}
+  AI_MANAGE_SERVER: ${AI_MANAGE_SERVER:-false}
+  AI_SERVER_HOST: ${AI_SERVER_HOST:-host.docker.internal}
+  AI_SERVER_PORT: ${AI_SERVER_PORT:-8081}
+  AI_SERVER_API_KEY: ${AI_SERVER_API_KEY:-}
+  # Unix socket bridge (scripts/ai/socket_bridge.sh): used when host firewalls
+  # block Docker-bridge → host TCP. Empty string falls back to TCP.
+  AI_SERVER_SOCKET: ${AI_SERVER_SOCKET:-/run/ai-runtime/llama.sock}
+  AI_MODEL_PATH: ${AI_MODEL_PATH:-/models/Qwen3-8B-Q4_K_M.gguf}
+  # Approved docs root for the AI knowledge tool (mounted read-only below).
+  CYBERSAARTHI_REPO_ROOT: /repo
 
 services:
   backend:
@@ -32,8 +46,17 @@ services:
     ports:
       - "8000:8000"
     environment: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
+      # Read-only model mount so /api/v1/ai/status can validate the artifact.
+      - ./Qwen3-8B-Q4_K_M.gguf:/models/Qwen3-8B-Q4_K_M.gguf:ro
+      # Approved documentation for the AI knowledge tool.
+      - ./docs:/repo/docs:ro
+      - ./README.md:/repo/README.md:ro
+      # Unix socket bridge to the host inference server.
+      - ./ai_runtime:/run/ai-runtime
     depends_on:
       postgres:
         condition: service_healthy

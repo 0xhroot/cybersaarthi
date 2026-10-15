@@ -26,6 +26,7 @@ import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "@/components/commands/command-palette";
+import { Assistant } from "@/components/ai/assistant";
 import { PreferencesMenu } from "@/components/layout/preferences-menu";
 import { getLanguage, t, type Language } from "@/lib/i18n";
 
@@ -198,6 +199,7 @@ export function AppShell() {
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <Assistant />
     </div>
   );
 }

@@ -1,6 +1,14 @@
 import type {
   Api,
   AdminUserListParams,
+  AiChatInput,
+  AiChatResult,
+  AiConversation,
+  AiMessage,
+  AiReportDraft,
+  AiSource,
+  AiStatus,
+  AiStreamCallbacks,
   AuditParams,
   CaseListParams,
   CollectionListParams,
@@ -303,6 +311,119 @@ const hypothesesState: InvestigationHypothesis[] = [...MAIN_REGISTERED_HYPOTHESE
 const timelineState: TimelineEvent[] = [...MAIN_TIMELINE_EVENTS];
 const recycleState: Array<EvidenceListItem & { case_id: string }> = [];
 
+/* ------------------------------ AI threads ------------------------------- */
+
+/** Ids of the deterministic conversations seeded into the mock history. */
+export const AI_SEED_CONVERSATIONS = {
+  general: "ai-conv-seed-general",
+  case: "ai-conv-seed-case",
+} as const;
+
+const aiConversationsState: AiConversation[] = [];
+const aiMessagesByConversation: Record<string, AiMessage[]> = {};
+let aiConversationSeq = 1;
+
+interface AiThreadSeed {
+  conversation: AiConversation;
+  messages: AiMessage[];
+}
+
+/** Seed timestamps are relative to "now" so history reads as plausible recency. */
+function buildAiSeeds(): AiThreadSeed[] {
+  const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+  const caseStamp = hoursAgo(2);
+  const generalStamp = hoursAgo(26);
+  return [
+    {
+      conversation: {
+        id: AI_SEED_CONVERSATIONS.case,
+        case_id: CASE_ID_MAIN,
+        title: "Evidence ingest walkthrough",
+        mode: "case",
+        status: "active",
+        prompt_version: "1.0.0",
+        created_at: caseStamp,
+        updated_at: caseStamp,
+        last_message_at: caseStamp,
+      },
+      messages: [
+        {
+          id: "ai-seed-case-msg-1",
+          role: "user",
+          content: "Which evidence files support the primary lead?",
+          sources: [],
+          tool_events: [],
+          grounded: false,
+          prompt_version: "1.0.0",
+          created_at: caseStamp,
+        },
+        {
+          id: "ai-seed-case-msg-2",
+          role: "assistant",
+          content:
+            "The uploaded call-detail record ties the primary lead to two phone numbers.\n\n| File | Rows |\n| --- | --- |\n| call_detail_record.csv | 4821 |",
+          sources: [{ type: "evidence", id: "ev-seed-cdr", label: "call_detail_record.csv" }],
+          tool_events: [],
+          grounded: true,
+          prompt_version: "1.0.0",
+          created_at: caseStamp,
+        },
+      ],
+    },
+    {
+      conversation: {
+        id: AI_SEED_CONVERSATIONS.general,
+        case_id: null,
+        title: "Platform onboarding questions",
+        mode: "general",
+        status: "active",
+        prompt_version: "1.0.0",
+        created_at: generalStamp,
+        updated_at: generalStamp,
+        last_message_at: generalStamp,
+      },
+      messages: [
+        {
+          id: "ai-seed-general-msg-1",
+          role: "user",
+          content: "How do I invite an analyst to the platform?",
+          sources: [],
+          tool_events: [],
+          grounded: false,
+          prompt_version: "1.0.0",
+          created_at: generalStamp,
+        },
+        {
+          id: "ai-seed-general-msg-2",
+          role: "assistant",
+          content: "Administrators invite analysts from **Admin → Users**; new accounts stay pending until approved.",
+          sources: [{ type: "knowledge", id: "docs/access.md#invites", label: "access control" }],
+          tool_events: [],
+          grounded: false,
+          prompt_version: "1.0.0",
+          created_at: generalStamp,
+        },
+      ],
+    },
+  ];
+}
+
+function seedAiState(): void {
+  aiConversationsState.length = 0;
+  for (const key of Object.keys(aiMessagesByConversation)) delete aiMessagesByConversation[key];
+  for (const seed of buildAiSeeds()) {
+    aiConversationsState.push({ ...seed.conversation });
+    aiMessagesByConversation[seed.conversation.id] = seed.messages.map((m) => ({ ...m }));
+  }
+}
+seedAiState();
+
+function titleFromQuestion(question: string): string {
+  const cleaned = question.trim().replace(/\s+/g, " ");
+  if (!cleaned) return "New conversation";
+  return cleaned.length > 56 ? `${cleaned.slice(0, 55).trimEnd()}…` : cleaned;
+}
+
 const victimState: Victim[] = [
   {
     id: uid(5010),
@@ -522,6 +643,7 @@ export function resetMockState(): void {
   timelineState.length = 0;
   timelineState.push(...MAIN_TIMELINE_EVENTS);
   recycleState.length = 0;
+  seedAiState();
   currentUserId = null;
   currentRoles = [];
   authSession.clear();
@@ -1965,6 +2087,199 @@ export const mockApi: Api = {
     async health(): Promise<HealthResponse> {
       await delay(MOCK_LATENCY);
       return { status: "ok", service: "cybersaarthi", version: "0.1.0" };
+    },
+  },
+
+  ai: {
+    async status(): Promise<AiStatus> {
+      await delay(MOCK_LATENCY);
+      return {
+        enabled: true,
+        ready: true,
+        managed: false,
+        model_configured: "Qwen3-8B-Q4_K_M.gguf",
+        model_valid: true,
+        context_length: 4096,
+        max_output_tokens: 512,
+        gpu_layers: -1,
+        started: true,
+        load_seconds: 12.4,
+        restarts: 1,
+        requests_total: 3,
+        errors_total: 0,
+        generations_active: 0,
+        last_error: null,
+        prompt_version: "1.0.0",
+        tools: ["get_case_summary", "list_evidence", "search_cases", "search_knowledge"],
+        feature_flags: {
+          case: true,
+          evidence: true,
+          graph: true,
+          copilot: true,
+          report_draft: true,
+          knowledge: true,
+        },
+      };
+    },
+    async chat(input: AiChatInput): Promise<AiChatResult> {
+      await delay(MOCK_LATENCY);
+      const sources: AiSource[] = input.case_id
+        ? [
+            { type: "case", id: input.case_id, label: "SHOW-2026-005", url: `/cases/${input.case_id}` },
+            { type: "evidence", id: "ev-mock-1", label: "call_detail_record.csv" },
+          ]
+        : [{ type: "knowledge", id: "README.md#overview", label: "overview" }];
+      const answer = input.case_id
+        ? "This case has 2 entities and 1 evidence file [evidence:ev-mock-1]. The primary lead is the uploaded call-detail record. (Mock assistant answer.)"
+        : "CyberSaarthi stores evidence, entities and findings per case. (Mock assistant answer.)";
+
+      // Multi-turn: reuse the requested thread when it exists, otherwise open a new
+      // one. Every exchange (user + assistant) is persisted for the history view.
+      const now = new Date().toISOString();
+      let conversation =
+        input.conversation_id != null
+          ? aiConversationsState.find((c) => c.id === input.conversation_id)
+          : undefined;
+      if (!conversation) {
+        conversation = {
+          id: `conv-mock-${aiConversationSeq++}`,
+          case_id: input.case_id ?? null,
+          title: titleFromQuestion(input.question),
+          mode: input.mode ?? "general",
+          status: "active",
+          prompt_version: "1.0.0",
+          created_at: now,
+          updated_at: now,
+          last_message_at: now,
+        };
+        aiConversationsState.push(conversation);
+      } else {
+        conversation.updated_at = now;
+        conversation.last_message_at = now;
+      }
+      const thread = (aiMessagesByConversation[conversation.id] ??= []);
+      const base = thread.length;
+      thread.push(
+        {
+          id: `msg-${conversation.id}-${base}-u`,
+          role: "user",
+          content: input.question,
+          sources: [],
+          tool_events: [],
+          grounded: false,
+          prompt_version: "1.0.0",
+          created_at: now,
+        },
+        {
+          id: `msg-${conversation.id}-${base + 1}-a`,
+          role: "assistant",
+          content: answer,
+          sources,
+          tool_events: [],
+          grounded: true,
+          prompt_version: "1.0.0",
+          created_at: now,
+        },
+      );
+
+      return {
+        answer,
+        conversation_id: conversation.id,
+        message_id: `msg-${conversation.id}-${base + 1}-a`,
+        sources,
+        tool_events: [],
+        grounded: true,
+        prompt_version: "1.0.0",
+        duration_ms: 420,
+        first_token_ms: 90,
+        prompt_tokens: 320,
+        completion_tokens: 48,
+      };
+    },
+    async chatStream(input: AiChatInput, callbacks: AiStreamCallbacks): Promise<void> {
+      const result = await this.chat(input);
+      // Mirror the real backend's tool loop: when the turn is case-scoped the
+      // model first streams a raw tool fence, then a `tool` event arrives and
+      // only afterwards the real answer tokens (clients must drop the fence).
+      if (input.case_id) {
+        callbacks.onToken?.('{"tool": "get_case_summary", "arguments": {"case_id": "');
+        callbacks.onToken?.(`${input.case_id}"}} `);
+        callbacks.onTool?.({
+          tool: "get_case_summary",
+          ok: true,
+          arguments: { case_id: input.case_id },
+        });
+      }
+      const words = result.answer.split(" ");
+      for (const word of words) {
+        callbacks.onToken?.(`${word} `);
+      }
+      callbacks.onSources?.(result.sources);
+      callbacks.onDone?.({
+        answer: result.answer,
+        // Forward the thread id when the transport knows it (the real SSE backend
+        // does not send it yet; consumers fall back to listConversations).
+        conversation_id: result.conversation_id,
+        grounded: result.grounded,
+        sources: result.sources,
+        tool_events: result.tool_events,
+        duration_ms: result.duration_ms,
+        first_token_ms: result.first_token_ms,
+        completion_tokens: result.completion_tokens,
+      });
+    },
+    async reportDraft(caseId: string): Promise<AiReportDraft> {
+      await delay(MOCK_LATENCY);
+      return {
+        draft: `# Investigation draft — ${caseId}\n\nSummary: (mock draft for human review.)`,
+        sources: [{ type: "case", id: caseId, label: "case", url: `/cases/${caseId}` }],
+        grounded: true,
+        prompt_version: "1.0.0",
+        duration_ms: 900,
+      };
+    },
+    async listConversations(
+      params: { case_id?: string; limit?: number } = {},
+    ): Promise<{ items: AiConversation[]; total: number }> {
+      await delay(MOCK_LATENCY);
+      const filtered = aiConversationsState
+        .filter((c) => (params.case_id ? c.case_id === params.case_id : true))
+        // Newest activity first so `{ limit: 1 }` returns the just-used thread.
+        .sort((a, b) =>
+          (b.last_message_at ?? b.updated_at).localeCompare(a.last_message_at ?? a.updated_at),
+        );
+      const items = filtered.slice(0, params.limit ?? 50).map((c) => ({ ...c }));
+      return { items, total: filtered.length };
+    },
+    async listMessages(conversationId: string): Promise<{ items: AiMessage[] }> {
+      await delay(MOCK_LATENCY);
+      const thread = aiMessagesByConversation[conversationId];
+      if (!thread) {
+        throw new ApiError({ status: 404, code: "NOT_FOUND", message: "conversation not found" });
+      }
+      return { items: thread.map((m) => ({ ...m })) };
+    },
+    async renameConversation(conversationId: string, title: string): Promise<AiConversation> {
+      await delay(MOCK_LATENCY);
+      const conversation = aiConversationsState.find((c) => c.id === conversationId);
+      if (!conversation) {
+        throw new ApiError({ status: 404, code: "NOT_FOUND", message: "conversation not found" });
+      }
+      const next = title.trim();
+      if (next) {
+        conversation.title = next;
+        conversation.updated_at = new Date().toISOString();
+      }
+      return { ...conversation };
+    },
+    async deleteConversation(conversationId: string): Promise<void> {
+      await delay(MOCK_LATENCY);
+      const index = aiConversationsState.findIndex((c) => c.id === conversationId);
+      if (index === -1) {
+        throw new ApiError({ status: 404, code: "NOT_FOUND", message: "conversation not found" });
+      }
+      aiConversationsState.splice(index, 1);
+      delete aiMessagesByConversation[conversationId];
     },
   },
 
