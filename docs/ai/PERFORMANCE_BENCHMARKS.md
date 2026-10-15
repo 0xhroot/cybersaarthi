@@ -62,3 +62,42 @@ because retrieval+tool cost dominates and is profile-independent.
 Conclusion: profiles are a correct, tested capability with a real but
 question-dependent effect. They are **not** a latency fix for short answers,
 and we do not claim one.
+
+## Stage C — inference-server configuration sweep
+
+Method: `scripts/ai/bench_server_configs.py`. Because a second full model load
+does not fit the ~5 GB VRAM headroom alongside the running server, each
+candidate *replaces* the live server on port 8081 (stop → launch → measure →
+stop), and the canonical config is restored afterward. The per-slot context
+fix (`--ctx-size 16384 --parallel 2`, `n_ctx_slot=8192`) is preserved for
+every candidate. Streaming, `enable_thinking=false`, temperature 0.2.
+
+Baseline = current `run_server.sh` flags (`--jinja`, no explicit fa/cache/batch).
+Long prompt = 1-sentence investigation answer (128 max_tokens), 5 repeats.
+
+| Config | Extra flags | TTFT median | Total median | tok/s | VRAM peak |
+|---|---|---|---|---|---|
+| baseline | *(none)* | 18.2 ms | 1009.2 ms | 180.3 | 7297 MiB |
+| flash-attn | `--flash-attn on` | 18.1 ms | 1013.3 ms | 181.8 | 7297 MiB |
+| fa + kv-q8 | `--fa on --cache-type-k/v q8_0` | 14.7 ms | 1044.9 ms | 175.2 | **6217 MiB** |
+| fa + batch | `--fa on -b 1024 -ub 512` | 17.5 ms | 1018.7 ms | 180.7 | 7297 MiB |
+
+**Honest finding: no candidate beats baseline on latency.** All four are
+within noise of each other (~1009–1045 ms total, ~175–182 tok/s, ~18 ms TTFT).
+Specifically:
+
+- `--flash-attn on` changes nothing — this build defaults to `auto`, which
+  already enables flash attention for this model/shape. Forcing it is a no-op.
+- Batch/ubatch tuning has no effect at single-stream (concurrency 2) scale;
+  batch size only matters when many tokens are processed together.
+- KV-cache quantization (`q8_0`) is the one config with a real effect: it cuts
+  peak VRAM by ~1.08 GB (7297 → 6217 MiB) at a ~3.5% throughput cost
+  (180.3 → 175.2 tok/s). This is a *memory* win, not a latency win.
+
+**Decision: keep the baseline configuration.** Nothing here improves the
+latency we care about, and we will not trade throughput for VRAM headroom we
+do not currently need (4.9 GB free). The kv-q8 result is recorded as the
+available lever if context size or concurrency is ever raised and VRAM becomes
+the binding constraint — it is not adopted now because it would make every
+answer marginally slower for no present benefit.
+
