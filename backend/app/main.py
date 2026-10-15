@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -27,6 +28,10 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 logger = logging.getLogger(__name__)
+
+# How often the background AI retention sweep re-runs (startup always sweeps
+# once regardless). Daily is ample for a 90-day default window.
+RETENTION_SWEEP_INTERVAL_SECONDS = 24 * 60 * 60
 
 
 @asynccontextmanager
@@ -57,6 +62,38 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("AI service failed to start; /api/v1/ai/* will report unavailable")
 
+    # Retention sweep: the configured window (AI_CONVERSATION_RETENTION_DAYS)
+    # must actually delete expired threads. Runs once at startup, then daily in
+    # the background; failures are logged and never take the API down.
+    retention_task: asyncio.Task[None] | None = None
+    if settings.AI_ENABLED and settings.AI_CONVERSATION_RETENTION_DAYS > 0:
+
+        async def _retention_sweep_once() -> int:
+            factory = database.session_factory()
+            async with factory() as session:
+                purged = await ai_service.purge_expired(session)
+                await session.commit()
+            if purged:
+                logger.info(
+                    "AI retention sweep removed conversations",
+                    extra={"count": purged, "days": settings.AI_CONVERSATION_RETENTION_DAYS},
+                )
+            return purged
+
+        async def _retention_loop() -> None:
+            while True:
+                await asyncio.sleep(RETENTION_SWEEP_INTERVAL_SECONDS)
+                try:
+                    await _retention_sweep_once()
+                except Exception:
+                    logger.exception("AI retention sweep failed")
+
+        try:
+            await _retention_sweep_once()
+        except Exception:
+            logger.exception("AI startup retention sweep failed")
+        retention_task = asyncio.create_task(_retention_loop())
+
     # Probe dependencies at startup. Failures are logged, not fatal: the
     # readiness endpoint reflects the real state of each service.
     probes = (
@@ -74,6 +111,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    if retention_task is not None:
+        retention_task.cancel()
+        try:
+            await retention_task
+        except asyncio.CancelledError:
+            pass
     await ai_service.stop()
     await database.close()
     await graph_store.close()

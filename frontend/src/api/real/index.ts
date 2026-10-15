@@ -721,6 +721,8 @@ interface AiStreamEvent {
   sources?: AiSource[];
   tool?: string;
   arguments?: Record<string, unknown>;
+  ok?: boolean;
+  error?: string;
   grounded?: boolean;
   tool_events?: AiToolEvent[];
   duration_ms?: number;
@@ -791,8 +793,11 @@ const aiService: ApiAiService = {
             case "tool":
               callbacks.onTool?.({
                 tool: event.tool ?? "unknown",
-                ok: true,
+                // Pre-execution events for valid tools carry no ok (still
+                // running); rejected tools arrive with ok:false + error.
+                ok: event.ok ?? true,
                 arguments: event.arguments,
+                error: event.error,
               });
               break;
             case "done":

@@ -86,28 +86,49 @@ The migration `36e5ad8fd75e_add_ai_conversations_and_messages.py` only **adds**
 two tables; downgrading drops them and touches no existing table — no destructive
 migration exists anywhere in this work.
 
-## 5. Proposed evaluation harness (designed, not yet implemented)
+## 5. Evaluation harness (implemented, run 2026-10-15)
 
-So a future model swap (including a fine-tune) can be judged instead of guessed:
+So a model swap (including a fine-tune) can be judged instead of guessed:
 
-1. **Golden set** — 30–50 frozen `(question, case_id, expected_facts[])` tuples
-   drawn from the seeded showcase cases, stored as JSONL in
-   `backend/tests/fixtures/ai_golden.jsonl`.
-2. **Scoring** — deterministic, no LLM judge:
-   - *groundedness*: fraction of claims whose cited `SourceRef` exists in the DB
-     for that case (machine-checkable via the sources array);
-   - *recall of expected facts*: substring/ID match against `expected_facts`;
-   - *abstention*: questions about cases the user can't access must produce a
-     refusal, scored as a hard gate;
-   - *latency/throughput*: reuse the §1 measurements.
-3. **Runner** — `scripts/ai/eval_model.sh` posting to `/ai/chat` with a fixed
-   seed/temperature and writing a JSON report; run before and after any model
-   change.
-4. **Gate** — a model swap ships only if abstention = 100 % and groundedness
-   doesn't regress by more than a set threshold.
+1. **Golden set** — 33 frozen entries in `backend/tests/fixtures/ai_golden.jsonl`:
+   29 grounded questions across all five showcase cases (incl. 2 graph-mode),
+   3 foreign-case abstentions (must return 403), 1 unknown-case (must return
+   404). Guarded by `backend/tests/unit/test_ai_golden_fixture.py` (10 tests
+   pinning counts, kinds, statuses, modes and case numbers).
+2. **Scoring** — deterministic, no LLM judge, in
+   `backend/scripts/eval_model.py`:
+   - *groundedness*: every cited `SourceRef` must exist in the DB **and** belong
+     to the evaluated case (hard gate);
+   - *recall of expected facts*: case/underscore-insensitive substring match;
+   - *abstention*: questions about cases the caller can't access must produce
+     the exact refusal status (hard gate);
+   - *latency*: per-request duration (reported).
+3. **Runner** — `scripts/ai/eval_model.sh` → `python -m scripts.eval_model`,
+   posting to `/ai/chat` over real HTTP with real auth (3.5 s pacing to stay
+     under the rate limit; the API has no seed/temperature parameter — the
+     gateway fixes `temperature=0.2` server-side). Report written to
+     `ai_runtime/eval_report.json` (gitignored).
+4. **Gate** — exit 0 only if abstention = 100 %, zero ungrounded answers and
+   zero invalid/cross-case sources; exit 1 on gate failure, 2 on setup failure.
 
-Status: **design only** — implementing it needs the golden set, which needs
-domain review. Not counted as done anywhere in `FEATURE_STATUS.md`.
+**Run evidence (2026-10-15, Qwen3-8B-Q4_K_M on the local llama-server):**
+33/33 entries pass all three gates; groundedness 1033/1033 cited sources
+resolve to the correct case (1.000); abstention 4/4; fact recall 49/53
+(0.925); latency avg 741 ms, max 2035 ms. The three gates are hard; fact
+recall is reported, not gated.
+
+**Honest misses from that run** (the point of measuring):
+- `s001-top-entity` expected Delhi/59 relationships, model answered
+  "Gaurav Joshi, 13"; `s005-top-entity` expected Dehradun/67, model answered
+  "Ludhiana, 32" — Qwen3-8B twice misread its own sorted entity digest.
+- `s001-timeline` fact "registered" missed because the model paraphrased to
+  "registration" (brittle substring, not a data error).
+
+The harness also caught a real runtime bug before any model swap could: the
+server was started with `--ctx-size 8192 --parallel 2`, so llama.cpp divided
+the context to 4096 tokens per slot while showcase-case DATA blocks need
+~4350 — every large-case chat failed 503. Fixed in `scripts/ai/run_server.sh`
+(`--ctx-size $((CTX * PARALLEL))`, verified `n_ctx_slot = 8192`).
 
 ## 6. "Soup" — status, blocker, and safe prep only
 

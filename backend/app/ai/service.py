@@ -495,6 +495,11 @@ class AIService:
                                 "type": "tool",
                                 "tool": proposal.tool,
                                 "arguments": _safe_args(proposal.arguments),
+                                # Already known to be a failure (unlike the
+                                # pre-execution event for valid tools), so the
+                                # transient chip can show the truth immediately.
+                                "ok": False,
+                                "error": f"unknown tool: {proposal.tool}",
                             }
                         )
                     tool_events.append(

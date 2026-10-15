@@ -13,6 +13,7 @@ BIN="${REPO_ROOT}/ai_runtime/llama.cpp/llama-server"
 HOST="${AI_SERVER_HOST:-0.0.0.0}"
 PORT="${AI_SERVER_PORT:-8081}"
 CTX="${AI_CONTEXT_LENGTH:-8192}"
+PARALLEL="${AI_SERVER_PARALLEL:-2}"
 NGPU_LAYERS="${AI_GPU_LAYERS:--1}"
 API_KEY="${AI_SERVER_API_KEY:-}"
 
@@ -42,9 +43,11 @@ ARGS=(
   --model "${MODEL}"
   --host "${HOST}"
   --port "${PORT}"
-  --ctx-size "${CTX}"
+  # llama.cpp divides --ctx-size evenly across --parallel slots; multiply so
+  # each concurrent request still gets the full AI_CONTEXT_LENGTH budget.
+  --ctx-size "$((CTX * PARALLEL))"
   --n-gpu-layers "${NGPU_LAYERS}"
-  --parallel 2
+  --parallel "${PARALLEL}"
   --no-webui
   --jinja
 )

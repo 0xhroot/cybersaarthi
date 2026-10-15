@@ -1,0 +1,168 @@
+# AI Implementation — Progress Checkpoint
+
+**Repo:** `/home/xhroot/Documents/ai/CyberSaarthi` · **HEAD:** `9c17007`
+"Add local AI assistant: llama.cpp gateway, grounded chat, floating copilot"
+· Working tree was clean at session start (all prior work committed).
+
+## A. Current state audit (this session, reverified — not trusted from docs)
+
+| Check | Result |
+|---|---|
+| Git | clean at `9c17007`; no unstaged/staged changes at session start |
+| llama-server | running, `/health` **200** |
+| Completion | `content = 'pong'` (real, thinking-disabled) |
+| Unauthenticated completion | **401** (API-key enforcement real) |
+| UDS bridge | socket present, socat running |
+| Backend container | healthy, `/api/v1/health` 200 |
+| `docs/ai/` | RECOVERY_AUDIT, FEATURE_STATUS, LOCAL_MODEL_SETUP, ARCHITECTURE, SECURITY_AND_ISOLATION, API, EVALUATION, TROUBLESHOOTING, IMPLEMENTATION_AUDIT all exist |
+| `docs/ai/IMPLEMENTATION_PROGRESS.md` | **was missing — created now (this file)** |
+
+The three screenshot observations are genuine and re-confirmed.
+
+## B. Honest gap list (what is NOT done, from FEATURE_STATUS 🟡 + code inspection)
+
+1. **Retention purge never runs** ✅ done (Stage 1) — `AI_CONVERSATION_RETENTION_DAYS=90` is read
+   into settings but no code deletes expired conversations (FEATURE_STATUS #44 🟡).
+2. **No live integration test for the AI path** ✅ done (Stage 2) — the full backend run deselects
+   1 integration test (readiness); no integration test exercises AI against the
+   real llama-server.
+3. **No automated eval harness** ✅ done (Stage 3) — EVALUATION.md §5 is design-only.
+4. **`POST /ai/conversations` (empty thread) may lack a test** ✅ done (Stage 4) — verify.
+5. **Soup** — blocked: host has Python 3.14.7 only, no 3.10–3.12 interpreter,
+   no `soup-cli`, no instruction dataset. Instruction #10 says implement only
+   after format+deps are verified → re-verify, do not implement.
+6. Stream `tool` events carry no `ok`/`error` (frontend hardcodes `ok:true` for
+   the transient chip; final truth comes from `done.tool_events`) — cosmetic.
+   ✅ done (Stage 4).
+
+## C. Work performed this session (stages, each saved + tested)
+
+- **Stage 0** — audit + this checkpoint. ✅
+- **Stage 1** — retention purge. ✅
+  - Found `AIService.purge_expired()` already existed but **nothing called it**
+    (FEATURE_STATUS #44 🟡 was accurate).
+  - Fixed a real bug in my own first draft: `async with database.session_factory()`
+    is invalid — an `async_sessionmaker` must be *called* (`factory()`) before
+    use as a context manager (verified: `hasattr(async_sessionmaker,'__aenter__') == False`).
+  - Wired into `main.py` lifespan: sweep once at startup + daily background
+    `asyncio` task, cancelled on shutdown; both failure paths logged, never fatal.
+  - Test: `test_retention_purge_removes_only_expired_threads` (ages a thread
+    past the window, asserts purge count, survivor kept, FK-cascaded messages
+    deleted) — **1 passed**.
+  - Ruff + mypy clean on changed files.
+  - **Live-verified**: inserted a 120-day-old conversation via psql, restarted
+    the backend, log shows `AI retention sweep removed conversations` and the
+    row is gone (`count=0`).
+- **Stage 2** — live integration test `backend/tests/integration/test_ai_live.py`. ✅
+  - 7 tests marked `integration`, all against the **real** llama-server with a
+    real `AIService` (no monkeypatching): completion roundtrip (`pong`),
+    grounded case chat (real sources + `grounded=True`), SSE token→done stream,
+    outsider 403 on case chat, outsider 404 on foreign thread read/rename,
+    message persistence (user+assistant rows), API-key header contract.
+  - Fixed before first run: reachability probe hits `/health` directly (a fresh
+    runtime's `ensure_ready()` can never succeed — its client is `None`);
+    fixture forces `AI_MANAGE_SERVER=False` via `settings.model_copy` so tests
+    can never spawn a second llama-server; API key loaded from repo-root `.env`
+    (test venv doesn't see it); dropped `CaseMember(role="owner")` — violates
+    the CHECK constraint (only collaborator/viewer), owner access comes from
+    `owner_id`.
+  - First run then **failed 6/7**: `app.state.database` never set —
+    ASGITransport doesn't run the lifespan. Fixed by wiring
+    database/graph_store/cache/storage/settings onto `app.state` in the fixture
+    (same pattern as `tests/api/conftest.py`).
+  - **Evidence: `7 passed in 5.31s`** with the server up (GPU-backed:
+    llama-server holds 5986 MiB); `7 deselected` under `-m "not integration"`
+    (default suite stays hermetic); skips with an actionable message when the
+    server is down; teardown leaves **0** `liv%` users / **0** `LIVE-%` cases.
+  - **Restart recovery this session:** host restarted mid-stage → llama-server
+    dead + stale socket + orphaned socat. Restored with `rm -f
+    ai_runtime/llama.sock`, `setsid -f scripts/ai/run_server.sh`, killed the
+    orphan socat **by PID** (never `pkill -f` — the pattern matched my own
+    shell once), `setsid -f scripts/ai/socket_bridge.sh`; end-to-end chat
+    returns `pong` again.
+- **Stage 3** — eval harness, implemented + run. ✅
+  - Golden set `backend/tests/fixtures/ai_golden.jsonl`: **33 entries**
+    (29 grounded across all 5 showcase cases incl. 2 graph-mode, 3
+    foreign-case abstention→403, 1 unknown-case→404).
+  - Runner `backend/scripts/eval_model.py` (venv + SQLAlchemy): real login,
+    throttled `/ai/chat` (3.5 s, one 429-retry), citation validation against
+    the DB **scoped to the evaluated case** (knowledge docs via allowlist),
+    fact recall, abstention scoring, JSON report, exit 0/1/2. Entry point
+    `scripts/ai/eval_model.sh`.
+  - Guard test `tests/unit/test_ai_golden_fixture.py` — 10 tests pin counts,
+    kinds, statuses, modes, showcase case numbers.
+  - Fixed during bring-up (runner bugs, not test weakening): `CaseMember` has
+    a composite PK (no `.id` → probe `case_id`); `vars()` invalid on
+    `slots=True` dataclass → `asdict()`; `async_sessionmaker` misuse →
+    `database.ping()`; `await` on non-async `_resolve_source`.
+  - **Caught a real runtime bug**: showcase-case DATA blocks (~4350 tokens)
+    exceeded the per-slot context — server ran `--ctx-size 8192 --parallel 2`
+    and llama.cpp splits that to **4096/slot**, so every large-case chat
+    failed `503 AI_UNAVAILABLE`. Fixed `scripts/ai/run_server.sh` to pass
+    `--ctx-size $((CTX * PARALLEL))`; restart verified `n_ctx_slot = 8192`.
+  - **Evidence (live run 2026-10-15): 33/33 PASS** — gates
+    `{abstention_100pct, zero_ungrounded_answers, zero_invalid_sources}` all
+    true; groundedness 1033/1033 cited sources resolve to the correct case;
+    abstention 4/4; fact recall 49/53 (0.925); latency avg 741 ms / max
+    2035 ms. Report: `ai_runtime/eval_report.json` (gitignored).
+  - Honest misses recorded in EVALUATION.md §5: model misread the sorted
+    entity digest on 2 top-entity questions (Delhi/59 → "Gaurav Joshi/13",
+    Dehradun/67 → "Ludhiana/32"); 1 brittle-substring paraphrase
+    ("registered" vs "registration"). Fact recall reported, never gated.
+- **Stage 4** — test-gap pass. ✅
+  - Verified: **no test hit `POST /ai/conversations`** (all 21 conversation
+    references were GET/PATCH/DELETE). Endpoint exists (`routes/ai.py:91`,
+    201 + case access check via `get_case_or_404`).
+  - Added 6 API tests: empty-thread create (defaults: mode/title/status/
+    prompt_version; thread readable and empty), owned-case binding
+    (mode=case + case_id echoed), 401 unauthenticated, **403 foreign case**,
+    **404 unknown case**, owner scoping (stranger gets 404 on read/rename/
+    delete and sees no listing entry). **7 passed** (incl. pre-existing).
+  - Closed audit gap 6: the stream `tool` event for a **fabricated/unknown
+    tool** now carries `ok:false` + `error` (pre-execution events for valid
+    tools stay ok-less — the result is genuinely unknown then); the frontend
+    passes `event.ok`/`event.error` through instead of hardcoding `ok:true`
+    (`api/real/index.ts`, `AiStreamEvent` extended).
+  - New test `test_stream_unknown_tool_event_reports_failure_immediately`
+    pins it: transient event ok:false + "unknown tool", final
+    `done.tool_events` ok:false, no successful tool event anywhere.
+  - Evidence: `tests/api/test_ai_api.py` **39 passed**; ruff + mypy clean on
+    changed files; frontend `tsc -b --noEmit` + eslint clean.
+- **Stage 5** — full re-runs + docs + commit. ✅
+  - Backend hermetic: **542 passed, 8 deselected** (`-m "not integration"`,
+    111 s). Integration (live llama-server): **8 passed** (7 AI live +
+    1 readiness). Frontend: **110 passed / 18 files**, `tsc -b --noEmit` +
+    eslint clean. Ruff over the whole backend: clean. Mypy `app/`: 140 files
+    clean.
+  - Eval re-run after the Stage-4 service change: **33/33 PASS**, gates all
+    true; groundedness 1033/1033 (1.0); abstention 4/4; fact recall 0.9434
+    (50/53 — natural variance vs 0.9245 on the first run, model is not
+    seed-controlled); latency avg 629 ms / max 2400 ms. Report regenerated at
+    `ai_runtime/eval_report.json`.
+  - `docs/ai/FEATURE_STATUS.md` #44 🟡→✅ with the lifespan-sweep evidence;
+    totals line corrected (was stale: real counts 42 ✅ · 2 🟡).
+  - `docs/ai/EVALUATION.md` §5 rewritten: design → implemented + run evidence
+    + honest misses + the ctx-per-slot bug the harness caught.
+
+## D. Next task at this checkpoint
+
+Stage 5: full re-runs and commit (see §C). Commands:
+
+```bash
+cd /home/xhroot/Documents/ai/CyberSaarthi
+git log --oneline -1                      # expect 9c17007 or later
+cd backend && .venv/bin/python -m pytest -m "not integration" -q   # hermetic
+cd backend && .venv/bin/python -m pytest -m integration -q          # needs runtime
+cd frontend && npm run test && npm run typecheck && npm run lint
+./scripts/ai/eval_model.sh                # eval gates (exit 0 = pass)
+```
+
+Then: update `docs/ai/FEATURE_STATUS.md` #44 with evidence, `git add` the
+session's files, commit (weights/secrets never staged).
+
+Continue prompt: "Continue CyberSaarthi AI work from docs/ai/IMPLEMENTATION_PROGRESS.md,
+next task = Stage 5 full re-runs + commit. Verify HEAD and runtime first."
+
+## E. Session log
+
+(append below as stages complete)

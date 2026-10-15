@@ -75,7 +75,7 @@ Legend: ✅ verified working · 🟡 works with a documented limitation ·
 |---|---|---|---|
 | 42 | `ai_conversations` / `ai_messages` models + Alembic migration `36e5ad8fd75e` | ✅ | migration applied on the live DB (`alembic_version` + `\d ai_conversations` verified in the lost session; live persistence re-verified this session) |
 | 43 | Prompt/answer persisted per turn with sources, tool events, timings | ✅ | `_persist()`; history endpoint returns them |
-| 44 | Conversation retention policy (`AI_CONVERSATION_RETENTION_DAYS`) | 🟡 | configured (90 days) and documented; no scheduled purge job runs yet |
+| 44 | Conversation retention policy (`AI_CONVERSATION_RETENTION_DAYS`) | ✅ | lifespan sweep in `app/main.py`: purge once at startup + daily asyncio task (cancelled on shutdown, never fatal); `test_retention_purge_removes_only_expired_threads` (expired purged, survivor kept, messages FK-cascaded); live-verified: a 120-day-old thread deleted on backend restart with log `AI retention sweep removed conversations` |
 
 ## F. Not part of this subsystem / blockers
 
@@ -85,5 +85,5 @@ Legend: ✅ verified working · 🟡 works with a documented limitation ·
 | 46 | Ollama | 🔴 by design | not used anywhere |
 | 47 | "Soup" fine-tuning | 🔴 blocker | no Soup repository exists on this machine — only a mention in `docs/architecture/complete-project-status-report.md`. See `docs/ai/EVALUATION.md` |
 
-**Totals:** 41 ✅ · 3 🟡 (all with documented, deliberate reasons) · 1 🔴 external
+**Totals:** 42 ✅ · 2 🟡 (all with documented, deliberate reasons) · 1 🔴 external
 blocker · 2 🔴 by-design exclusions.

@@ -14,11 +14,12 @@ import uuid
 
 import pytest
 from app.ai.client import CompletionResult, InferenceUnavailableError
+from app.ai.prompts import PROMPT_VERSION
 from app.ai.service import AIService
 from app.core.config import get_settings
 from app.db.postgres import Database
 from app.main import app
-from app.models import AIConversation, Case, CaseMember
+from app.models import AIConversation, AIMessage, Case, CaseMember
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
@@ -452,6 +453,51 @@ async def test_stream_tool_loop_forwards_tool_events(
     assert tool_results
 
 
+async def test_stream_unknown_tool_event_reports_failure_immediately(
+    http_client, ai_service, monkeypatch, _owned_case
+) -> None:
+    """A fabricated tool must surface ok:false on the transient stream event,
+    not only in the final done.tool_events."""
+    prefix = get_settings().API_V1_PREFIX
+    case_id = str(_owned_case)
+    forged = (
+        f'```tool_call\n{{"tool": "wipe_case", '
+        f'"arguments": {{"case_id": "{case_id}"}}}}\n```'
+    )
+    queue = [forged, "I cannot do that."]
+
+    async def fake_stream(messages, *, max_tokens, temperature=0.2, stop=None):
+        text = queue.pop(0) if queue else "final"
+        yield text
+
+    monkeypatch.setattr(ai_service.client, "chat_stream", fake_stream)
+
+    events = []
+    async with http_client.stream(
+        "POST",
+        f"{prefix}/ai/chat/stream",
+        json={"question": "wipe it", "mode": "case", "case_id": case_id},
+    ) as resp:
+        assert resp.status_code == 200
+        async for line in resp.aiter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[len("data: "):]))
+
+    tool_events = [e for e in events if e["type"] == "tool"]
+    assert len(tool_events) == 1
+    transient = tool_events[0]
+    assert transient["tool"] == "wipe_case"
+    assert transient["ok"] is False
+    assert "unknown tool" in transient["error"]
+
+    done = events[-1]
+    assert done["type"] == "done"
+    assert done["answer"] == "I cannot do that."
+    assert done["tool_events"][0]["ok"] is False
+    # The forged tool was never executed (no successful tool result anywhere).
+    assert not [e for e in done["tool_events"] if e["ok"] is True]
+
+
 async def test_stream_rejects_outsider_case(
     http_client, ai_service, _owned_case, user_factory
 ) -> None:
@@ -539,6 +585,146 @@ async def test_list_and_delete_owned_conversations(http_client, ai_service, monk
 
     gone = await http_client.get(f"{prefix}/ai/conversations/{conv_a}")
     assert gone.status_code == 404
+
+
+# -- conversation creation (empty thread) -----------------------------------
+
+
+async def test_create_empty_thread_general_mode(http_client, ai_service) -> None:
+    prefix = get_settings().API_V1_PREFIX
+    resp = await http_client.post(f"{prefix}/ai/conversations")
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["case_id"] is None
+    assert body["mode"] == "general"
+    assert body["title"] == "New conversation"
+    assert body["status"] == "active"
+    assert body["prompt_version"] == PROMPT_VERSION
+
+    # The empty thread is readable and truly empty (no messages yet)...
+    read = await http_client.get(f"{prefix}/ai/conversations/{body['id']}")
+    assert read.status_code == 200
+    assert read.json()["items"] == []
+
+    # ...and it shows up in the owner's listing.
+    listed = await http_client.get(f"{prefix}/ai/conversations")
+    assert body["id"] in {item["id"] for item in listed.json()["items"]}
+
+
+async def test_create_thread_for_owned_case_binds_case(
+    http_client, ai_service, _owned_case
+) -> None:
+    prefix = get_settings().API_V1_PREFIX
+    resp = await http_client.post(
+        f"{prefix}/ai/conversations", params={"mode": "case", "case_id": str(_owned_case)}
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["case_id"] == str(_owned_case)
+    assert body["mode"] == "case"
+
+
+async def test_create_thread_requires_authentication(ai_service) -> None:
+    prefix = get_settings().API_V1_PREFIX
+    async with _client("") as client:
+        resp = await client.post(f"{prefix}/ai/conversations")
+        assert resp.status_code == 401
+
+
+async def test_create_thread_forbidden_for_foreign_case(
+    http_client, ai_service, _stranger_case
+) -> None:
+    """Binding a thread to a case the caller cannot access must fail."""
+    prefix = get_settings().API_V1_PREFIX
+    resp = await http_client.post(
+        f"{prefix}/ai/conversations", params={"mode": "case", "case_id": str(_stranger_case)}
+    )
+    assert resp.status_code == 403, resp.text
+
+
+async def test_create_thread_unknown_case_is_404(http_client, ai_service) -> None:
+    prefix = get_settings().API_V1_PREFIX
+    resp = await http_client.post(
+        f"{prefix}/ai/conversations", params={"case_id": str(uuid.uuid4())}
+    )
+    assert resp.status_code == 404
+
+
+async def test_created_thread_is_owner_scoped(
+    http_client, ai_service, user_factory
+) -> None:
+    """A thread created via the endpoint is invisible to other accounts."""
+    prefix = get_settings().API_V1_PREFIX
+    created = await http_client.post(f"{prefix}/ai/conversations")
+    assert created.status_code == 201
+    conv_id = created.json()["id"]
+
+    stranger = await user_factory(role="INVESTIGATOR")
+    async with _client(stranger.token) as other:
+        read = await other.get(f"{prefix}/ai/conversations/{conv_id}")
+        assert read.status_code == 404
+        rename = await other.patch(
+            f"{prefix}/ai/conversations/{conv_id}", json={"title": "stolen"}
+        )
+        assert rename.status_code == 404
+        deleted = await other.delete(f"{prefix}/ai/conversations/{conv_id}")
+        assert deleted.status_code == 404
+        listed = await other.get(f"{prefix}/ai/conversations")
+        assert conv_id not in {item["id"] for item in listed.json()["items"]}
+
+
+# -- retention ---------------------------------------------------------------
+
+
+async def test_retention_purge_removes_only_expired_threads(
+    http_client, ai_service, monkeypatch, database: Database
+) -> None:
+    """The retention window must delete stale threads (and their messages,
+    via FK cascade) while leaving fresh ones untouched."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    prefix = get_settings().API_V1_PREFIX
+    _stub_chat(ai_service, monkeypatch, ["keep", "drop"])
+    fresh = await http_client.post(f"{prefix}/ai/chat", json={"question": "fresh thread"})
+    stale = await http_client.post(f"{prefix}/ai/chat", json={"question": "stale thread"})
+    fresh_id = fresh.json()["conversation_id"]
+    stale_id = stale.json()["conversation_id"]
+
+    # Age the stale thread beyond the configured window.
+    days = get_settings().AI_CONVERSATION_RETENTION_DAYS
+    factory = database.session_factory()
+    async with factory() as session:
+        stale_conv = await session.get(AIConversation, stale_id)
+        assert stale_conv is not None
+        stale_conv.updated_at = datetime.now(UTC) - timedelta(days=days + 1)
+        await session.commit()
+
+    async with factory() as session:
+        purged = await ai_service.purge_expired(session)
+        await session.commit()
+    assert purged == 1, f"expected exactly the stale thread to be purged, got {purged}"
+
+    listed = await http_client.get(f"{prefix}/ai/conversations")
+    remaining = [item["id"] for item in listed.json()["items"]]
+    assert fresh_id in remaining, "fresh thread must survive the purge"
+    assert stale_id not in remaining, "expired thread must be deleted"
+
+    # Messages of the purged thread are gone too (FK cascade), fresh ones stay.
+    async with factory() as session:
+        stale_msgs = (
+            await session.execute(
+                select(AIMessage).where(AIMessage.conversation_id == stale_id)
+            )
+        ).scalars().all()
+        fresh_msgs = (
+            await session.execute(
+                select(AIMessage).where(AIMessage.conversation_id == fresh_id)
+            )
+        ).scalars().all()
+    assert list(stale_msgs) == [], "purged thread's messages must be cascade-deleted"
+    assert len(fresh_msgs) >= 2, "fresh thread keeps its user+assistant messages"
 
 
 # -- report draft -----------------------------------------------------------
