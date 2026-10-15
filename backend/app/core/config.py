@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -122,6 +122,16 @@ class Settings(BaseSettings):
     AI_GPU_LAYERS: int = -1  # -1 offloads every layer; set >=0 for partial/CPU
     AI_REQUEST_TIMEOUT_SECONDS: float = 180.0
     AI_MAX_CONCURRENT_GENERATIONS: int = 2
+    # Answer profile: which latency/quality trade-off a plain chat turn uses
+    # when the client does not send an explicit ``profile``. The per-profile
+    # token/iteration budgets below are floors and ceilings, not exact values.
+    AI_DEFAULT_PROFILE: Literal["quick", "standard", "deep"] = "standard"
+    AI_PROFILE_QUICK_MAX_TOKENS: int = 160
+    AI_PROFILE_QUICK_TOOL_ITERATIONS: int = 2
+    AI_PROFILE_STANDARD_MAX_TOKENS: int = 384
+    AI_PROFILE_STANDARD_TOOL_ITERATIONS: int = 3
+    AI_PROFILE_DEEP_MAX_TOKENS: int = 768
+    AI_PROFILE_DEEP_TOOL_ITERATIONS: int = 4
     AI_PER_USER_RATE_LIMIT: int = 20  # chat requests per minute; 0 disables
     AI_MAX_HISTORY_MESSAGES: int = 12
     AI_TOOL_MAX_ITERATIONS: int = 3

@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 AiMode = Literal["general", "case", "evidence", "graph", "copilot", "report", "knowledge"]
+AiProfile = Literal["quick", "standard", "deep"]
 
 
 class AiSourceOut(BaseModel):
@@ -31,12 +32,19 @@ class AiToolEventOut(BaseModel):
 
 
 class AiChatRequest(BaseModel):
-    """One chat turn. ``conversation_id`` continues an owned thread."""
+    """One chat turn. ``conversation_id`` continues an owned thread.
+
+    ``profile`` selects a latency/quality trade-off: ``quick`` (short answers,
+    fewer tool iterations), ``standard`` (default), ``deep`` (larger budget,
+    more tool iterations). Defaults to the server-configured
+    ``AI_DEFAULT_PROFILE`` when omitted, so existing clients are unaffected.
+    """
 
     question: str = Field(min_length=1, max_length=4000)
     mode: AiMode = "general"
     case_id: uuid.UUID | None = None
     conversation_id: uuid.UUID | None = None
+    profile: AiProfile | None = None
 
 
 class AiChatResponse(BaseModel):

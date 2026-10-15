@@ -175,6 +175,7 @@ async def chat(
         mode=payload.mode,
         case=case,
         conversation=conversation,
+        profile=payload.profile,
     )
     await session.commit()
     return AiChatResponse(
@@ -222,6 +223,7 @@ async def chat_stream(
             mode=payload.mode,
             case=case,
             conversation=conversation,
+            profile=payload.profile,
         ):
             yield f"data: {json.dumps(event, default=str)}\n\n"
         try:

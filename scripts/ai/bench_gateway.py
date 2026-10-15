@@ -73,7 +73,7 @@ async def login(client: httpx.AsyncClient, username: str, password: str) -> str:
 
 async def bench_prompt(
     client: httpx.AsyncClient, headers: dict, prompt: str,
-    case_id: str | None, repeats: int,
+    case_id: str | None, repeats: int, profile: str | None = None,
 ) -> list[dict]:
     samples = []
     for _ in range(repeats):
@@ -81,6 +81,8 @@ async def bench_prompt(
         if case_id:
             payload["mode"] = "case"
             payload["case_id"] = case_id
+        if profile:
+            payload["profile"] = profile
         start = time.monotonic()
         resp = await client.post(
             f"{API_BASE}/ai/chat", json=payload, headers=headers,
@@ -110,6 +112,12 @@ async def resolve_case(
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeats", type=int, default=5)
+    ap.add_argument(
+        "--profile",
+        choices=["quick", "standard", "deep"],
+        default=None,
+        help="answer profile to benchmark (default: server default)",
+    )
     ap.add_argument("--username", default="investigator")
     ap.add_argument("--password", default="investigator-dev-password")
     ap.add_argument("--json", type=Path, default=None)
@@ -120,13 +128,18 @@ async def main() -> int:
         headers = {"Authorization": f"Bearer {token}"}
         case_id = await resolve_case(client, headers, CASE_NUMBER)
 
-        short = await bench_prompt(client, headers, SHORT_PROMPT, None, args.repeats)
-        report = [_summarise("gateway:short", short)]
+        suffix = f"[{args.profile}]" if args.profile else ""
+        short = await bench_prompt(
+            client, headers, SHORT_PROMPT, None, args.repeats, args.profile
+        )
+        report = [_summarise(f"gateway:short{suffix}", short)]
         if case_id:
             case = await bench_prompt(
-                client, headers, CASE_PROMPT, case_id, args.repeats
+                client, headers, CASE_PROMPT, case_id, args.repeats, args.profile
             )
-            report.append(_summarise(f"gateway:case[{CASE_NUMBER}]", case))
+            report.append(
+                _summarise(f"gateway:case[{CASE_NUMBER}]{suffix}", case)
+            )
         else:
             print(f"WARNING: {CASE_NUMBER} not found; case bench skipped", file=sys.stderr)
 

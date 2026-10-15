@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 from app.ai.schemas import SourceRef
-from app.ai.service import AIService
+from app.ai.service import AIService, _profile_for
 from app.api.errors import ApiHTTPException
 from app.core.config import get_settings
 from app.models import Case
@@ -101,3 +101,48 @@ def test_ensure_enabled_refuses_when_disabled() -> None:
         service.ensure_enabled()
     assert excinfo.value.status_code == 503
     assert excinfo.value.code == "AI_DISABLED"
+
+
+# -- answer profiles --------------------------------------------------------
+
+
+def test_profile_quick_is_tighter_than_standard(service: AIService) -> None:
+    settings = get_settings()
+    quick = _profile_for(settings, "quick")
+    standard = _profile_for(settings, "standard")
+    assert quick.name == "quick"
+    assert quick.max_tokens < standard.max_tokens
+    assert quick.tool_iterations <= standard.tool_iterations
+
+
+def test_profile_deep_is_more_generous_than_standard(service: AIService) -> None:
+    settings = get_settings()
+    deep = _profile_for(settings, "deep")
+    standard = _profile_for(settings, "standard")
+    assert deep.name == "deep"
+    assert deep.max_tokens > standard.max_tokens
+    assert deep.tool_iterations >= standard.tool_iterations
+
+
+def test_profile_falls_back_to_configured_default(service: AIService) -> None:
+    """An unset profile resolves to the server's configured default."""
+    settings = get_settings().model_copy(update={"AI_DEFAULT_PROFILE": "quick"})
+    resolved = _profile_for(settings, None)
+    assert resolved.name == "quick"
+    assert resolved.max_tokens == settings.AI_PROFILE_QUICK_MAX_TOKENS
+
+
+def test_profile_rejects_unknown_by_falling_back_to_default(service: AIService) -> None:
+    """A stale/unknown client profile must not hard-fail — it falls back."""
+    settings = get_settings()
+    resolved = _profile_for(settings, "ultra-max-turbo")
+    assert resolved.name == settings.AI_DEFAULT_PROFILE
+
+
+def test_profile_budgets_are_respected_by_engine_settings(service: AIService) -> None:
+    """Each profile's max_tokens and tool_iterations are what the engine reads."""
+    settings = get_settings()
+    for name in ("quick", "standard", "deep"):
+        p = _profile_for(settings, name)
+        assert p.max_tokens > 0
+        assert p.tool_iterations >= 1

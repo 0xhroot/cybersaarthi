@@ -27,6 +27,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -65,6 +66,46 @@ TOOL_FENCE_RE = re.compile(
 MAX_QUESTION_CHARS = 4_000
 DEFAULT_MAX_TOKENS = 512
 TITLE_MAX_CHARS = 80
+
+
+@dataclass(frozen=True, slots=True)
+class AnswerProfile:
+    """Resolved latency/quality trade-off for one chat turn.
+
+    ``max_tokens`` bounds the generated answer; ``tool_iterations`` bounds the
+    tool loop. Both are floors — a profile never disables grounding, citations
+    or the security fences, it only spends fewer of them.
+    """
+
+    name: str
+    max_tokens: int
+    tool_iterations: int
+
+
+def _profile_for(settings: Settings, name: str | None) -> AnswerProfile:
+    """Map a requested profile (or the configured default) to its budgets.
+
+    An unknown profile falls back to the configured default rather than
+    raising, so a stale client can never hard-fail a chat turn.
+    """
+    resolved = name or settings.AI_DEFAULT_PROFILE
+    if resolved == "quick":
+        return AnswerProfile(
+            "quick",
+            settings.AI_PROFILE_QUICK_MAX_TOKENS,
+            settings.AI_PROFILE_QUICK_TOOL_ITERATIONS,
+        )
+    if resolved == "deep":
+        return AnswerProfile(
+            "deep",
+            settings.AI_PROFILE_DEEP_MAX_TOKENS,
+            settings.AI_PROFILE_DEEP_TOOL_ITERATIONS,
+        )
+    return AnswerProfile(
+        "standard",
+        settings.AI_PROFILE_STANDARD_MAX_TOKENS,
+        settings.AI_PROFILE_STANDARD_TOOL_ITERATIONS,
+    )
 
 
 def _disabled_error() -> ApiHTTPException:
@@ -276,6 +317,7 @@ class AIService:
         mode: str = "general",
         case: Case | None = None,
         conversation: AIConversation | None = None,
+        profile: str | None = None,
     ) -> ChatOutcome:
         """One grounded completion with the bounded tool loop (non-streaming)."""
         await self.ensure_ready()
@@ -286,7 +328,7 @@ class AIService:
         try:
             outcome = await self._run(
                 request, session, user, question=question, mode=mode, case=case,
-                conversation=conversation, stream_events=None,
+                conversation=conversation, stream_events=None, profile=profile,
             )
         except (InferenceUnavailableError, InferenceProtocolError) as exc:
             # Model runtime failures are graceful 503s, never internal errors.
@@ -305,6 +347,7 @@ class AIService:
         mode: str = "general",
         case: Case | None = None,
         conversation: AIConversation | None = None,
+        profile: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """SSE event stream. Events: sources | tool | token | done | error."""
         try:
@@ -327,7 +370,7 @@ class AIService:
             try:
                 outcome = await self._run(
                     request, session, user, question=question, mode=mode, case=case,
-                    conversation=conversation, stream_events=sink,
+                    conversation=conversation, stream_events=sink, profile=profile,
                 )
                 persisted = await self._persist(
                     session, user, question, outcome, case=case, conversation=conversation
@@ -391,7 +434,8 @@ class AIService:
             "human review."
         )
         return await self.ask(
-            request, session, user, question=question, mode="report", case=case
+            request, session, user, question=question, mode="report", case=case,
+            profile="deep",
         )
 
     # -- internals -------------------------------------------------------
@@ -407,9 +451,11 @@ class AIService:
         case: Case | None,
         conversation: AIConversation | None,
         stream_events: Any,
+        profile: str | None = None,
     ) -> ChatOutcome:
         """Shared tool-loop engine; ``stream_events`` enables SSE forwarding."""
         started = time.monotonic()
+        answer_profile = _profile_for(self.settings, profile)
         data_block = ""
         pre_sources: list[SourceRef] = []
         if case is not None:
@@ -446,7 +492,7 @@ class AIService:
         ctx = ToolContext(request=request, session=session, user=user, case=case)
         all_sources: list[SourceRef] = list(pre_sources)
         tool_events: list[dict[str, Any]] = []
-        max_tokens = self.settings.AI_MAX_OUTPUT_TOKENS or DEFAULT_MAX_TOKENS
+        max_tokens = answer_profile.max_tokens or DEFAULT_MAX_TOKENS
 
         history = await load_history_messages(
             session, conversation, self.settings.AI_MAX_HISTORY_MESSAGES
@@ -458,8 +504,8 @@ class AIService:
         messages.append({"role": "user", "content": question})
 
         async with self._generation_semaphore:
-            for iteration in range(max(1, self.settings.AI_TOOL_MAX_ITERATIONS)):
-                final = iteration >= self.settings.AI_TOOL_MAX_ITERATIONS - 1
+            for iteration in range(max(1, answer_profile.tool_iterations)):
+                final = iteration >= answer_profile.tool_iterations - 1
                 if stream_events is not None:
                     # Stream every iteration so tokens reach the client as soon
                     # as they exist (the previous iteration buffered the whole
