@@ -521,3 +521,51 @@ before); draft-id verification is DB membership, not content relevance;
 `relationship_count` is the only non-metric_results name accepted — any
 other relabeled name fails by design (prevents heuristic-score laundering);
 single-run latency figures are not statistical claims.
+
+---
+
+## 2026-10-16 — AI Expansion Phase 5 (quality gates & delivery)
+
+**Delivery:** phases 1–5 complete, one commit per phase, on base `f983883`:
+`6becdf4` (think mode) → `45a8767` (analysis panel + claim checks) →
+`b156f87` (hypothesis drafts, honest confidence) → `3591005` (eval/security
+extension) → this commit (gates + docs). Phase 0 audit:
+`docs/ai/AI_EXPANSION_AUDIT.md`.
+
+**Final gate battery (all after the last code change; backend container
+restarted with the final code before the eval ran through it):**
+- Backend hermetic: **638 passed**, 8 deselected; integration: **8 passed**
+  (llama-server + UDS bridge up: ctx 16384 / parallel 2).
+- Frontend: **127 passed / 20 files** + `tsc` + `eslint` clean.
+- ruff clean (`app/`, `scripts/eval_model.py`, `tests/`); mypy clean
+  (`app/` 142 files + `scripts/eval_model.py`; 4 pre-existing errors in
+  untouched `scripts/preview_analytics.py` / `scripts/seed_showcase_cases.py`
+  remain outside the gate, unchanged by this work).
+- Eval (delivery run, real exit code): **41/41, exit 0, all 5 gates true** —
+  abstention 7/7, groundedness 1.0 (1260/1260), analysis 2/2 (9 metric quotes
+  re-verified, 0 bad), hypothesis 4 drafts / 0 rejected / 0 issues; fact
+  recall 0.9815 (53/54, reported not gated); latency avg 1633 ms, max 9195
+  over 34 completions (n=1 per entry).
+
+**Docs refreshed for delivery:** `docs/ai/EVALUATION.md` §5 now documents the
+41-entry golden set, both new scorers, the five-gate contract and the
+2026-10-16 run evidence (the 2026-10-15 three-gate run kept as history); the
+revert row lists the actual phase/migration commits. Dated baseline docs
+(`ACCURACY_PERFORMANCE_PLAN.md`, `CASE_RETRIEVAL_DIAGNOSIS.md`) left anchored
+to their stated dates by design.
+
+**Artifact hygiene (verified at commit):** no `*.gguf`, `.env`,
+`ai_runtime/`, weights or secrets tracked (only the `.env.example` template);
+eval report and runtime stay gitignored.
+
+**Carried-forward items (outside AI scope, unchanged):** Soup fine-tuning
+remains blocked (no Python 3.10–3.12 interpreter, no dataset, multi-GB
+downloads) and awaits an explicit go-ahead; 104 `CS-*` `owner_id=NULL`
+empty-shell cases remain flagged for the ingestion owner.
+
+**Known limitations standing after delivery:** claim check and draft
+verification are advisory machine checks, not proofs — unverifiable ids are
+surfaced for human review, never silently passed; fact recall is substring
+matching (reported only); no numeric confidence exists anywhere in the AI
+path by design; all latency/eval figures are single-run measurements, not
+statistical claims.

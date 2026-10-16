@@ -80,21 +80,24 @@ cheapest first:
 | Runtime down | stop `llama-server` | `/ai/*` → 503 `AI_UNAVAILABLE`; platform unaffected | live: E2E script's cancellation check + `test_model_failure_returns_503` |
 | Feature flag | `AI_FEATURE_CASE=false` etc. | that tool/mode disappears from `/ai/status` and prompts | `AIService.status()` feature_flags |
 | UI removal | unmount `<Assistant />` in `app-shell.tsx` | chatbot gone, zero backend impact | mount is a 2-line diff |
-| Full revert | `git revert` of the AI commits (once committed) | schema/migration included; `alembic downgrade` for `36e5ad8fd75e` | migration is reversible (`down_revision` set, standard `drop_table`) |
+| Full revert | `git revert` of the AI phase commits (1–4) | schema/migrations included; `alembic downgrade b4f1c2d3e4a5` / `c8e2f4a6b1d3` revert the mode constraints, `36e5ad8fd75e` drops the AI tables | migrations are reversible (`down_revision` set) |
 
 The migration `36e5ad8fd75e_add_ai_conversations_and_messages.py` only **adds**
 two tables; downgrading drops them and touches no existing table — no destructive
 migration exists anywhere in this work.
 
-## 5. Evaluation harness (implemented, run 2026-10-15)
+## 5. Evaluation harness (implemented 2026-10-15, extended 2026-10-16)
 
 So a model swap (including a fine-tune) can be judged instead of guessed:
 
-1. **Golden set** — 33 frozen entries in `backend/tests/fixtures/ai_golden.jsonl`:
-   29 grounded questions across all five showcase cases (incl. 2 graph-mode),
-   3 foreign-case abstentions (must return 403), 1 unknown-case (must return
-   404). Guarded by `backend/tests/unit/test_ai_golden_fixture.py` (10 tests
-   pinning counts, kinds, statuses, modes and case numbers).
+1. **Golden set** — 41 frozen entries in `backend/tests/fixtures/ai_golden.jsonl`:
+   30 grounded questions across all five showcase cases (incl. 2 graph-mode and
+   1 `profile: think`), 2 `analysis` (five-section contract + metric quotes),
+   2 `hypothesize` (draft honesty), 5 foreign-case abstentions across all modes
+   (must return 403 — incl. analysis/hypothesize), 2 unknown-case (must return
+   404). Guarded by `backend/tests/unit/test_ai_golden_fixture.py` (16 tests
+   pinning counts, kinds, statuses, modes, case numbers and the scoring
+   helpers).
 2. **Scoring** — deterministic, no LLM judge, in
    `backend/scripts/eval_model.py`:
    - *groundedness*: every cited `SourceRef` must exist in the DB **and** belong
@@ -102,20 +105,38 @@ So a model swap (including a fine-tune) can be judged instead of guessed:
    - *recall of expected facts*: case/underscore-insensitive substring match;
    - *abstention*: questions about cases the caller can't access must produce
      the exact refusal status (hard gate);
+   - *analysis mode*: all five sections present + every metric quote re-verified
+     against `metric_results` (and `relationship_count` against the
+     relationships table) — checked against the DB, never the server's own
+     claim check (hard gate);
+   - *hypothesize mode*: the tray must parse (no vacuous pass), zero rejected
+     fence blocks, every draft evidence id must resolve to a record of the
+     evaluated case, and no numeric confidence/probability/odds/percent
+     wording (hard gate);
    - *latency*: per-request duration (reported).
 3. **Runner** — `scripts/ai/eval_model.sh` → `python -m scripts.eval_model`,
    posting to `/ai/chat` over real HTTP with real auth (3.5 s pacing to stay
      under the rate limit; the API has no seed/temperature parameter — the
      gateway fixes `temperature=0.2` server-side). Report written to
      `ai_runtime/eval_report.json` (gitignored).
-4. **Gate** — exit 0 only if abstention = 100 %, zero ungrounded answers and
-   zero invalid/cross-case sources; exit 1 on gate failure, 2 on setup failure.
+4. **Gate** — exit 0 only if **all five** gates pass: abstention = 100 %,
+   zero ungrounded answers, zero invalid/cross-case sources, `analysis_all_pass`
+   (≥1 analysis entry and every one passes) and `hypothesis_all_pass`
+   (≥1 hypothesize entry and every one passes); exit 1 on gate failure, 2 on
+   setup failure.
 
-**Run evidence (2026-10-15, Qwen3-8B-Q4_K_M on the local llama-server):**
-33/33 entries pass all three gates; groundedness 1033/1033 cited sources
-resolve to the correct case (1.000); abstention 4/4; fact recall 49/53
-(0.925); latency avg 741 ms, max 2035 ms. The three gates are hard; fact
-recall is reported, not gated.
+**Run evidence (2026-10-16, Qwen3-8B-Q4_K_M on the local llama-server):**
+41/41 entries pass all five gates; groundedness 1260/1260 cited sources
+resolve to the correct case (1.000); abstention 7/7 across all modes;
+analysis 2/2 (9 metric quotes re-verified, 0 bad, 0 sections missing);
+hypothesis drafts 4 parsed / 0 rejected / 0 honesty issues; fact recall
+53/54 (0.9815); latency avg 1633 ms, max 9195 ms over 34 completions
+(one run per entry — not a statistical claim). The five gates are hard;
+fact recall is reported, not gated.
+
+**Earlier run evidence (2026-10-15, first three gates, 33 entries):**
+33/33 entries passed; groundedness 1033/1033; abstention 4/4; fact recall
+49/53 (0.925); latency avg 741 ms, max 2035 ms.
 
 **Honest misses from that run** (the point of measuring):
 - `s001-top-entity` expected Delhi/59 relationships, model answered
