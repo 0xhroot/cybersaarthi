@@ -13,6 +13,7 @@ from app.api.routes import (
     collections_router,
     devices_router,
     entities_router,
+    evidence_intelligence_router,
     evidence_router,
     findings_router,
     graph_router,
@@ -41,6 +42,9 @@ api_router.include_router(users_router, prefix="/api/v1")
 # Phase 2: evidence ingestion, entities, resolution review and graph queries.
 api_router.include_router(evidence_router, prefix="/api/v1")
 api_router.include_router(entities_router, prefix="/api/v1")
+
+# Evidence intelligence foundation (shared across the 10 features).
+api_router.include_router(evidence_intelligence_router, prefix="/api/v1")
 api_router.include_router(graph_router, prefix="/api/v1")
 
 # Phase 3: investigation intelligence (analytics + explainable findings).

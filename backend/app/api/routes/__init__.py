@@ -17,6 +17,7 @@ from app.api.routes.collections import router as collections_router
 from app.api.routes.devices import router as devices_router
 from app.api.routes.entities import router as entities_router
 from app.api.routes.evidence import router as evidence_router
+from app.api.routes.evidence_intelligence import router as evidence_intelligence_router
 from app.api.routes.findings import router as findings_router
 from app.api.routes.graph import router as graph_router
 from app.api.routes.health import router as health_router
@@ -46,6 +47,7 @@ __all__ = [
     "collections_router",
     "devices_router",
     "entities_router",
+    "evidence_intelligence_router",
     "evidence_router",
     "findings_router",
     "graph_router",

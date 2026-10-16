@@ -7,6 +7,7 @@ from app.models.ai_conversation import (
     AIConversation,
 )
 from app.models.ai_message import AIMessage
+from app.models.analysis_job import ANALYSIS_JOB_FEATURES, ANALYSIS_JOB_STATUSES, AnalysisJob
 from app.models.analytics_run import ANALYTICS_RUN_STATUSES, AnalyticsRun
 from app.models.audit_log import AuditLog
 from app.models.base import Base
@@ -15,6 +16,13 @@ from app.models.case_member import CASE_MEMBER_ROLES, CaseMember
 from app.models.collection import COLLECTION_STATUSES, Collection
 from app.models.community_result import CommunityResult
 from app.models.data_source import BUILTIN_DATA_SOURCES, DataSource
+from app.models.derived_artifact import (
+    DERIVED_ARTIFACT_KINDS,
+    DERIVED_ARTIFACT_ORIGINS,
+    DERIVED_ARTIFACT_STATUSES,
+    DERIVED_ARTIFACT_VALIDATION,
+    DerivedArtifact,
+)
 from app.models.entity import ENTITY_TYPES, Entity
 from app.models.entity_alias import EntityAlias
 from app.models.entity_candidate import EntityCandidate
@@ -58,8 +66,11 @@ __all__ = [
     "AI_CONVERSATION_STATUSES",
     "AIConversation",
     "AIMessage",
+    "ANALYSIS_JOB_FEATURES",
+    "ANALYSIS_JOB_STATUSES",
     "ANALYTICS_RUN_STATUSES",
     "AnalyticsRun",
+    "AnalysisJob",
     "AuditLog",
     "Base",
     "BUILTIN_DATA_SOURCES",
@@ -70,6 +81,11 @@ __all__ = [
     "Collection",
     "CommunityResult",
     "DataSource",
+    "DERIVED_ARTIFACT_KINDS",
+    "DERIVED_ARTIFACT_ORIGINS",
+    "DERIVED_ARTIFACT_STATUSES",
+    "DERIVED_ARTIFACT_VALIDATION",
+    "DerivedArtifact",
     "ENTITY_TYPES",
     "Entity",
     "EntityAlias",

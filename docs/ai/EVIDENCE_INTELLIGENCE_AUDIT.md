@@ -225,3 +225,39 @@ custody hash/rule accuracy; report claim-support & citation accuracy. Positive,
 negative, empty, malformed-output, injection and cross-tenant cases per feature —
 with assertions that the intended code path actually ran (no vacuous passes).
 Accuracy claims only from these documented fixtures; no invented percentages.
+
+---
+
+## 7. Phase status (records appended as phases complete)
+
+### Phase 0 — Audit ✓ (`009c9ce`)
+Ground-truth audit created (this document): verified no feature work pre-existed,
+mapped reusable foundation, gaps, authorization rules and the 7-phase order.
+
+### Phase 1 — Shared Evidence Intelligence Layer ✓ (this session)
+**Delivered (backend foundation):**
+
+| Piece | File |
+|---|---|
+| `AnalysisJob` model (status/feature/progress/cancel/timeout, unique `(case_id, idempotency_key)`) | `backend/app/models/analysis_job.py` |
+| `DerivedArtifact` model (provenance columns, unique `(case_id, kind, content_hash)`) | `backend/app/models/derived_artifact.py` |
+| Migration `a9b8c7d6e5f4` (both tables + indexes/checks; head verified) | `backend/migrations/versions/` |
+| Structured-extraction validation: JSON recovery, strict schema (unknown fields/type errors reject), source field checks (exact `Decimal` numbers, normalized dates, locator checks), canonical sha256 | `backend/app/services/structured_extraction.py` |
+| Analysis job state machine + idempotent create/scoped list; canceled can never succeed | `backend/app/services/analysis_jobs.py` |
+| Artifact recording (content-addressed idempotency), guarded one-shot review, scoped list | `backend/app/services/artifacts.py` |
+| Citation validator: shape/existence/case-scope/locator/quote-equality + per-call `case_visible_to` cross-case recheck | `backend/app/services/citations.py` |
+| API: `GET .../evidence-intelligence/artifacts`, `GET .../evidence-intelligence/jobs`, `POST .../artifacts/{id}/review` (RBAC + read-only-case guard + audit) | `backend/app/api/routes/evidence_intelligence.py` |
+| Contracts + error codes (`INVALID_FILTER`, `ARTIFACT_NOT_FOUND`, `ARTIFACT_NOT_REVIEWABLE`) | `backend/app/schemas/evidence_intelligence.py`, `app/core/codes.py` |
+| Eval fixture scaffolding (10 extraction cases: positive/negative/injection) | `backend/tests/fixtures/evidence_intelligence/extraction_checks.json` |
+
+**Measured (Phase 1 validation run, 2026-10-16):**
+- Alembic: `c8e2f4a6b1d3 → a9b8c7d6e5f4 (head)` applied clean.
+- Backend hermetic battery: **701 passed / 8 deselected, exit 0** (638 prior + **63 new**: 44 unit, 13 API, 6 DB-backed citation tests).
+- Integration battery: **8 passed** (live llama-server path unchanged).
+- `ruff check .`: **0**; `mypy app/`: **0** (150 files); `mypy scripts/eval_model.py`: **0**.
+- API matrix verified: anonymous **401**, non-member **403**, member **200** with provenance fields; review is one-shot (**409** on second decision), viewer **403**, closed case **409**.
+
+**Notes:** frontend panel arrives with Feature 1 (Phase 2) — the foundation has no
+user-facing workflow of its own to integrate yet; eval-gate wiring for all 10
+features lands in Phase 7. Next: **Phase 2** (Feature 1 ingestion copilot +
+Feature 9 custody auditor).
