@@ -49,8 +49,17 @@ verify_model: all checks passed
 | App side | `backend/app/ai/runtime.py`, `client.py` | Supervision, readiness, metrics, OpenAI-compatible client |
 
 Server flags actually used (see `run_server.sh`): `--model`, `--host`,
-`--port`, `--ctx-size 8192`, `--n-gpu-layers -1` (all layers on GPU),
-`--parallel 2`, `--no-webui`, `--jinja`, `--api-key`.
+`--port`, `--ctx-size`, `--n-gpu-layers -1` (all layers on GPU),
+`--parallel 2`, `--no-webui`, `--jinja`. Authentication is delivered via the
+`LLAMA_API_KEY` environment variable (the documented env backing of
+`--api-key`, see `llama-server --help`) — never as a command-line argument,
+so the key cannot leak into `/proc/<pid>/cmdline` through process inspection.
+
+**Residual risk (documented, accepted):** a same-user process can still read
+`/proc/<pid>/environ` — env-var authentication is readable by definition —
+and the `.env` files hold the source copy. Mitigations in place: `.env` and
+bolt.diy's `.env.local` are `0600`, the server binds loopback by default, the
+key is never in argv, and UFW is unchanged.
 
 ## 3. Why a host process and a socket bridge
 
@@ -74,7 +83,7 @@ Server flags actually used (see `run_server.sh`): `--model`, `--host`,
 | `AI_ENABLED` | `true` | Master switch; `false` → 503 `AI_DISABLED` on every AI route |
 | `AI_MODEL_PATH` | `Qwen3-8B-Q4_K_M.gguf` | Absolute, or relative to repo root (container: `/models/…`) |
 | `AI_SERVER_BINARY` | `ai_runtime/llama.cpp/llama-server` | Server binary |
-| `AI_SERVER_HOST` / `AI_SERVER_PORT` | `0.0.0.0` / `8081` | Host-process bind (compose default host: `host.docker.internal`) |
+| `AI_SERVER_HOST` / `AI_SERVER_PORT` | `127.0.0.1` / `8081` | Host-process bind (loopback; compose passes `host.docker.internal` for its own TCP fallback — the UDS bridge is the sanctioned path) |
 | `AI_SERVER_API_KEY` | *(empty; must be set for non-loopback)* | Shared secret, `Authorization: Bearer` on every request |
 | `AI_SERVER_SOCKET` | *(empty on host; `/run/ai-runtime/llama.sock` in compose)* | Use the UDS bridge when set |
 | `AI_MANAGE_SERVER` | `false` (compose) / `true` (default) | Let the app lifespan spawn the server; `false` because the host process is authoritative here |

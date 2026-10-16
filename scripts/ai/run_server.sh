@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # Start the local llama.cpp inference server.
 #
-# Binding policy: the server listens on 0.0.0.0 so the Dockerized backend can
-# reach it via the bridge gateway, but it ALWAYS requires an API key
-# (AI_SERVER_API_KEY) whenever the bind address is not loopback. Internet
-# exposure is never intended — keep host firewalls sane.
+# Binding policy: the server listens on loopback (127.0.0.1) by default; the
+# Dockerized backend reaches it through the Unix socket bridge
+# (scripts/ai/socket_bridge.sh, which dials TCP:127.0.0.1). Override with
+# AI_SERVER_HOST if you know what you are doing — an API key is then ALWAYS
+# required when the bind address is not loopback. Internet exposure is never
+# intended — keep host firewalls sane.
+#
+# Key delivery policy: the key is passed via the LLAMA_API_KEY environment
+# variable (the documented env backing of --api-key, see `llama-server --help`)
+# and never on the command line, so it does not appear in /proc/<pid>/cmdline.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MODEL="${REPO_ROOT}/Qwen3-8B-Q4_K_M.gguf"
 BIN="${REPO_ROOT}/ai_runtime/llama.cpp/llama-server"
-HOST="${AI_SERVER_HOST:-0.0.0.0}"
+HOST="${AI_SERVER_HOST:-127.0.0.1}"
 PORT="${AI_SERVER_PORT:-8081}"
 CTX="${AI_CONTEXT_LENGTH:-8192}"
 PARALLEL="${AI_SERVER_PARALLEL:-2}"
@@ -51,8 +57,14 @@ ARGS=(
   --no-webui
   --jinja
 )
+# Hand the key to llama-server through its supported environment variable
+# (env: LLAMA_API_KEY shown next to --api-key in --help) instead of argv.
+# Unsetting the source name keeps a single copy in the child environment;
+# same-user /proc/<pid>/environ access remains possible by design — see
+# docs/ai/LOCAL_MODEL_SETUP.md (residual-risk note).
 if [[ -n "${API_KEY}" ]]; then
-  ARGS+=(--api-key "${API_KEY}")
+  export LLAMA_API_KEY="${API_KEY}"
 fi
+unset AI_SERVER_API_KEY
 
 exec "${BIN}" "${ARGS[@]}"
