@@ -453,3 +453,71 @@ confidence/probability wording (asserted), 37 sources, wall ~5.4 s (n=1);
 fence contract (violations are counted and shown, never silently dropped);
 draft statements are model-authored prose and always require human review
 before use; no aggregate latency stats (n=1 per observation).
+
+---
+
+## 2026-10-16 — AI Expansion Phase 4 (eval/security extension)
+
+**Golden set (`backend/tests/fixtures/ai_golden.jsonl`): 33 → 41 entries**
+(kind counts pinned in `tests/unit/test_ai_golden_fixture.py`):
+- 2 `analysis` entries — five-section contract + metric-quote verification.
+- 2 `hypothesize` entries — draft parsing and honesty gates.
+- 1 `grounded` entry with `profile: "think"` — Phase 1's think path is now
+  exercised by the eval.
+- 3 cross-mode security abstentions: `analysis` on a foreign case → 403,
+  `hypothesize` on a foreign case → 403, `analysis` on a nonexistent case →
+  404 (fail-closed authorization verified live across the new modes).
+
+**Harness (`backend/scripts/eval_model.py`) — new scorers + gates:**
+- `_score_analysis`: sources resolve to the case (DB-verified, not
+  server-reported) + all five sections present (case-insensitive) + **every
+  metric quote re-verified against `metric_results`** (raw tol 1e-5 relative
+  / 0.005 floor, score tol 0.01). `relationship_count` quotes — printed
+  verbatim by the entities digest but not a metric_results row — are verified
+  against the `relationships` table with the same count semantics as DATA
+  (measured: a002 quoted 5 such values and all 5 verify; a wrong value or an
+  invented metric name still fails).
+- `_score_hypothesize`: fail-closed by construction — no sources fails; a
+  tray that parses nothing fails (no vacuous pass); rejected fence blocks
+  fail; every draft evidence id must resolve to a row of this case in one of
+  the record tables (case/entity/evidence/finding/relationship/timeline/
+  victim) else fail; numeric confidence / probability / odds / percent
+  wording in a draft fails (qualitative hedging allowed, matching the
+  prompt's ban).
+- New gates, both vacuous-pass-proof (require ≥1 entry of the kind):
+  `analysis_all_pass`, `hypothesis_all_pass`. Groundedness/ungrounded/
+  invalid-source checks now aggregate over all answering kinds.
+- Report/summary lines for sections missing, quotes verified/bad, drafts
+  parsed/rejected, honesty issues.
+
+**Backend fix found by the new gate (measured, not guessed):** the first
+extended run failed `analysis_all_pass` — a002 relabeled the entities-digest
+`relationships=N` count into metric grammar and was reported "no such
+metric". Both validators (gateway `validate_cited_claims` + harness) now
+verify `relationship_count` against the relationships table (per-claim
+checking: true count passes, wrong count fails, invented names still fail);
+the analysis prompt now says metric names come verbatim from DATA — an
+analytics metric name or `relationship_count` — never invented.
+
+**Tests:** backend hermetic **638 passed** (+1 relationship-count API test,
++6 golden-fixture guards: entry counts, new-mode entry shape, cross-mode
+abstention coverage, think entry, quote regexes, confidence-gate wording,
+fail-closed `_record_belongs_to_case`), integration **8 passed**, frontend
+**127 passed** + tsc + eslint, ruff + mypy clean (`app/` 142 files +
+`scripts/eval_model.py`; 4 pre-existing mypy errors in untouched
+`scripts/preview_analytics.py` / `scripts/seed_showcase_cases.py` remain
+outside the gate, unchanged).
+
+**Eval (41 entries, real exit code captured): exit 0, passed True** —
+gates: abstention 7/7, zero ungrounded, zero invalid sources,
+`analysis_all_pass` 2/2 (9 metric quotes re-verified, 0 bad, 0 sections
+missing), `hypothesis_all_pass` (4 drafts, 0 rejected, 0 honesty issues);
+fact recall 0.9815 (53/54 — one think-entry miss, reported not gated);
+groundedness 1.0 (1260/1260); latency avg 1561 ms, max 11189 over 34
+completions (includes the two think/analysis runs; n per entry = 1).
+
+**Known limitations:** fact recall is substring-based (reported only, as
+before); draft-id verification is DB membership, not content relevance;
+`relationship_count` is the only non-metric_results name accepted — any
+other relabeled name fails by design (prevents heuristic-score laundering);
+single-run latency figures are not statistical claims.

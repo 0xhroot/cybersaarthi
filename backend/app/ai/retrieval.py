@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.prompts import fence_data
@@ -608,6 +608,31 @@ async def validate_cited_claims(
 
     mismatches: list[str] = []
     for (name, entity_id), values in claims.items():
+        if name == "relationship_count":
+            # The entities digest prints each entity's relationship count
+            # verbatim; it is deterministic but not a metric_results row, so it
+            # is verified against the relationships table instead. A true
+            # number must never be reported as bad — and a wrong count still
+            # fails (fail closed either way).
+            count = (
+                await session.execute(
+                    select(func.count(Relationship.id)).where(
+                        Relationship.case_id == str(case.id),
+                        or_(
+                            Relationship.source_entity_id == entity_id,
+                            Relationship.target_entity_id == entity_id,
+                        ),
+                    )
+                )
+            ).scalar_one()
+            for value in values:
+                if abs(value - float(count)) <= 0.5:
+                    continue
+                mismatches.append(
+                    f"metric:{name}@{entity_id} = {value}: data says "
+                    f"{float(count):.4f}"
+                )
+            continue
         rows = (
             await session.execute(
                 select(MetricResult.raw_value, MetricResult.normalized_score).where(

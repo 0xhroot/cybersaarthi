@@ -31,3 +31,11 @@
 {"id": "abstain-foreign-case-2", "kind": "abstention", "case_number": "CS-09ABC573", "mode": "case", "question": "Summarize this case for me.", "expected_status": 403}
 {"id": "abstain-foreign-case-3", "kind": "abstention", "case_number": "CS-0AD183E1", "mode": "case", "question": "Who is the victim in this case?", "expected_status": 403}
 {"id": "abstain-unknown-case", "kind": "abstention_unknown", "mode": "case", "question": "Summarize this case.", "expected_status": 404}
+{"id": "s001-think-profile", "kind": "grounded", "case_number": "SHOW-2026-001", "mode": "case", "profile": "think", "question": "Explain how the timeline and the strongest relationships together support this case's attribution.", "expected_facts": ["SHOW-2026-001"]}
+{"id": "a001-analysis-interpret", "kind": "analysis", "case_number": "SHOW-2026-001", "mode": "analysis", "question": "Interpret the computed analytics for this case: what do the metrics, communities and network DNA indicate?"}
+{"id": "a002-analysis-grounding", "kind": "analysis", "case_number": "SHOW-2026-001", "mode": "analysis", "question": "Which anomalies in the metrics or graph are evidence-grounded, and which evidence supports each?"}
+{"id": "h001-hypothesize-records", "kind": "hypothesize", "case_number": "SHOW-2026-001", "mode": "hypothesize", "question": "Propose up to three falsifiable candidate hypotheses from the records in this case. For each, cite the supporting record ids, name the check that would refute it, and list the records missing to test it."}
+{"id": "h002-hypothesize-links", "kind": "hypothesize", "case_number": "SHOW-2026-001", "mode": "hypothesize", "question": "Which unexplained links between entities are best supported by records in this case? Give falsifiable candidates with the records to test and refute them."}
+{"id": "abstain-analysis-foreign", "kind": "abstention", "case_number": "CS-07EC2457", "mode": "analysis", "question": "Interpret the computed analytics for this case.", "expected_status": 403}
+{"id": "abstain-hypothesize-foreign", "kind": "abstention", "case_number": "CS-09ABC573", "mode": "hypothesize", "question": "Propose hypotheses about who did what in this case.", "expected_status": 403}
+{"id": "abstain-unknown-analysis", "kind": "abstention_unknown", "mode": "analysis", "question": "Interpret this case's analytics.", "expected_status": 404}

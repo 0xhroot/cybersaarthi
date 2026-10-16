@@ -17,7 +17,7 @@ import uuid
 
 from app.core.config import get_settings
 from app.db.postgres import Database
-from app.models import Case, Entity, MetricResult
+from app.models import Case, Entity, MetricResult, Relationship
 from sqlalchemy import delete, func, select
 
 from tests.api.conftest import ApiUser
@@ -184,6 +184,83 @@ async def test_analysis_validates_data_echo_metric_claims(
     assert check["metric_claims_checked"] == 2
     assert len(check["metric_claims_mismatched"]) == 1
     assert "data says 4.0000" in check["metric_claims_mismatched"][0]
+
+
+async def test_analysis_verifies_relationship_count_claims(
+    http_client, ai_service, monkeypatch, _owned_case, database: Database
+) -> None:
+    """`relationship_count` is printed verbatim by the entities digest but is
+    not a metric_results row — live answers quoted it and were wrongly flagged
+    'no such metric'. It must be verified against the relationships table
+    instead: the true count passes, a wrong count and an invented metric name
+    both still fail (a true number is never reported bad, a bad one never
+    passes)."""
+    prefix = get_settings().API_V1_PREFIX
+    factory = database.session_factory()
+    async with factory() as session:
+        entity_a = Entity(
+            case_id=str(_owned_case),
+            entity_type="person",
+            canonical_value=f"rc-a-{uuid.uuid4().hex[:8]}",
+            blocking_key=f"bk-rc-{uuid.uuid4().hex[:8]}",
+            display_value="RC Person A",
+            status="active",
+        )
+        entity_b = Entity(
+            case_id=str(_owned_case),
+            entity_type="person",
+            canonical_value=f"rc-b-{uuid.uuid4().hex[:8]}",
+            blocking_key=f"bk-rc-{uuid.uuid4().hex[:8]}",
+            display_value="RC Person B",
+            status="active",
+        )
+        session.add_all([entity_a, entity_b])
+        await session.flush()
+        # Two relationships — distinct types because of the
+        # (case, src, dst, type) unique constraint.
+        session.add_all(
+            [
+                Relationship(
+                    case_id=str(_owned_case),
+                    source_entity_id=str(entity_a.id),
+                    target_entity_id=str(entity_b.id),
+                    relationship_type="called",
+                ),
+                Relationship(
+                    case_id=str(_owned_case),
+                    source_entity_id=str(entity_a.id),
+                    target_entity_id=str(entity_b.id),
+                    relationship_type="owns",
+                ),
+            ]
+        )
+        # Commit: the gateway validates in its own session and must see the
+        # same rows (read-committed isolation).
+        await session.commit()
+        entity_id = str(entity_a.id)
+
+    answer = (
+        f"Correct: `metric=relationship_count entity_id={entity_id} value=2` "
+        f"Wrong: `metric=relationship_count entity_id={entity_id} value=9` "
+        f"Unknown: `metric=made_up_name entity_id={entity_id} value=1`"
+    )
+    _stub_chat(ai_service, monkeypatch, [answer])
+
+    resp = await http_client.post(
+        f"{prefix}/ai/chat",
+        json={"question": "analyze", "mode": "analysis", "case_id": str(_owned_case)},
+    )
+    assert resp.status_code == 200, resp.text
+    check = resp.json()["citation_check"]
+    assert check is not None
+    assert check["metric_claims_checked"] == 3
+    mismatches = check["metric_claims_mismatched"]
+    assert len(mismatches) == 2, mismatches
+    joined = " ".join(mismatches)
+    # The wrong relationship count is checked against the true count (2).
+    assert "relationship_count" in joined and "data says 2.0000" in joined
+    # An invented metric name is still flagged as unverifiable.
+    assert "made_up_name" in joined and "no such metric" in joined
 
 
 async def test_analysis_flags_an_invented_id(

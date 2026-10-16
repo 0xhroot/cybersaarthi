@@ -1,25 +1,41 @@
 """Guard the AI evaluation golden set (backend/tests/fixtures/ai_golden.jsonl).
 
 The eval harness (scripts/eval_model.py) treats this file as the frozen source
-of truth for grounding and abstention scoring. These tests pin its shape so the
-fixture cannot silently rot (entries removed, statuses changed, facts dropped)
-without the suite noticing.
+of truth for grounding, abstention, analysis and hypothesize scoring. These
+tests pin its shape so the fixture cannot silently rot (entries removed,
+statuses changed, facts dropped, modes weakened) without the suite noticing,
+and pin the new-mode scoring helpers (metric quotes, draft honesty regex,
+fail-closed record verification).
 """
 
 from __future__ import annotations
 
-import pytest
-from scripts.eval_model import GOLDEN_DEFAULT, _fact_present, _load_golden
+import uuid
 
-VALID_KINDS = {"grounded", "abstention", "abstention_unknown"}
-VALID_MODES = {"case", "graph", "copilot", "report"}
+import pytest
+from app.db.postgres import Database
+from app.models import Case
+from scripts.eval_model import (
+    DRAFT_CONFIDENCE_RE,
+    GOLDEN_DEFAULT,
+    METRIC_QUOTE_RE,
+    METRIC_QUOTE_STRICT_RE,
+    _fact_present,
+    _load_golden,
+    _record_belongs_to_case,
+)
+
+VALID_KINDS = {"grounded", "abstention", "abstention_unknown", "analysis", "hypothesize"}
+VALID_MODES = {"case", "graph", "copilot", "report", "analysis", "hypothesize"}
 SHOWCASE_PREFIX = "SHOW-2026-"
 
 # Expected composition of the frozen set (update deliberately if it changes).
-EXPECTED_TOTAL = 33
-EXPECTED_GROUNDED = 29
-EXPECTED_ABSTENTION = 3  # foreign cases the caller cannot access -> 403
-EXPECTED_UNKNOWN = 1  # nonexistent case -> 404
+EXPECTED_TOTAL = 41
+EXPECTED_GROUNDED = 30  # incl. one think-profile entry exercising Phase 1
+EXPECTED_ABSTENTION = 3 + 2  # foreign cases -> 403, incl. analysis/hypothesize
+EXPECTED_UNKNOWN = 1 + 1  # nonexistent case -> 404, incl. analysis mode
+EXPECTED_ANALYSIS = 2
+EXPECTED_HYPOTHESIZE = 2
 
 
 @pytest.fixture(scope="module")
@@ -42,6 +58,8 @@ def test_entry_counts_are_pinned(golden: list[dict]) -> None:
     assert kinds.count("grounded") == EXPECTED_GROUNDED
     assert kinds.count("abstention") == EXPECTED_ABSTENTION
     assert kinds.count("abstention_unknown") == EXPECTED_UNKNOWN
+    assert kinds.count("analysis") == EXPECTED_ANALYSIS
+    assert kinds.count("hypothesize") == EXPECTED_HYPOTHESIZE
 
 
 def test_ids_are_unique_and_descriptive(golden: list[dict]) -> None:
@@ -54,6 +72,40 @@ def test_ids_are_unique_and_descriptive(golden: list[dict]) -> None:
 def test_kinds_and_modes_are_valid(golden: list[dict]) -> None:
     for entry in golden:
         assert entry["kind"] in VALID_KINDS, entry["id"]
+        assert entry.get("mode") in VALID_MODES, entry["id"]
+
+
+def test_new_mode_entries_run_and_score_the_same_mode(golden: list[dict]) -> None:
+    """analysis/hypothesize entries must target a showcase case with their own
+    mode — the harness scores exactly the mode it sends, so a mismatch would
+    silently score the wrong contract."""
+    new_mode_entries = [e for e in golden if e["kind"] in {"analysis", "hypothesize"}]
+    assert new_mode_entries, "new-mode entries missing from the golden set"
+    for entry in new_mode_entries:
+        assert entry.get("mode") == entry["kind"], entry["id"]
+        case_number = entry.get("case_number")
+        assert case_number and str(case_number).startswith(SHOWCASE_PREFIX), (
+            f"{entry['id']}: new-mode entries must target a showcase case"
+        )
+
+
+def test_security_abstentions_cover_the_new_modes(golden: list[dict]) -> None:
+    """Cross-case denial must be exercised for analysis and hypothesize too —
+    not only for the older modes (fail closed across the whole surface)."""
+    covered = {
+        e["mode"]
+        for e in golden
+        if e["kind"] in {"abstention", "abstention_unknown"}
+    }
+    assert {"analysis", "hypothesize"} <= covered
+
+
+def test_think_profile_entry_exists(golden: list[dict]) -> None:
+    """Phase 1's think path must be exercised by the eval (profile field)."""
+    think_entries = [e for e in golden if e.get("profile") == "think"]
+    assert think_entries, "no entry runs with profile=think"
+    for entry in think_entries:
+        assert entry["kind"] == "grounded", entry["id"]
         assert entry.get("mode") in VALID_MODES, entry["id"]
 
 
@@ -111,3 +163,73 @@ def test_questions_are_non_empty(golden: list[dict]) -> None:
         question = entry.get("question", "")
         assert question.strip(), f"{entry['id']}: empty question"
         assert isinstance(entry.get("kind"), str)
+
+
+# -- analysis scoring helpers ------------------------------------------------
+
+
+def test_metric_quote_regexes_parse_both_contract_shapes() -> None:
+    entity = "3a5af37c-e73c-4736-91a1-a8daf6b98b70"
+    # DATA-line echo (the shape models naturally produce).
+    echo = f"quote: metric=degree entity_id={entity} value=0.4213 score=1.0 rank=1"
+    match = METRIC_QUOTE_RE.search(echo)
+    assert match is not None
+    assert match.group(1) == "degree"
+    assert match.group(2).lower() == entity
+    assert float(match.group(3)) == 0.4213
+    # Strict @-form (earlier contract, still accepted).
+    strict = f"metric:betweenness@{entity} = 6352.2204"
+    match = METRIC_QUOTE_STRICT_RE.search(strict)
+    assert match is not None
+    assert match.group(1) == "betweenness"
+    assert match.group(2).lower() == entity
+    assert float(match.group(3)) == 6352.2204
+    # Neither regex matches a number that lacks its entity id (unverifiable).
+    assert METRIC_QUOTE_RE.search("metric=degree value=0.42") is None
+    assert METRIC_QUOTE_STRICT_RE.search("metric:degree = 0.42") is None
+
+
+# -- hypothesize scoring helpers ----------------------------------------------
+
+
+def test_draft_confidence_gate_matches_the_prompt_ban() -> None:
+    """The prompt forbids numeric confidence, percentages and odds; the gate
+    must flag exactly those and leave qualitative hedging alone."""
+    banned = [
+        "confidence 0.8",
+        "with high confidence",
+        "probability 73%",
+        "73 % likely",
+        "odds of 2:1 against",
+        "a 15% chance",
+    ]
+    for text in banned:
+        assert DRAFT_CONFIDENCE_RE.search(text), f"should flag: {text!r}"
+    allowed = [
+        "This may be refuted by bank records.",
+        "It is unlikely that the accounts share an owner.",
+        "Possible owners are listed in the evidence.",
+        "Missing: account opening documents.",
+    ]
+    for text in allowed:
+        assert not DRAFT_CONFIDENCE_RE.search(text), f"should allow: {text!r}"
+
+
+# -- fail-closed record verification -------------------------------------------
+
+
+async def test_record_belongs_to_case_fails_closed(database: Database) -> None:
+    """An id no row of THIS case explains must never verify: unknown ids,
+    malformed ids and rows of another case all return False."""
+    case = Case(id=uuid.uuid4(), case_number=f"EV-{uuid.uuid4().hex[:8]}", title="eval draft check")
+    other = Case(id=uuid.uuid4(), case_number=f"EV-{uuid.uuid4().hex[:8]}", title="other case")
+    factory = database.session_factory()
+    async with factory() as session:
+        # flush only — closing the session rolls the rows back.
+        session.add_all([case, other])
+        await session.flush()
+
+        assert await _record_belongs_to_case(str(case.id), str(case.id), session) is True
+        assert await _record_belongs_to_case(str(uuid.uuid4()), str(case.id), session) is False
+        assert await _record_belongs_to_case("not-a-uuid", str(case.id), session) is False
+        assert await _record_belongs_to_case(str(other.id), str(case.id), session) is False
