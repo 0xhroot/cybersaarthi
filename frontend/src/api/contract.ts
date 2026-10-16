@@ -394,12 +394,26 @@ export interface AiToolEvent {
   ok: boolean;
   arguments?: Record<string, unknown>;
   error?: string | null;
+  /**
+   * Structured outcome (case_not_found_or_not_accessible / case_found_but_empty
+   * / case_found_with_data / case_ambiguous / lookup_error) so clients can tell
+   * an authorized miss from an empty case from a hard lookup failure.
+   */
+  status?: string | null;
   duration_ms?: number | null;
 }
 
 export interface AiChatInput {
   question: string;
-  mode?: "general" | "case" | "evidence" | "graph" | "copilot" | "report" | "knowledge";
+  mode?:
+    | "general"
+    | "case"
+    | "evidence"
+    | "graph"
+    | "copilot"
+    | "report"
+    | "knowledge"
+    | "analysis";
   case_id?: string | null;
   conversation_id?: string | null;
   /**
@@ -407,6 +421,19 @@ export interface AiChatInput {
    * structured rationale/uncertainty/citations answer. Omitted = server default.
    */
   profile?: "quick" | "standard" | "deep" | "think";
+}
+
+/**
+ * Server-side machine check of the ids and metric numbers an analysis answer
+ * cited, compared against what was actually retrieved for the case. Null when
+ * the mode does not run a claim check — a missing check is not a pass.
+ */
+export interface AiCitationCheck {
+  cited_ids: number;
+  verified_ids: number;
+  unverified_ids: string[];
+  metric_claims_checked: number;
+  metric_claims_mismatched: string[];
 }
 
 export interface AiChatResult {
@@ -421,6 +448,7 @@ export interface AiChatResult {
   first_token_ms?: number | null;
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
+  citation_check?: AiCitationCheck | null;
 }
 
 export interface AiStreamCallbacks {
@@ -452,6 +480,8 @@ export interface AiStreamCallbacks {
     duration_ms: number;
     first_token_ms?: number | null;
     completion_tokens?: number | null;
+    /** Analysis mode only: server-side id/number claim validation. */
+    citation_check?: AiCitationCheck | null;
   }) => void;
   onError?: (message: string, code?: string) => void;
 }

@@ -85,3 +85,7 @@ class ChatOutcome:
     duration_ms: int = 0
     first_token_ms: int | None = None
     iterations: int = 1
+    # Post-generation claim validation (analysis mode): machine check of the
+    # ids and metric numbers the model cited against what was actually
+    # retrieved. None when the mode does not run a claim check.
+    citation_check: dict[str, Any] | None = None

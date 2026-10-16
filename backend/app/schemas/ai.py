@@ -12,7 +12,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-AiMode = Literal["general", "case", "evidence", "graph", "copilot", "report", "knowledge"]
+AiMode = Literal[
+    "general", "case", "evidence", "graph", "copilot", "report", "knowledge", "analysis"
+]
 # ``think`` is the user-facing name for the ``deep`` budget plus a structured
 # rationale/uncertainty response (see AnswerProfile.structured). ``deep`` is
 # kept for compatibility — the two share one budget definition.
@@ -56,6 +58,25 @@ class AiChatRequest(BaseModel):
     profile: AiProfile | None = None
 
 
+class AiCitationCheckOut(BaseModel):
+    """Machine validation of the ids and metric numbers the model cited.
+
+    Produced server-side against what was actually retrieved for the case —
+    never computed from the model's own text. Absent for modes that do not run
+    a claim check; a missing check is not a passing check.
+    """
+
+    cited_ids: int = 0
+    verified_ids: int = 0
+    # UUID-shaped ids in the answer that appear neither in the shown DATA nor
+    # in the response sources — flagged for review, not auto-declared false.
+    unverified_ids: list[str] = Field(default_factory=list)
+    metric_claims_checked: int = 0
+    # `metric:<name>@<entity> = <value>` claims with no matching metric row or
+    # a value differing from the stored raw/normalized score beyond rounding.
+    metric_claims_mismatched: list[str] = Field(default_factory=list)
+
+
 class AiChatResponse(BaseModel):
     answer: str
     conversation_id: uuid.UUID
@@ -68,6 +89,7 @@ class AiChatResponse(BaseModel):
     first_token_ms: int | None = None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    citation_check: AiCitationCheckOut | None = None
 
 
 class AiConversationOut(BaseModel):

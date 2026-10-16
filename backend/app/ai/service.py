@@ -41,7 +41,7 @@ from app.ai.client import (
     InferenceUnavailableError,
 )
 from app.ai.prompts import PROMPT_VERSION, build_system_prompt
-from app.ai.retrieval import build_case_context
+from app.ai.retrieval import build_case_context, validate_cited_claims
 from app.ai.runtime import InferenceRuntime
 from app.ai.schemas import ChatOutcome, SourceRef, ToolCallProposal
 from app.ai.tools import TOOLS, ToolContext, ToolSpec, execute_tool, tool_list_for_prompt
@@ -66,6 +66,9 @@ TOOL_FENCE_RE = re.compile(
 MAX_QUESTION_CHARS = 4_000
 DEFAULT_MAX_TOKENS = 512
 TITLE_MAX_CHARS = 80
+# Output-token floor for analysis mode: the five-section contract plus quoted
+# metrics needs more than deep's 768 (observed truncation in live runs).
+ANALYSIS_MIN_MAX_TOKENS = 1024
 # Appended to the last in-budget TOOL_RESULT when the model has already spent
 # its tool rounds: the next completion must be a direct answer, so a tool fence
 # can never be returned verbatim as the response.
@@ -410,6 +413,7 @@ class AIService:
                         "duration_ms": outcome.duration_ms,
                         "first_token_ms": outcome.first_token_ms,
                         "completion_tokens": outcome.completion_tokens,
+                        "citation_check": outcome.citation_check,
                     }
                 )
             except ApiHTTPException as exc:
@@ -482,13 +486,17 @@ class AIService:
         data_block = ""
         pre_sources: list[SourceRef] = []
         if case is not None:
-            include_graph = mode in {"case", "graph", "copilot", "report"}
+            # analysis mode needs the deterministic engine's outputs (metrics,
+            # graph shape) plus evidence metadata to interpret them against.
+            include_graph = mode in {"case", "graph", "copilot", "report", "analysis"}
             include_victims = mode in {"case", "copilot", "report"}
-            include_analytics = mode in {"graph", "report"}
+            include_analytics = mode in {"graph", "report", "analysis"}
             data_block, pre_sources = await build_case_context(
                 session,
                 case,
-                include_evidence=self.settings.AI_FEATURE_EVIDENCE or mode == "report",
+                include_evidence=(
+                    self.settings.AI_FEATURE_EVIDENCE or mode in {"report", "analysis"}
+                ),
                 include_graph=include_graph and self.settings.AI_FEATURE_GRAPH,
                 include_victims=include_victims,
                 include_analytics=include_analytics and self.settings.AI_FEATURE_GRAPH,
@@ -516,6 +524,12 @@ class AIService:
         all_sources: list[SourceRef] = list(pre_sources)
         tool_events: list[dict[str, Any]] = []
         max_tokens = answer_profile.max_tokens or DEFAULT_MAX_TOKENS
+        if mode == "analysis":
+            # Measured: deep's 768 tokens truncated live analysis runs after
+            # section 3 of 5. The floor only extends the OUTPUT allowance for
+            # this mode — context size, parallelism and the model are
+            # untouched.
+            max_tokens = max(max_tokens, ANALYSIS_MIN_MAX_TOKENS)
 
         history = await load_history_messages(
             session, conversation, self.settings.AI_MAX_HISTORY_MESSAGES
@@ -675,6 +689,13 @@ class AIService:
                 # Final answer (or model declined to call a tool).
                 sources = self._filter_sources(_dedupe_sources(all_sources), case)
                 grounded = bool(sources)
+                citation_check: dict[str, Any] | None = None
+                if mode == "analysis" and case is not None:
+                    # Machine-check the ids and metric numbers the model cited
+                    # against what was actually retrieved for this case.
+                    citation_check = await validate_cited_claims(
+                        session, case, answer, data_block, sources
+                    )
                 if stream_events is not None:
                     await stream_events(
                         {
@@ -701,6 +722,7 @@ class AIService:
                     duration_ms=duration_ms,
                     first_token_ms=first_token_ms,
                     iterations=rounds,
+                    citation_check=citation_check,
                 )
 
         # Unreachable safety net: the loop above always returns or raises.

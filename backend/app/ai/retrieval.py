@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -527,3 +528,112 @@ async def accessible_cases(
         .all()
     )
     return list(cases)
+
+
+# -- post-generation claim validation (analysis mode) -----------------------
+
+UUID_RE = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I
+)
+# Metric-number claims the model can state. Two shapes are recognized because
+# models naturally echo the DATA line format instead of a synthetic grammar:
+#   echo  (mandated by the analysis prompt, mirrors DATA verbatim):
+#     metric=<name> entity_id=<entity_id> value=<value>   (score= accepted too;
+#     `metric:` instead of `metric=` also occurs)
+#   strict (earlier contract, kept for robustness):
+#     metric:<name>@<entity_id> = <value>
+# Both exist so numbers the model states can be machine-checked against
+# metric_results after generation.
+_UUID_BODY = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+_NUM = r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?"
+METRIC_CLAIM_RE = re.compile(
+    rf"metric[=:]([a-z_]+)\s+entity_id=({_UUID_BODY})\s+(?:value|score)=({_NUM})",
+    re.I,
+)
+METRIC_CLAIM_STRICT_RE = re.compile(
+    rf"metric:([a-z_]+)@({_UUID_BODY})\s*=\s*({_NUM})",
+    re.I,
+)
+CLAIM_LIST_LIMIT = 10
+
+
+async def validate_cited_claims(
+    session: AsyncSession,
+    case: Case,
+    answer: str,
+    data_block: str,
+    sources: list[SourceRef],
+) -> dict[str, Any]:
+    """Machine-check the ids and metric numbers the model cited.
+
+    Two independent checks, both against what was actually retrieved for THIS
+    authorized case (never against model output):
+
+    - **id citations** — every UUID-shaped id in the answer must appear either
+      in the DATA block that was shown to the model or in the response's
+      source list; anything else is reported as ``unverified`` (review, not a
+      verdict — the model may quote an id from a tool result we no longer
+      hold).
+    - **metric claims** — each quoted metric (``metric=<name> entity_id=<id>
+      value=<v>`` echoing the DATA line, or the strict
+      ``metric:<name>@<id> = <v>`` form) is looked up in ``metric_results``
+      scoped to this case. Unknown name/entity pairs or values matching
+      neither the raw value nor the normalized score (within rounding
+      tolerance) are reported as ``mismatches``.
+
+    Failures never raise: validation is advisory metadata on the response, and
+    an empty/missing check is never dressed up as a pass.
+    """
+    cited = {m.group(0).lower() for m in UUID_RE.finditer(answer)}
+    known = {m.group(0).lower() for m in UUID_RE.finditer(data_block)}
+    known.update(s.id.lower() for s in sources)
+    unverified = sorted(cited - known)
+
+    claims: dict[tuple[str, str], list[float]] = {}
+    for pattern in (METRIC_CLAIM_RE, METRIC_CLAIM_STRICT_RE):
+        for match in pattern.finditer(answer):
+            name, entity_id, value = (
+                match.group(1),
+                match.group(2).lower(),
+                float(match.group(3)),
+            )
+            claims.setdefault((name, entity_id), []).append(value)
+
+    mismatches: list[str] = []
+    for (name, entity_id), values in claims.items():
+        rows = (
+            await session.execute(
+                select(MetricResult.raw_value, MetricResult.normalized_score).where(
+                    MetricResult.case_id == str(case.id),
+                    MetricResult.metric_name == name,
+                    MetricResult.entity_id == entity_id,
+                )
+            )
+        ).all()
+        if not rows:
+            mismatches.append(
+                f"metric:{name}@{entity_id}: no such metric for this case"
+            )
+            continue
+        for value in values:
+            matches = any(
+                # DATA prints value with 4 decimals; require a near-exact echo
+                # (1e-5 relative — a changed digit at the scale of the value is
+                # flagged) or a match against the stored normalized score.
+                abs(value - float(raw)) <= max(0.005, 1e-5 * abs(float(raw)))
+                or abs(value - float(score)) <= 0.01
+                for raw, score in rows
+            )
+            if not matches:
+                sample = ", ".join(f"{float(r):.4f}" for r, _ in rows[:3])
+                mismatches.append(
+                    f"metric:{name}@{entity_id} = {value}: data says {sample}"
+                )
+
+    return {
+        "cited_ids": len(cited),
+        "verified_ids": len(cited) - len(unverified),
+        "unverified_ids": unverified[:CLAIM_LIST_LIMIT],
+        "metric_claims_checked": sum(len(v) for v in claims.values()),
+        "metric_claims_mismatched": mismatches[:CLAIM_LIST_LIMIT],
+    }

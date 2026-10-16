@@ -15,6 +15,7 @@ import {
 import { useCan } from "@/lib/permissions";
 import { PageContainer } from "@/components/layout/page";
 import { InvestigationHeader } from "@/components/layout/investigation-header";
+import { AnalysisPanel } from "@/components/ai/analysis-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PriorityBadge, ProfileTierBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
@@ -147,6 +148,8 @@ export default function AnalyticsPage() {
       {summary.isError ? (
         <Card className="mt-4"><ErrorState error={summary.error} onRetry={() => void summary.refetch()} /></Card>
       ) : null}
+
+      <AnalysisPanel caseId={caseId} />
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="space-y-5">

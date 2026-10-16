@@ -24,7 +24,7 @@ from app.db.postgres import Database
 from app.db.redis import Cache
 from app.db.storage import Storage
 from app.main import app
-from app.models import User
+from app.models import AIConversation, Case, CaseMember, User
 from app.repositories.user_repository import UserRepository
 from app.services.users import UserService
 from sqlalchemy import delete
@@ -85,6 +85,51 @@ async def _delete_user(database: Database, user_id: uuid.UUID) -> None:
     factory = database.session_factory()
     async with factory() as session:
         await session.execute(delete(User).where(User.id == user_id))
+        await session.commit()
+
+
+@pytest.fixture
+async def _owned_case(database: Database, api_user: ApiUser) -> uuid.UUID:
+    case = Case(
+        id=uuid.uuid4(),
+        case_number=f"AIAPI-{uuid.uuid4().hex[:8]}",
+        title="ai api owned case",
+        status="open",
+        owner_id=api_user.id,
+    )
+    factory = database.session_factory()
+    async with factory() as session:
+        session.add(case)
+        await session.commit()
+        case_id = case.id
+    yield case_id
+    async with factory() as session:
+        await session.execute(delete(CaseMember).where(CaseMember.case_id == case_id))
+        await session.execute(delete(AIConversation).where(AIConversation.case_id == case_id))
+        await session.execute(delete(Case).where(Case.id == case_id))
+        await session.commit()
+
+
+@pytest.fixture
+async def _stranger_case(database: Database, user_factory) -> uuid.UUID:
+    stranger = await user_factory(role="INVESTIGATOR")
+    case = Case(
+        id=uuid.uuid4(),
+        case_number=f"AIFR-{uuid.uuid4().hex[:8]}",
+        title="ai api foreign case",
+        status="open",
+        owner_id=stranger.id,
+    )
+    factory = database.session_factory()
+    async with factory() as session:
+        session.add(case)
+        await session.commit()
+        case_id = case.id
+    yield case_id
+    async with factory() as session:
+        await session.execute(delete(CaseMember).where(CaseMember.case_id == case_id))
+        await session.execute(delete(AIConversation).where(AIConversation.case_id == case_id))
+        await session.execute(delete(Case).where(Case.id == case_id))
         await session.commit()
 
 

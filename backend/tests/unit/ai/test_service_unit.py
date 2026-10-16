@@ -210,6 +210,37 @@ def test_structured_prompt_is_only_added_when_requested() -> None:
     assert "Think-mode" in build_system_prompt("general", structured=True)
 
 
+# -- analysis mode prompt contract (Phase 2) --------------------------------
+
+
+def test_analysis_prompt_separates_the_five_buckets() -> None:
+    prompt = build_system_prompt("analysis")
+    for section in (
+        "Observed facts",
+        "Deterministically computed metrics",
+        "AI interpretations",
+        "Hypotheses and uncertainty",
+        "Missing evidence and next verification steps",
+    ):
+        assert section in prompt, section
+    # The model interprets; it never computes — and numbers must use the
+    # machine-checkable metric grammar (a verbatim echo of the DATA line).
+    assert "you never compute them yourself" in prompt
+    assert "`metric=<name> entity_id=<entity_id> value=<value>`" in prompt
+    # Failure honesty: no analysis is described when retrieval failed.
+    assert "report that failure" in prompt
+
+
+def test_analysis_mode_does_not_stack_the_think_contract() -> None:
+    """analysis owns its five-section structure; Think's generic one would
+    contradict it, so it must not be appended even in think mode."""
+    prompt = build_system_prompt("analysis", structured=True)
+    assert "Think-mode" not in prompt
+    assert "Observed facts" in prompt
+    # Other modes still get the Think contract when they ask for it.
+    assert "Think-mode" in build_system_prompt("case", structured=True)
+
+
 # -- context budget enforcement (Phase 1) ----------------------------------
 
 

@@ -321,3 +321,72 @@ abstention 4/4; latency avg **1011 ms**, max 3196 ms over 29 completions.
 (measured, n=1 per mode — not a statistical claim); progress phases are coarse
 (two states); the forced-answer round adds at most one extra completion when a
 model refuses to stop calling tools.
+
+---
+
+## 2026-10-16 — AI Expansion Phase 2 (Analysis-page AI panel)
+
+**Backend — `analysis` mode in the existing gateway (no second gateway):**
+- `AiMode` gains `analysis`; DB check constraint extended via migration
+  `b4f1c2d3e4a5` (applied; downgrade demotes analysis threads to `general`).
+- Prompt contract (`SPECIALIZED["analysis"]`): five sections — observed facts /
+  deterministically computed metrics / AI interpretations / hypotheses &
+  uncertainty / missing evidence & next steps. The model interprets only;
+  every number must be a verbatim echo of DATA, failures must be reported as
+  failures, absent analytics must be stated as not computed. Think's generic
+  structure is suppressed for this mode (the mode owns its structure).
+- Context: analysis mode adds evidence + graph + analytics digests (existing
+  `build_case_context`, existing caps).
+- **Server-side claim validation** (`retrieval.validate_cited_claims`), run on
+  the final answer and returned as `citation_check` on `/ai/chat` and the SSE
+  `done` event: (a) every UUID in the answer must appear in the shown DATA or
+  the response sources → `unverified_ids`; (b) each quoted metric
+  (`metric=<name> entity_id=<id> value=<v>` DATA-echo form, strict
+  `@`-grammar also accepted) is looked up in `metric_results` for the case —
+  unknown pair or value off the stored raw (tol 1e-5 relative / 0.005 floor)
+  or normalized score (tol 0.01) → `metric_claims_mismatched`. Advisory
+  metadata: never raises, never fakes a pass.
+- Output floor: analysis mode `max(max_tokens, 1024)` — measured: deep's 768
+  truncated live runs after section 3 of 5. Context size/parallelism/model
+  untouched. Prompt also caps quotes at five metrics (all stated numbers stay
+  machine-checkable).
+
+**Frontend — Analysis panel on `/analytics`:**
+- `AnalysisPanel` card (no new route): six preset questions (interpret metrics,
+  anomalies, timeline & entities, contradictions & gaps, alternative
+  explanations, next steps) + a Report-draft action reusing the existing
+  `reportDraft` endpoint. Requests `mode: "analysis"`, `profile: "think"`,
+  streams with progress states, Stop button aborts (cancels server-side).
+- Renders: answer (Markdown), source chips, tool statuses, grounded warning
+  when no authorized sources were retrieved, and the `citation_check` strip —
+  pass line only when the server actually checked and found no issues;
+  otherwise unverified ids and metric mismatches listed as warnings; check
+  absent → "not available" (never a fake pass). Every run resets prior output
+  so a failed run can never display a stale answer as its own result.
+- Contract: `AiChatInput.mode += analysis`, `AiCitationCheck`,
+  `AiChatResult.citation_check`, `onDone.citation_check`;
+  `AiToolEvent.status` now also forwarded on transient `tool` events (was
+  dropped by the adapter).
+
+**Tests:** backend hermetic **611 passed** (11 analysis-mode API + 3 prompt/budget
+incl. fixture consolidation of `_owned_case`/`_stranger_case` into
+`tests/api/conftest.py`), integration **8 passed**, frontend **119 passed**
+(19 files, 9 new panel tests) + tsc + eslint, ruff + mypy clean.
+
+**Eval:** 33/33, exit 0; gates all true; fact recall 1.0 (53/53),
+groundedness 1.0 (1053/1053), abstention 4/4; latency avg **807 ms**, max 1909.
+
+**Live (backend restarted; llama-server + UDS bridge restarted after stack
+restart — ctx 16384 / parallel 2 confirmed, VRAM 7295/12288 MiB):**
+- analysis + think on SHOW-2026-001: all 5 sections present, 2357 chars,
+  grounded, 48 sources, `citation_check` = 4/4 ids verified, 4 metric claims
+  checked, 0 mismatches; wall ~9.8 s (single run, not a statistical claim).
+- First live iteration exposed two gaps that were then fixed and re-tested:
+  models echo DATA's field syntax rather than the synthetic `@` grammar (0
+  claims checked) → validator now accepts the echo form; 768-token budget
+  truncated the contract → 1024 output floor.
+
+**Known limitations:** claim check is advisory (ids from tool results not
+re-holding can be flagged unverified for review); numeric validation covers
+the mandated metric grammar, not free-prose numbers (eval gates handle the
+golden set); no aggregate stats on panel latency (n=1 per observation).

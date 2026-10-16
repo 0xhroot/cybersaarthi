@@ -3,6 +3,7 @@ import { authSession } from "@/api/client/session";
 import { apiConfig } from "@/config/env";
 import type {
   AdminUserListParams,
+  AiCitationCheck,
   AiChatInput,
   AiChatResult,
   AiConversation,
@@ -723,6 +724,7 @@ interface AiStreamEvent {
   arguments?: Record<string, unknown>;
   ok?: boolean;
   error?: string;
+  status?: string | null;
   grounded?: boolean;
   tool_events?: AiToolEvent[];
   duration_ms?: number;
@@ -735,6 +737,8 @@ interface AiStreamEvent {
   profile?: string;
   iteration?: number;
   of?: number;
+  // `done` event, analysis mode only.
+  citation_check?: AiCitationCheck | null;
 }
 
 const aiService: ApiAiService = {
@@ -811,6 +815,7 @@ const aiService: ApiAiService = {
                 ok: event.ok ?? true,
                 arguments: event.arguments,
                 error: event.error,
+                status: event.status,
               });
               break;
             case "done":
@@ -825,6 +830,7 @@ const aiService: ApiAiService = {
                 duration_ms: event.duration_ms ?? 0,
                 first_token_ms: event.first_token_ms,
                 completion_tokens: event.completion_tokens,
+                citation_check: event.citation_check,
               });
               break;
             case "error":

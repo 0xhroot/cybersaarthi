@@ -26,6 +26,7 @@ from app.models import AIConversation, AIMessage, Case, User
 from app.schemas.ai import (
     AiChatRequest,
     AiChatResponse,
+    AiCitationCheckOut,
     AiConversationListResponse,
     AiConversationOut,
     AiConversationRenameRequest,
@@ -200,6 +201,11 @@ async def chat(
         first_token_ms=outcome.first_token_ms,
         prompt_tokens=outcome.prompt_tokens,
         completion_tokens=outcome.completion_tokens,
+        citation_check=(
+            AiCitationCheckOut(**outcome.citation_check)
+            if outcome.citation_check is not None
+            else None
+        ),
     )
 
 

@@ -11,7 +11,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
-AI_CONVERSATION_MODES = ("general", "case", "evidence", "graph", "copilot", "report", "knowledge")
+AI_CONVERSATION_MODES = (
+    "general", "case", "evidence", "graph", "copilot", "report", "knowledge", "analysis",
+)
 AI_CONVERSATION_STATUSES = ("active", "archived")
 
 
@@ -21,7 +23,8 @@ class AIConversation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "ai_conversations"
     __table_args__ = (
         CheckConstraint(
-            "mode IN ('general', 'case', 'evidence', 'graph', 'copilot', 'report', 'knowledge')",
+            "mode IN ('general', 'case', 'evidence', 'graph', 'copilot', 'report', "
+            "'knowledge', 'analysis')",
             name="ai_conversation_mode_valid",
         ),
         CheckConstraint(
