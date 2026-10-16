@@ -40,8 +40,9 @@ from app.ai.client import (
     InferenceProtocolError,
     InferenceUnavailableError,
 )
+from app.ai.drafts import mark_unverified_ids, parse_hypothesis_drafts
 from app.ai.prompts import PROMPT_VERSION, build_system_prompt
-from app.ai.retrieval import build_case_context, validate_cited_claims
+from app.ai.retrieval import build_case_context, known_uuids, validate_cited_claims
 from app.ai.runtime import InferenceRuntime
 from app.ai.schemas import ChatOutcome, SourceRef, ToolCallProposal
 from app.ai.tools import TOOLS, ToolContext, ToolSpec, execute_tool, tool_list_for_prompt
@@ -414,6 +415,8 @@ class AIService:
                         "first_token_ms": outcome.first_token_ms,
                         "completion_tokens": outcome.completion_tokens,
                         "citation_check": outcome.citation_check,
+                        "hypothesis_drafts": outcome.hypothesis_drafts,
+                        "hypothesis_draft_errors": outcome.hypothesis_draft_errors,
                     }
                 )
             except ApiHTTPException as exc:
@@ -487,15 +490,20 @@ class AIService:
         pre_sources: list[SourceRef] = []
         if case is not None:
             # analysis mode needs the deterministic engine's outputs (metrics,
-            # graph shape) plus evidence metadata to interpret them against.
-            include_graph = mode in {"case", "graph", "copilot", "report", "analysis"}
-            include_victims = mode in {"case", "copilot", "report"}
+            # graph shape) plus evidence metadata to interpret them against;
+            # hypothesize mode deliberately excludes analytics so candidate
+            # hypotheses are grounded in records, never laundered scores.
+            include_graph = mode in {
+                "case", "graph", "copilot", "report", "analysis", "hypothesize",
+            }
+            include_victims = mode in {"case", "copilot", "report", "hypothesize"}
             include_analytics = mode in {"graph", "report", "analysis"}
             data_block, pre_sources = await build_case_context(
                 session,
                 case,
                 include_evidence=(
-                    self.settings.AI_FEATURE_EVIDENCE or mode in {"report", "analysis"}
+                    self.settings.AI_FEATURE_EVIDENCE
+                    or mode in {"report", "analysis", "hypothesize"}
                 ),
                 include_graph=include_graph and self.settings.AI_FEATURE_GRAPH,
                 include_victims=include_victims,
@@ -690,11 +698,21 @@ class AIService:
                 sources = self._filter_sources(_dedupe_sources(all_sources), case)
                 grounded = bool(sources)
                 citation_check: dict[str, Any] | None = None
-                if mode == "analysis" and case is not None:
+                hypothesis_drafts: list[dict[str, Any]] = []
+                draft_errors = 0
+                if mode in {"analysis", "hypothesize"} and case is not None:
                     # Machine-check the ids and metric numbers the model cited
                     # against what was actually retrieved for this case.
                     citation_check = await validate_cited_claims(
                         session, case, answer, data_block, sources
+                    )
+                if mode == "hypothesize":
+                    # Drafts are proposals only: parse strictly (invalid blocks
+                    # counted, never repaired) and flag evidence ids retrieval
+                    # could not confirm. Nothing here writes to the database.
+                    hypothesis_drafts, draft_errors = parse_hypothesis_drafts(answer)
+                    mark_unverified_ids(
+                        hypothesis_drafts, known_uuids(data_block, sources)
                     )
                 if stream_events is not None:
                     await stream_events(
@@ -723,6 +741,8 @@ class AIService:
                     first_token_ms=first_token_ms,
                     iterations=rounds,
                     citation_check=citation_check,
+                    hypothesis_drafts=hypothesis_drafts,
+                    hypothesis_draft_errors=draft_errors,
                 )
 
         # Unreachable safety net: the loop above always returns or raises.

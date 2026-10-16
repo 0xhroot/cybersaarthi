@@ -413,7 +413,8 @@ export interface AiChatInput {
     | "copilot"
     | "report"
     | "knowledge"
-    | "analysis";
+    | "analysis"
+    | "hypothesize";
   case_id?: string | null;
   conversation_id?: string | null;
   /**
@@ -436,6 +437,22 @@ export interface AiCitationCheck {
   metric_claims_mismatched: string[];
 }
 
+/**
+ * One AI-drafted candidate hypothesis from `mode: "hypothesize"` — a proposal
+ * for human review only. The backend never stores drafts automatically and
+ * produces no numeric confidence; `unverified_ids` lists cited record ids the
+ * retrieval could not confirm. Clients must show them as unverified prompts
+ * for investigation, never as conclusions or probabilities.
+ */
+export interface AiHypothesisDraft {
+  title: string;
+  statement: string;
+  evidence_ids: string[];
+  unverified_ids: string[];
+  refutation?: string | null;
+  missing?: string | null;
+}
+
 export interface AiChatResult {
   answer: string;
   conversation_id: string;
@@ -449,6 +466,14 @@ export interface AiChatResult {
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
   citation_check?: AiCitationCheck | null;
+  /** Hypothesize mode only: parsed draft candidates awaiting human review. */
+  hypothesis_drafts?: AiHypothesisDraft[];
+  /**
+   * Hypothesize mode only: fenced suggestion blocks that failed validation or
+   * exceeded the cap. A non-zero count means the tray is partial — clients
+   * must say so instead of presenting the tray as the model's full output.
+   */
+  hypothesis_draft_errors?: number;
 }
 
 export interface AiStreamCallbacks {
@@ -482,6 +507,10 @@ export interface AiStreamCallbacks {
     completion_tokens?: number | null;
     /** Analysis mode only: server-side id/number claim validation. */
     citation_check?: AiCitationCheck | null;
+    /** Hypothesize mode only: parsed draft candidates awaiting review. */
+    hypothesis_drafts?: AiHypothesisDraft[];
+    /** Hypothesize mode only: blocks that failed validation (partial tray). */
+    hypothesis_draft_errors?: number;
   }) => void;
   onError?: (message: string, code?: string) => void;
 }

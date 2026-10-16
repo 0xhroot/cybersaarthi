@@ -557,6 +557,14 @@ METRIC_CLAIM_STRICT_RE = re.compile(
 CLAIM_LIST_LIMIT = 10
 
 
+def known_uuids(data_block: str, sources: list[SourceRef]) -> set[str]:
+    """UUIDs the model was shown: everything in the DATA block plus the
+    response's machine-verified source ids (lower-cased)."""
+    known = {m.group(0).lower() for m in UUID_RE.finditer(data_block)}
+    known.update(s.id.lower() for s in sources)
+    return known
+
+
 async def validate_cited_claims(
     session: AsyncSession,
     case: Case,
@@ -585,8 +593,7 @@ async def validate_cited_claims(
     an empty/missing check is never dressed up as a pass.
     """
     cited = {m.group(0).lower() for m in UUID_RE.finditer(answer)}
-    known = {m.group(0).lower() for m in UUID_RE.finditer(data_block)}
-    known.update(s.id.lower() for s in sources)
+    known = known_uuids(data_block, sources)
     unverified = sorted(cited - known)
 
     claims: dict[tuple[str, str], list[float]] = {}

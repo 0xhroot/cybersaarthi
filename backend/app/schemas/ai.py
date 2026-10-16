@@ -13,7 +13,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 AiMode = Literal[
-    "general", "case", "evidence", "graph", "copilot", "report", "knowledge", "analysis"
+    "general",
+    "case",
+    "evidence",
+    "graph",
+    "copilot",
+    "report",
+    "knowledge",
+    "analysis",
+    "hypothesize",
 ]
 # ``think`` is the user-facing name for the ``deep`` budget plus a structured
 # rationale/uncertainty response (see AnswerProfile.structured). ``deep`` is
@@ -77,6 +85,25 @@ class AiCitationCheckOut(BaseModel):
     metric_claims_mismatched: list[str] = Field(default_factory=list)
 
 
+class AiHypothesisDraftOut(BaseModel):
+    """One AI-drafted candidate hypothesis awaiting human review.
+
+    Drafts are never stored automatically and never become findings: the
+    investigator records one explicitly through the normal hypothesis API
+    (status starts at ``proposed``). No numeric confidence is produced —
+    ``unverified_ids`` lists cited record ids that retrieval could not
+    confirm, and ``hypothesis_draft_errors`` on the response counts fenced
+    blocks that failed validation (a partial tray is never a silent one).
+    """
+
+    title: str
+    statement: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    unverified_ids: list[str] = Field(default_factory=list)
+    refutation: str | None = None
+    missing: str | None = None
+
+
 class AiChatResponse(BaseModel):
     answer: str
     conversation_id: uuid.UUID
@@ -90,6 +117,8 @@ class AiChatResponse(BaseModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     citation_check: AiCitationCheckOut | None = None
+    hypothesis_drafts: list[AiHypothesisDraftOut] = Field(default_factory=list)
+    hypothesis_draft_errors: int = 0
 
 
 class AiConversationOut(BaseModel):

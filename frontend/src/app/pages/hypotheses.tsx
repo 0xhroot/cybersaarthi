@@ -11,6 +11,8 @@ import {
 import { useCan } from "@/lib/permissions";
 import { PageContainer } from "@/components/layout/page";
 import { InvestigationHeader } from "@/components/layout/investigation-header";
+import { HypothesisSuggest } from "@/components/ai/hypothesis-suggest";
+import type { AiHypothesisDraft } from "@/api/contract";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge } from "@/components/status";
 import { RELATIONSHIP_TYPE_META } from "@/components/status";
@@ -51,6 +53,10 @@ function signalMessage(signal: Record<string, unknown>): string | null {
   return msg ? String(msg) : null;
 }
 
+/** Pre-filled, human-editable provenance note when recording an AI draft. */
+const AI_DRAFT_NOTE =
+  "AI-drafted candidate — recorded by a human after review; treat as proposed and unverified.";
+
 export default function HypothesesPage() {
   const { caseId = "" } = useParams();
   const hypotheses = useHypotheses(caseId);
@@ -62,6 +68,7 @@ export default function HypothesesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [statement, setStatement] = useState("");
+  const [notes, setNotes] = useState("");
 
   const submitCreate = async () => {
     if (!title.trim() || !statement.trim()) {
@@ -69,14 +76,28 @@ export default function HypothesesPage() {
       return;
     }
     try {
-      await create.mutateAsync({ title: title.trim(), statement: statement.trim() });
+      await create.mutateAsync({
+        title: title.trim(),
+        statement: statement.trim(),
+        notes: notes.trim() ? notes.trim() : null,
+      });
       toast({ title: "Hypothesis recorded", description: "It will be tracked until supported, contradicted or dismissed." });
       setFormOpen(false);
       setTitle("");
       setStatement("");
+      setNotes("");
     } catch (err) {
       toast({ title: "Could not add hypothesis", description: (err as Error).message });
     }
+  };
+
+  /** Pre-fill the editable form with an AI draft — nothing is written until
+   * the investigator submits it themselves. */
+  const recordDraft = (draft: AiHypothesisDraft) => {
+    setTitle(draft.title);
+    setStatement(draft.statement);
+    setNotes(AI_DRAFT_NOTE);
+    setFormOpen(true);
   };
 
   const submitStatus = async (hypothesisId: string, status: InvestigationHypothesisStatus) => {
@@ -106,6 +127,8 @@ export default function HypothesesPage() {
         </CardContent>
       </Card>
 
+      {caseId ? <HypothesisSuggest caseId={caseId} canRecord={canReview} onRecord={recordDraft} /> : null}
+
       <div className="mt-5">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
@@ -129,6 +152,10 @@ export default function HypothesesPage() {
               <div className="space-y-1.5">
                 <Label>Statement</Label>
                 <Textarea value={statement} onChange={(e) => setStatement(e.target.value)} rows={2} placeholder="One falsifiable statement the team can chase or refute." />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Notes (optional)</Label>
+                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Provenance, caveats or follow-ups." />
               </div>
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setFormOpen(false)}>Cancel</Button>

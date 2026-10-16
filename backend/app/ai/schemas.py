@@ -85,7 +85,12 @@ class ChatOutcome:
     duration_ms: int = 0
     first_token_ms: int | None = None
     iterations: int = 1
-    # Post-generation claim validation (analysis mode): machine check of the
-    # ids and metric numbers the model cited against what was actually
-    # retrieved. None when the mode does not run a claim check.
+    # Post-generation claim validation (analysis/hypothesize modes): machine
+    # check of the ids and metric numbers the model cited against what was
+    # actually retrieved. None when the mode does not run a claim check.
     citation_check: dict[str, Any] | None = None
+    # Parsed AI hypothesis drafts (hypothesize mode) awaiting human review.
+    # Never stored automatically; empty when the mode produces none or all
+    # blocks failed validation (``hypothesis_draft_errors`` says how many).
+    hypothesis_drafts: list[dict[str, Any]] = field(default_factory=list)
+    hypothesis_draft_errors: int = 0

@@ -30,6 +30,7 @@ from app.schemas.ai import (
     AiConversationListResponse,
     AiConversationOut,
     AiConversationRenameRequest,
+    AiHypothesisDraftOut,
     AiMessageListResponse,
     AiMessageOut,
     AiReportDraftRequest,
@@ -206,6 +207,10 @@ async def chat(
             if outcome.citation_check is not None
             else None
         ),
+        hypothesis_drafts=[
+            AiHypothesisDraftOut(**draft) for draft in outcome.hypothesis_drafts
+        ],
+        hypothesis_draft_errors=outcome.hypothesis_draft_errors,
     )
 
 

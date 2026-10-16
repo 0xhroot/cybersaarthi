@@ -390,3 +390,66 @@ restart — ctx 16384 / parallel 2 confirmed, VRAM 7295/12288 MiB):**
 re-holding can be flagged unverified for review); numeric validation covers
 the mandated metric grammar, not free-prose numbers (eval gates handle the
 golden set); no aggregate stats on panel latency (n=1 per observation).
+
+---
+
+## 2026-10-16 — AI Expansion Phase 3 (Hypotheses-page AI, honest confidence semantics)
+
+**Backend — `hypothesize` mode in the existing gateway:**
+- `AiMode` + conversation constraint gain `hypothesize` (migration `c8e2f4a6b1d3`,
+  applied; downgrade demotes such threads to `general`).
+- Prompt contract (`SPECIALIZED["hypothesize"]`): up to three falsifiable,
+  non-committal candidates, each a fenced `hypothesis` block of strict JSON
+  (title / statement / evidence_ids / refutation / missing). Evidence ids may
+  only come verbatim from DATA or tool results; **numeric confidence,
+  percentages and odds are forbidden** — uncertainty is expressed in words.
+- Context: evidence + graph + victims + entities/findings/timeline —
+  **analytics deliberately excluded** so heuristic/graph scores can never be
+  laundered into a draft's "confidence".
+- Strict parsing (`app/ai/drafts.py`): invalid blocks are counted, never
+  repaired; ids are UUID-validated, deduped, capped (MAX_DRAFTS=5,
+  title 255, statement 4000). Each draft's ids are diffed against the
+  machine-verified known set (`known_uuids` = shown DATA ∪ response sources)
+  → `unverified_ids` per draft. `hypothesis_draft_errors` counts every
+  rejected/over-cap block so a partial tray is never silent.
+- Response/SSE carry `hypothesis_drafts` + `hypothesis_draft_errors`;
+  `citation_check` (id verification) now also runs for this mode.
+
+**Honest-semantics guarantees (pinned by tests, verified live):**
+- A suggestion run **writes zero rows** — drafts are proposals only; nothing
+  becomes a stored hypothesis without a human clicking Record and submitting
+  the normal form (status starts at `proposed`, submitted_by = the human).
+- No numeric confidence is produced anywhere (prompt-forbidden, parser never
+  extracts one, UI never renders one).
+- AI drafts cannot become findings: the findings pipeline is untouched and
+  the hypothesis status machine remains human-driven.
+
+**Frontend — `HypothesisSuggest` tray on `/hypotheses`:**
+- "Suggest hypotheses" runs `mode: "hypothesize"`, `profile: "think"`, with
+  progress, Stop, error state, grounded warning, and a full reset per run.
+- Tray cards show title, statement, cited-record chips (each marked
+  "retrieved" or "⚠ unverified" per server verification), the refutation
+  test, and the records missing to test. Per-draft "Record…" (reviewers only)
+  pre-fills the editable create form with an AI-provenance note — nothing is
+  written until the human submits.
+- Partial trays are labelled with the rejected-block count; the raw model
+  output is always inspectable (`<details>`). Header states the contract:
+  unverified prompts for investigation, no probability computed, nothing
+  recorded without review.
+
+**Tests:** backend hermetic **631 passed** (8 hypothesize API + 13 parser
+unit), frontend **127 passed** (20 files, 8 new), integration **8 passed**,
+ruff + mypy clean (142 files), tsc + eslint clean.
+
+**Eval:** 33/33, exit 0; gates all true; fact recall 1.0 (53/53),
+groundedness 1.0 (1053/1053), abstention 4/4; latency avg **792 ms**, max 2603.
+
+**Live (backend restarted):** hypothesize + think on SHOW-2026-001: 3 drafts,
+0 parse errors, 5/5 cited ids verified, 0 unverified ids, zero
+confidence/probability wording (asserted), 37 sources, wall ~5.4 s (n=1);
+`hypotheses` table for the case left at 0 rows after the run.
+
+**Known limitations:** parsed tray quality depends on the model following the
+fence contract (violations are counted and shown, never silently dropped);
+draft statements are model-authored prose and always require human review
+before use; no aggregate latency stats (n=1 per observation).

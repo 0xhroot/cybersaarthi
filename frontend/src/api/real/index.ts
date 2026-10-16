@@ -4,6 +4,7 @@ import { apiConfig } from "@/config/env";
 import type {
   AdminUserListParams,
   AiCitationCheck,
+  AiHypothesisDraft,
   AiChatInput,
   AiChatResult,
   AiConversation,
@@ -739,6 +740,9 @@ interface AiStreamEvent {
   of?: number;
   // `done` event, analysis mode only.
   citation_check?: AiCitationCheck | null;
+  // `done` event, hypothesize mode only.
+  hypothesis_drafts?: AiHypothesisDraft[];
+  hypothesis_draft_errors?: number;
 }
 
 const aiService: ApiAiService = {
@@ -831,6 +835,8 @@ const aiService: ApiAiService = {
                 first_token_ms: event.first_token_ms,
                 completion_tokens: event.completion_tokens,
                 citation_check: event.citation_check,
+                hypothesis_drafts: event.hypothesis_drafts,
+                hypothesis_draft_errors: event.hypothesis_draft_errors,
               });
               break;
             case "error":
