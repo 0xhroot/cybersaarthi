@@ -290,26 +290,77 @@ cancellation, latency.
 
 Harness: `scripts/eval_phase3.py` (`0` pass / `1` gate fail / `2` setup fail),
 wrapper `scripts/ai/eval_phase3.sh`. Live flow on a dedicated synthetic case:
-upload synthetic CSV → ingest → entity-resolution / reconstruction /
+upload synthetic JSON records → ingest → entity-resolution / reconstruction /
 detection jobs → verify artifacts, approve → assert aliases added but **no entity
 merged** → commit one proposal → assert timeline event provenance → cleanup
 (case + objects + rows, as fixed in Phase 2).
+
+### Results (all gates verified locally against the running stack)
+
+**Golden section (deterministic replay, offline, always runs) — 11/11 gates:**
+
+| Check | n | Result |
+| --- | --- | --- |
+| Entity resolution precision/recall | 8 fixtures | P = R = 100%, 0 FPs, **false-merge rate 0**, attribute agreement 100% |
+| Timeline parse correctness | 13 timestamps | 100% correct (date / datetime / tz-offset / naive / day-first), **0 invented timestamps** |
+| Timeline record cases | 5 records | 100% correct, **0 locator violations** (every citation resolves to the cited field of the cited record) |
+| Contradiction classifier | 19 claims | 100% exact-category agreement |
+| Contradiction precision/recall | 11 fixtures | P = R = 100%, **0 entity-anchor false positives** (name/location pairs never compared) |
+| Anti-vacuous gates | all three features | a no-findings replay fails the runner (proven by construction, cannot pass vacuously) |
+
+**Live section (real API + local Qwen3 via llama.cpp) — 5/5 live gates, 16/16
+total, exit 0:**
+
+- Entity resolution: 1 candidate proposed from the review-band pair
+  (`Priya Sharma`/`Pryia Sharma`, band *ambiguous*, score 91.67, labelled "band,
+  not a probability"); the ambiguous pair was consulted with the local model
+  (`pairs_llm=1`, verdict advisory, artifact `flagged` + `ai_unverified`);
+  approval added exactly **2 `resolution` cross-aliases**, both entities stayed
+  `active` with `merged_into_id IS NULL` (independent DB re-read — false-merge
+  rate 0 on the live path); re-approval refused (`ARTIFACT_NOT_REVIEWABLE`).
+- Timeline reconstruction: 2 proposals (granularities `date` + `datetime`, 1
+  documented UTC-assumption flag), every `source_locator` resolves to the
+  cited field; approve → commit → re-commit returned `duplicate:true` with the
+  same event id (idempotent, no second row).
+- Contradiction detection: anchored `amount` conflict (priority `high`,
+  alternatives present) plus an advisory `semantic` candidate from the model;
+  resolve appended a `contradiction`/`recorded` child artifact while the
+  candidate's `content_hash` stayed byte-identical.
+- Provenance complete on every proposal of every feature
+  (`analysis_job_id` + `content_hash` + `parser_version` + `source_locator`).
+- Live latency per feature ≈ 1.0 s (n=3 runs of the same fixture).
+
+Fixture rationale (documented in `phase3_live_checks.json`): Phase 1 scores
+ingest-time mentions as `0.85·fuzzy + 0.15·context`, so a ≥92 variant *or* a
+shared context signal can absorb the twin before Phase 3 runs; the live fixture
+therefore keeps zero shared context signals (lowercase txn id, slash dates that
+also dodge the phone/document digit-run heuristics) so both entities survive
+ingest and the pair lands in Phase 3's ambiguous band. The fixture description
+carries the full reasoning.
+
+Supporting gates (all green at the time of the final commit): backend hermetic
+853 passed / ruff clean / mypy clean (164 files); integration 8 passed; frontend
+`153` tests + eslint + tsc clean; `eval_evidence.sh` exit 0; `eval_model.sh`
+all 5 gates on re-run (one stochastic miss on `a001-analysis-interpret` in the
+first run — the generation overran the response budget before the last two
+sections; gate unchanged, see §9); `eval_phase3.sh` golden + live exit 0.
 
 ## 8. Frontend
 
 - `entities.tsx`: Candidate Matches panel (pair ids + display values, matching /
   conflicting fields, source records, method + score-band semantics, review
-  state, approve/reject/defer, name-only warning badge, submit action + job
-  status).
+  state, approve/reject (approval records cross-aliases, never a merge),
+  name-only warning badge, submit action + job status).
 - `timeline.tsx`: reconstruction action + proposed-events section visually
   distinct from accepted events; original timestamp + tz, locators, duplicate /
   conflict / missing-timestamp flags, approve + commit controls, cancel.
 - `analytics.tsx`: Contradictions card — side-by-side values + locators,
   explanation, alternatives, rule priority, review controls incl. resolve states.
-- Contract/real/mock/parity + hooks (`useSubmitResolution`,
-  `useSubmitReconstruction`, `useSubmitContradiction`, `useResolveContradiction`,
-  `useCommitTimelineProposal`; candidates reuse `useArtifacts(kind=…)` and
-  `useIntelJobs(feature=…)`); panel tests following `evidence-panels.test.tsx`.
+- Contract/real/mock/parity + hooks (`useSubmitEntityResolution`,
+  `useSubmitTimelineReconstruction`, `useSubmitContradictions`,
+  `useResolveContradiction`, `useCommitTimelineProposal`; candidates reuse
+  `useArtifacts(kind=…)` and `useIntelJobs(feature=…)`); panel tests following
+  `evidence-panels.test.tsx`.
 
 ## 9. Limitations (documented, not hidden)
 
@@ -319,3 +370,11 @@ merged** → commit one proposal → assert timeline event provenance → cleanu
   the pre-existing explicit `entity.merge` action with its current semantics.
 - Fixture sets are small and synthetic; metrics describe this set only.
 - Graph (Neo4j) projection is not re-synced by approval (aliases are read-side).
+- Phase 3 can only resolve entities ingest leaves behind: Phase 1's
+  ingest-time auto-merge (≥92, boosted by context overlap) absorbs strongly
+  similar names before any Phase 3 job runs — the live fixture documents this
+  interaction explicitly.
+- The local model occasionally overruns the response budget on long analysis
+  prompts (`eval_model.sh` case `a001-analysis-interpret` missed two required
+  sections in 1 of 2 runs; re-run passed all gates). Gate not weakened; the
+  miss is recorded here rather than hidden.
