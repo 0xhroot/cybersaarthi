@@ -1,9 +1,11 @@
-"""Deterministic AIService stand-ins for phase-2 tests (no live LLM).
+"""Deterministic AIService stand-ins for phase-2/3 tests (no live LLM).
 
-``FakeAI`` implements the two bounded surfaces features 1 and 9 consume
-(``extract_page`` / ``explain_integrity_finding``) so API tests never depend
-on a llama.cpp runtime. Replies are scripted per test; anything unconfigured
-returns an all-empty but schema-valid extraction reply.
+``FakeAI`` implements the bounded surfaces features 1, 9, A and C consume
+(``extract_page`` / ``explain_integrity_finding`` / ``compare_entity_pair`` /
+``compare_statements``) so API tests never depend on a llama.cpp runtime.
+Replies are scripted per test; anything unconfigured returns an all-empty but
+schema-valid extraction reply, a non-match pair verdict, or a non-contradicting
+statement verdict.
 """
 
 from __future__ import annotations
@@ -65,6 +67,10 @@ class FakeAI:
         self.explain_text = explain_text
         self.extract_calls: list[dict[str, str]] = []
         self.explain_calls: list[dict[str, Any]] = []
+        self.pair_replies: list[str] = []
+        self.statement_replies: list[str] = []
+        self.pair_calls: list[dict[str, Any]] = []
+        self.statement_calls: list[dict[str, Any]] = []
 
     async def extract_page(self, *, label: str, text: str) -> CompletionResult:
         self.extract_calls.append({"label": label, "text": text})
@@ -78,3 +84,39 @@ class FakeAI:
     async def explain_integrity_finding(self, *, finding: dict[str, Any]) -> str:
         self.explain_calls.append(dict(finding))
         return self.explain_text
+
+    async def compare_entity_pair(
+        self, *, entity_a: dict[str, Any], entity_b: dict[str, Any], features: dict[str, Any]
+    ) -> CompletionResult:
+        """Scripted advisory verdict for one phase-3 A comparison."""
+        self.pair_calls.append(
+            {"entity_a": dict(entity_a), "entity_b": dict(entity_b), "features": dict(features)}
+        )
+        reply = (
+            self.pair_replies.pop(0)
+            if self.pair_replies
+            else json.dumps(
+                {
+                    "verdict": "unclear",
+                    "reason": "deterministic fake: no scripted verdict",
+                }
+            )
+        )
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+    async def compare_statements(
+        self, *, first: str, second: str, anchor: str
+    ) -> CompletionResult:
+        """Scripted advisory verdict for one phase-3 C comparison."""
+        self.statement_calls.append({"first": first, "second": second, "anchor": anchor})
+        reply = (
+            self.statement_replies.pop(0)
+            if self.statement_replies
+            else json.dumps(
+                {
+                    "contradicts": False,
+                    "explanation": "deterministic fake: no scripted verdict",
+                }
+            )
+        )
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
