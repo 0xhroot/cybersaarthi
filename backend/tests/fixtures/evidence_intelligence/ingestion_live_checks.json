@@ -1,0 +1,37 @@
+{
+  "description": "Live-model ingestion evaluation fixtures (phase-2 eval harness). Each case is synthetic TXT whose expected claims are verbatim substrings of the evidence text - the harness measures claim recall, extraction precision, field validation rate, unsupported-claim rate and (gated) locator accuracy by re-verifying every artifact against its cited source record in the database. Multi-paragraph cases make locator accuracy meaningful (one record per paragraph).",
+  "cases": [
+    {
+      "id": "invoice-single-record",
+      "filename": "invoice.txt",
+      "text": "INVOICE INV-2201\nCustomer: Asha Verma\nAccount: ACC-7781\nAmount: 1,200.50 INR\nDate: 2026-01-15\nPayment received in full",
+      "expected_claims": {
+        "person_names": ["Asha Verma"],
+        "account_references": ["ACC-7781"],
+        "transaction_amounts": ["1,200.50 INR"],
+        "transaction_dates": ["2026-01-15"]
+      }
+    },
+    {
+      "id": "access-log-three-records",
+      "filename": "access-log.txt",
+      "text": "Gate two opened by Officer Nanda at 06:40\n\nServer rack seven accessed by technician Iyer for patching\n\nBoiler room seal applied by Inspector Rao on 2026-02-03",
+      "expected_claims": {
+        "person_names": ["Officer Nanda", "technician Iyer", "Inspector Rao"],
+        "transaction_dates": ["2026-02-03"]
+      }
+    },
+    {
+      "id": "device-report-single-record",
+      "filename": "device-report.txt",
+      "text": "Device IMEI-35512345-9 reported missing by Ravi Kumar. Last seen at https://track.example.dev/unit/35512345 on 2026-03-08. Reward amount 2,500.00 INR advertised by the owner.",
+      "expected_claims": {
+        "person_names": ["Ravi Kumar"],
+        "device_identifiers": ["IMEI-35512345-9"],
+        "urls": ["https://track.example.dev/unit/35512345"],
+        "transaction_dates": ["2026-03-08"],
+        "transaction_amounts": ["2,500.00 INR"]
+      }
+    }
+  ]
+}

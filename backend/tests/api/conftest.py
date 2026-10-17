@@ -29,6 +29,8 @@ from app.repositories.user_repository import UserRepository
 from app.services.users import UserService
 from sqlalchemy import delete
 
+from tests.api.phase2_fakes import FakeAI
+
 TEST_USER_PASSWORD = "phase4-test-password!"
 
 
@@ -224,3 +226,11 @@ async def ai_service(monkeypatch) -> AIService:
     app.state.ai_service = service
     yield service
     del app.state.ai_service
+
+
+@pytest.fixture
+def phase2_fake_ai(monkeypatch) -> FakeAI:
+    """Deterministic AIService stand-in: phase-2 tests never hit llama.cpp."""
+    fake = FakeAI()
+    monkeypatch.setattr(app.state, "ai_service", fake, raising=False)
+    return fake

@@ -1,0 +1,268 @@
+{
+  "description": "Phase-2 custody rule-engine evaluation fixtures. Each snapshot feeds the pure evaluate_custody() exactly the recorded facts an audit assembles (events, recorded hash, recomputed object hash, audit-entry count). Expected 'rules' are compared as a set with per-rule severities and event-id scoping. The set measures: hash-verification correctness (match/mismatch/missing), custody false-positive rate (positive cases must produce ZERO findings), and per-defect detection with explicit severity semantics (missing info is never a tampering claim).",
+  "schema_version": "1.0.0",
+  "cases": [
+    {
+      "id": "clean-full-lifecycle",
+      "category": "positive",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e1", "event_type": "collected", "occurred_at": "2026-02-01T10:00:00+00:00", "recorded_at": "2026-02-01T10:05:00+00:00", "collector": "Officer A", "transferor": null, "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+          {"id": "e2", "event_type": "transferred", "occurred_at": "2026-03-01T10:00:00+00:00", "recorded_at": "2026-03-01T10:05:00+00:00", "collector": null, "transferor": "Officer A", "recipient": "Lab B", "evidence_file_id": "ev1", "recorded_sha256": null},
+          {"id": "e3", "event_type": "received", "occurred_at": "2026-03-05T09:00:00+00:00", "recorded_at": "2026-03-05T09:05:00+00:00", "collector": null, "transferor": null, "recipient": "Lab B", "evidence_file_id": "ev1", "recorded_sha256": null},
+          {"id": "e4", "event_type": "verified", "occurred_at": "2026-04-01T10:00:00+00:00", "recorded_at": "2026-04-01T10:05:00+00:00", "collector": null, "transferor": null, "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+        ]
+      },
+      "expect": {"rules": []}
+    },
+    {
+      "id": "optional-fields-omitted-clean",
+      "category": "positive",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e1", "event_type": "collected", "occurred_at": "2026-03-01T10:00:00+00:00", "recorded_at": "2026-03-01T10:05:00+00:00", "collector": "Officer A", "transferor": null, "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": null}
+        ]
+      },
+      "expect": {"rules": []}
+    },
+    {
+      "id": "documented-no-events-clean",
+      "category": "positive",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 2,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": []
+      },
+      "expect": {"rules": []}
+    },
+    {
+      "id": "recomputed-hash-mismatch-critical",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": []
+      },
+      "expect": {
+        "rules": ["custody.hash_mismatch"],
+        "severities": {"custody.hash_mismatch": "critical"}
+      }
+    },
+    {
+      "id": "recorded-hash-missing-info-only",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": null,
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": []
+      },
+      "expect": {
+        "rules": ["custody.hash_missing"],
+        "severities": {"custody.hash_missing": "info"}
+      }
+    },
+    {
+      "id": "source-bytes-missing-warning-not-tampering",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": null,
+        "object_present": false,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": []
+      },
+      "expect": {
+        "rules": ["custody.source_missing"],
+        "severities": {"custody.source_missing": "warning"}
+      }
+    },
+    {
+      "id": "event-recorded-hash-discrepancy-critical",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e9", "event_type": "verified", "occurred_at": "2026-03-01T10:00:00+00:00", "recorded_at": "2026-03-01T10:05:00+00:00", "collector": null, "transferor": null, "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
+        ]
+      },
+      "expect": {
+        "rules": ["custody.recorded_hash_mismatch"],
+        "severities": {"custody.recorded_hash_mismatch": "critical"},
+        "event_ids_by_rule": {"custody.recorded_hash_mismatch": ["e9"]}
+      }
+    },
+    {
+      "id": "transferred-missing-recipient-despite-receipt",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e2", "event_type": "transferred", "occurred_at": "2026-03-01T10:00:00+00:00", "recorded_at": "2026-03-01T10:05:00+00:00", "collector": null, "transferor": "Officer A", "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": null},
+          {"id": "e3", "event_type": "received", "occurred_at": "2026-03-05T09:00:00+00:00", "recorded_at": "2026-03-05T09:05:00+00:00", "collector": null, "transferor": null, "recipient": "Lab B", "evidence_file_id": "ev1", "recorded_sha256": null}
+        ]
+      },
+      "expect": {
+        "rules": ["custody.missing_required_field"],
+        "severities": {"custody.missing_required_field": "warning"},
+        "event_ids_by_rule": {"custody.missing_required_field": ["e2"]}
+      }
+    },
+    {
+      "id": "unacknowledged-transfer-warning",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e2", "event_type": "transferred", "occurred_at": "2026-03-01T10:00:00+00:00", "recorded_at": "2026-03-01T10:05:00+00:00", "collector": null, "transferor": "Officer A", "recipient": "Lab B", "evidence_file_id": "ev1", "recorded_sha256": null}
+        ]
+      },
+      "expect": {
+        "rules": ["custody.unacknowledged_transfer"],
+        "severities": {"custody.unacknowledged_transfer": "warning"},
+        "event_ids_by_rule": {"custody.unacknowledged_transfer": ["e2"]}
+      }
+    },
+    {
+      "id": "duplicate-type-and-time",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e1", "event_type": "collected", "occurred_at": "2026-03-01T10:00:00+00:00", "recorded_at": "2026-03-01T10:05:00+00:00", "collector": "Officer A", "transferor": null, "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": null},
+          {"id": "e2", "event_type": "collected", "occurred_at": "2026-03-01T10:00:00+00:00", "recorded_at": "2026-03-01T10:10:00+00:00", "collector": "Officer A", "transferor": null, "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": null}
+        ]
+      },
+      "expect": {
+        "rules": ["custody.duplicate_event"],
+        "severities": {"custody.duplicate_event": "warning"},
+        "event_ids_by_rule": {"custody.duplicate_event": ["e1", "e2"]}
+      }
+    },
+    {
+      "id": "future-occurrence-beyond-skew",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e1", "event_type": "collected", "occurred_at": "2027-01-01T10:00:00+00:00", "recorded_at": "2027-01-01T10:05:00+00:00", "collector": "Officer A", "transferor": null, "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": null}
+        ]
+      },
+      "expect": {
+        "rules": ["custody.chronology_future"],
+        "severities": {"custody.chronology_future": "warning"},
+        "event_ids_by_rule": {"custody.chronology_future": ["e1"]}
+      }
+    },
+    {
+      "id": "documented-before-it-happened",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e1", "event_type": "collected", "occurred_at": "2026-06-01T10:00:00+00:00", "recorded_at": "2026-05-01T10:00:00+00:00", "collector": "Officer A", "transferor": null, "recipient": null, "evidence_file_id": "ev1", "recorded_sha256": null}
+        ]
+      },
+      "expect": {
+        "rules": ["custody.chronology_recorded_before_occurred"],
+        "severities": {"custody.chronology_recorded_before_occurred": "warning"},
+        "event_ids_by_rule": {"custody.chronology_recorded_before_occurred": ["e1"]}
+      }
+    },
+    {
+      "id": "receipt-before-every-transfer",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 1,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": [
+          {"id": "e3", "event_type": "received", "occurred_at": "2026-02-01T09:00:00+00:00", "recorded_at": "2026-02-01T09:05:00+00:00", "collector": null, "transferor": null, "recipient": "Lab B", "evidence_file_id": "ev1", "recorded_sha256": null},
+          {"id": "e2", "event_type": "transferred", "occurred_at": "2026-03-01T10:00:00+00:00", "recorded_at": "2026-03-01T10:05:00+00:00", "collector": null, "transferor": "Officer A", "recipient": "Lab B", "evidence_file_id": "ev1", "recorded_sha256": null}
+        ]
+      },
+      "expect": {
+        "rules": ["custody.chronology_received_before_transfer", "custody.unacknowledged_transfer"],
+        "severities": {
+          "custody.chronology_received_before_transfer": "warning",
+          "custody.unacknowledged_transfer": "warning"
+        }
+      }
+    },
+    {
+      "id": "no-events-and-no-audit-info-gap",
+      "category": "negative",
+      "snapshot": {
+        "evidence_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "object_present": true,
+        "audit_entry_count": 0,
+        "future_skew_seconds": 300,
+        "checked_at": "2026-10-10T00:00:00+00:00",
+        "events": []
+      },
+      "expect": {
+        "rules": ["custody.no_documented_custody"],
+        "severities": {"custody.no_documented_custody": "info"}
+      }
+    }
+  ]
+}

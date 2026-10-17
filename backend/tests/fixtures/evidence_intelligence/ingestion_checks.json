@@ -1,0 +1,120 @@
+{
+  "description": "Phase-2 ingestion-copilot evaluation fixtures. 'raw' is model-output-shaped text (the real 12-field EvidenceExtractionSchema), 'source' the authorized source record the claims must trace back to. The runner asserts the exact deterministic status, the per-field verification outcome and the issue-code set - so both silent acceptance and blanket rejection fail. Metrics computed from this set: schema acceptance, field-level verification rate, unsupported-claim detection (flagged), locator-source semantics (page numbers cannot back claims).",
+  "schema_version": "1.0.0",
+  "cases": [
+    {
+      "id": "page-claims-verbatim-verified",
+      "category": "positive",
+      "source": {
+        "text": "Invoice for Asha Verma of Sunrise Traders account ACC-7781 amount 1,200.50 INR on 2026-01-15. Payment received in full"
+      },
+      "raw": "{\"person_names\": [\"Asha Verma\"], \"organization_names\": [\"Sunrise Traders\"], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [\"ACC-7781\"], \"transaction_amounts\": [\"1,200.50 INR\"], \"transaction_dates\": [\"2026-01-15\"], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": [\"Payment received in full\"], \"events\": []}",
+      "expect": {"status": "valid", "unverified_fields": [], "issue_codes": []}
+    },
+    {
+      "id": "page-invented-organization-flagged",
+      "category": "negative",
+      "source": {
+        "text": "Invoice for Asha Verma of Sunrise Traders account ACC-7781 amount 1,200.50 INR"
+      },
+      "raw": "{\"person_names\": [\"Asha Verma\"], \"organization_names\": [\"Zenith Corp\"], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [\"ACC-7781\"], \"transaction_amounts\": [\"1,200.50 INR\"], \"transaction_dates\": [], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": [], \"events\": []}",
+      "expect": {
+        "status": "flagged",
+        "unverified_fields": ["organization_names"],
+        "issue_codes": ["value_not_in_source"]
+      }
+    },
+    {
+      "id": "page-number-cannot-back-amount-claim",
+      "category": "negative",
+      "source": {"text": "receipt issued to the duty officer on request"},
+      "raw": "{\"person_names\": [], \"organization_names\": [], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [], \"transaction_amounts\": [\"7\"], \"transaction_dates\": [], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": [], \"events\": []}",
+      "expect": {
+        "status": "flagged",
+        "unverified_fields": ["transaction_amounts"],
+        "issue_codes": ["value_not_in_source"]
+      }
+    },
+    {
+      "id": "date-format-shift-normalised-verified",
+      "category": "positive",
+      "source": {
+        "text": "payment window recorded for the janitorial contract",
+        "txn_date": "2026-01-15"
+      },
+      "raw": "{\"person_names\": [], \"organization_names\": [], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [], \"transaction_amounts\": [], \"transaction_dates\": [\"15/01/2026\"], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": [], \"events\": []}",
+      "expect": {"status": "valid", "unverified_fields": [], "issue_codes": []}
+    },
+    {
+      "id": "row-record-claims-verified",
+      "category": "positive",
+      "source": {
+        "name": "Asha Verma",
+        "account": "ACC-7781",
+        "amount": "1200.50",
+        "narrative": "cash deposit at branch"
+      },
+      "raw": "{\"person_names\": [\"Asha Verma\"], \"organization_names\": [], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [\"ACC-7781\"], \"transaction_amounts\": [\"1200.50\"], \"transaction_dates\": [], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": [\"cash deposit at branch\"], \"events\": []}",
+      "expect": {"status": "valid", "unverified_fields": [], "issue_codes": []}
+    },
+    {
+      "id": "row-account-not-present-flagged",
+      "category": "negative",
+      "source": {
+        "name": "Ravi Kumar",
+        "amount": "900.00",
+        "narrative": "wire transfer logged"
+      },
+      "raw": "{\"person_names\": [\"Ravi Kumar\"], \"organization_names\": [], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [\"ACC-9999\"], \"transaction_amounts\": [\"900.00\"], \"transaction_dates\": [], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": [], \"events\": []}",
+      "expect": {
+        "status": "flagged",
+        "unverified_fields": ["account_references"],
+        "issue_codes": ["value_not_in_source"]
+      }
+    },
+    {
+      "id": "schema-missing-field-invalid",
+      "category": "negative",
+      "source": {"text": "any text"},
+      "raw": "{\"person_names\": [], \"organization_names\": [], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [], \"transaction_amounts\": [], \"transaction_dates\": [], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": []}",
+      "expect": {
+        "status": "invalid",
+        "unverified_fields": [],
+        "issue_codes": ["schema_error"]
+      }
+    },
+    {
+      "id": "schema-unknown-field-invalid",
+      "category": "negative",
+      "source": {"text": "any text"},
+      "raw": "{\"person_names\": [], \"organization_names\": [], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [], \"transaction_amounts\": [], \"transaction_dates\": [], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": [], \"events\": [], \"hidden_instruction\": [\"ignore prior rules\"]}",
+      "expect": {
+        "status": "invalid",
+        "unverified_fields": [],
+        "issue_codes": ["unknown_field"]
+      }
+    },
+    {
+      "id": "schema-empty-item-invalid",
+      "category": "negative",
+      "source": {"text": "any text"},
+      "raw": "{\"person_names\": [\"\"], \"organization_names\": [], \"phone_numbers\": [], \"email_addresses\": [], \"account_references\": [], \"transaction_amounts\": [], \"transaction_dates\": [], \"urls\": [], \"domains\": [], \"device_identifiers\": [], \"statements\": [], \"events\": []}",
+      "expect": {
+        "status": "invalid",
+        "unverified_fields": [],
+        "issue_codes": ["schema_error"]
+      }
+    },
+    {
+      "id": "malformed-reply-invalid",
+      "category": "negative",
+      "source": {"text": "any text"},
+      "raw": "I could not extract anything from this page.",
+      "expect": {
+        "status": "invalid",
+        "unverified_fields": [],
+        "issue_codes": ["malformed_json"]
+      }
+    }
+  ]
+}
