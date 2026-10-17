@@ -312,7 +312,7 @@ abort with the Phase 3 typed refusal.
    numeric evidence as exact strings, currency scope, missing-data
    limitations, source references, review status (`pending_review`). The
    payload states `pattern ≠ intent` for every firing rule.
-5. **Result payload** (one `DerivedArtifact`, `kind="financial_flow"`,
+5. **Result payload** (one `DerivedArtifact`, `kind="financial_finding"`,
    `origin="deterministic"`, `parser_version=FLOW_RULES_VERSION`): facts,
    aggregates, edges, patterns, limitations, and a `calculation_definitions`
    block explaining every derived number (mirrors Phase 3's
@@ -333,7 +333,7 @@ result; every quoted number must appear verbatim in the supplied facts
 explanation is **dropped and the failure surfaced** in the job summary
 (`explanation_invalid`/`explanation_failed` counters) — a false result is never
 asserted. Success stores a child artifact
-(`kind="financial_flow"`, `origin="llm"`, `parent_artifact_id`, flagged
+(`kind="financial_finding"`, `origin="llm"`, `parent_artifact_id`, flagged
 `ai_unverified`, `validation_status="flagged"`) exactly like Phase 3's
 `pairs_llm`. The deterministic artifact is never modified.
 

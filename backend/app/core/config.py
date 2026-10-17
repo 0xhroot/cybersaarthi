@@ -113,6 +113,15 @@ class Settings(BaseSettings):
     CONTRADICTION_MAX_LLM_PAIRS: int = 10  # statement pairs sent to the local model
     CONTRADICTION_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
 
+    # Phase 4 feature A: financial flow intelligence (deterministic extraction
+    # + aggregates + structure network + pattern rules).
+    FLOW_MAX_RECORDS: int = 1000  # source records scanned per run
+    FLOW_MAX_FACTS: int = 2000  # extracted facts kept in the artifact payload
+    FLOW_MAX_EDGES: int = 500  # structure-network edges per run
+    FLOW_MAX_SUPPORTING_IDS: int = 100  # supporting ids kept per aggregate
+    FLOW_AMOUNT_THRESHOLD: str = "5000"  # investigation default (exact Decimal)
+    FLOW_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
+
     # Graph sync
     GRAPH_CHUNK_SIZE: int = 250
 

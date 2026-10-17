@@ -40,6 +40,7 @@ from app.core.codes import (
     CODE_CASE_ACCESS_DENIED,
     CODE_CONTRADICTION_ACTIVE,
     CODE_CONTRADICTION_STATE_INVALID,
+    CODE_FLOW_ACTIVE,
     CODE_PROPOSAL_NOT_APPROVED,
     CODE_RECONSTRUCTION_ACTIVE,
     CODE_RESOLUTION_ACTIVE,
@@ -59,6 +60,7 @@ from app.services import analysis_jobs as jobs_svc
 from app.services import audit as audit_svc
 from app.services import contradiction_detection as contradiction_svc
 from app.services import entity_matching as resolution_svc
+from app.services import financial_flow as flow_svc
 from app.services import timeline_reconstruction as reconstruction_svc
 
 router = APIRouter(prefix="/cases", tags=["case-intelligence"])
@@ -66,6 +68,7 @@ router = APIRouter(prefix="/cases", tags=["case-intelligence"])
 # Typed HTTP mapping for feature-specific rejections.
 _SUBMIT_HTTP: dict[str, int] = {
     CODE_CONTRADICTION_ACTIVE: 409,
+    CODE_FLOW_ACTIVE: 409,
     CODE_RECONSTRUCTION_ACTIVE: 409,
     CODE_RESOLUTION_ACTIVE: 409,
 }
@@ -103,11 +106,17 @@ _FEATURES: dict[str, tuple[str, str, SubmitRunner]] = {
         "contradiction.submitted",
         contradiction_svc.run_contradiction_job,
     ),
+    "financial_flow": (
+        CODE_FLOW_ACTIVE,
+        "flow.submitted",
+        flow_svc.run_financial_flow_job,
+    ),
 }
 _TIMEOUT_ATTR = {
     "entity_resolution": "RESOLUTION_TIMEOUT_SECONDS",
     "timeline": "TIMELINE_TIMEOUT_SECONDS",
     "contradiction": "CONTRADICTION_TIMEOUT_SECONDS",
+    "financial_flow": "FLOW_TIMEOUT_SECONDS",
 }
 
 
@@ -256,6 +265,42 @@ async def submit_contradiction_detection(
         settings=settings,
         session=session,
         feature="contradiction",
+    )
+
+
+@router.post(
+    "/{case_id}/evidence-intelligence/financial-flow",
+    response_model=JobSubmitResponse,
+    status_code=202,
+)
+async def submit_financial_flow(
+    case_id: uuid.UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    body: CaseAnalysisSubmitRequest | None = None,
+    settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_INGESTION_RUN)),
+) -> JobSubmitResponse:
+    """Queue one bounded, deterministic financial-fact analysis for the case.
+
+    The run extracts exact-``Decimal`` amounts and account context from the
+    case's source records, computes aggregates, builds a bounded
+    association structure network and evaluates the declared pattern rules.
+    It uses no LLM: direction-dependent metrics are reported
+    ``not_computable_no_direction`` and rules whose input the ingest does not
+    carry are returned ``not_evaluable`` with the missing input — nothing is
+    invented to fill a gap.
+    """
+    _ = body
+    return await _submit_case_job(
+        case_id=case_id,
+        user=user,
+        request=request,
+        background_tasks=background_tasks,
+        settings=settings,
+        session=session,
+        feature="financial_flow",
     )
 
 
