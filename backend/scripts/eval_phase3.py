@@ -669,7 +669,10 @@ class Phase3EvalRunner:
             return {"proposals": 0, "note": "no timeline proposal generated"}
 
         granularities = sorted(
-            {str((a.get("payload") or {}).get("granularity")) for a in proposals}
+            {
+                str((a.get("payload") or {}).get("time_granularity"))
+                for a in proposals
+            }
         )
         ambiguous = sum(
             1 for a in proposals if (a.get("payload") or {}).get("tz_assumed")
@@ -684,8 +687,9 @@ class Phase3EvalRunner:
 
             for proposal in proposals:
                 locator = proposal.get("source_locator") or {}
-                record_id = locator.get("source_record_id") or locator.get("record_id")
+                record_id = proposal.get("source_record_id")
                 field = locator.get("field")
+                record_no = locator.get("record_no")
                 if not record_id or not field:
                     locator_violations.append(
                         {"artifact": proposal["id"], "reason": "incomplete locator"}
@@ -702,6 +706,13 @@ class Phase3EvalRunner:
                         {
                             "artifact": proposal["id"],
                             "reason": "cited field absent from cited record",
+                        }
+                    )
+                if record_no is not None and int(record.record_no) != int(record_no):
+                    locator_violations.append(
+                        {
+                            "artifact": proposal["id"],
+                            "reason": "cited record_no does not match the record",
                         }
                     )
 
