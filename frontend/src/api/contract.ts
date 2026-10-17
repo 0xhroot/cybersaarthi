@@ -30,6 +30,7 @@ import type {
   CollectionList,
   CollectionUpdateRequest,
   Community,
+  ContradictionResolveRequest,
   CustodyChronologyResponse,
   CustodyEventCreateRequest,
   CustodyEventOut,
@@ -87,6 +88,7 @@ import type {
   ReviewDecisionResponse,
   ReviewList,
   SearchResponse,
+  TimelineCommitResponse,
   TimelineEvent,
   TimelineEventCreateRequest,
   TimelineEventList,
@@ -250,6 +252,46 @@ export interface ApiEvidenceService {
    * always `validation_status "flagged"` (unverified AI text), never green.
    */
   explainFinding(caseId: string, artifactId: string): Promise<CustodyExplainResponse>;
+
+  /* ------------------ Case intelligence (phase 3) ------------------ */
+
+  /**
+   * Queue one bounded case-wide entity-resolution run (202 + background job).
+   * One active job per feature: a concurrent submit is refused with
+   * `RESOLUTION_ACTIVE`; a retry after a terminal run becomes attempt 2.
+   * Candidates stay `pending_review`; approval records additive aliases and
+   * never merges entities.
+   */
+  submitEntityResolution(caseId: string): Promise<JobSubmitResponse>;
+  /**
+   * Queue one deterministic timeline-reconstruction run (no LLM). Originals
+   * and time zones are preserved; unparseable strong fields become flagged
+   * `missing_timestamp` proposals, never invented instants.
+   */
+  submitTimelineReconstruction(caseId: string): Promise<JobSubmitResponse>;
+  /**
+   * Queue one anchored contradiction-detection run. Claims are compared only
+   * within a shared identifier anchor; every candidate ships deterministic
+   * alternative explanations and stays reviewable.
+   */
+  submitContradictions(caseId: string): Promise<JobSubmitResponse>;
+  /**
+   * Commit one reviewer-approved reconstruction proposal into the authoritative
+   * timeline (requires `case.update`). Idempotent: a retry returns the
+   * already-committed event with `duplicate: true`, never a second row.
+   */
+  commitTimelineProposal(caseId: string, artifactId: string): Promise<TimelineCommitResponse>;
+  /**
+   * Append a reviewer resolution state (`explained` | `requires_evidence` |
+   * `deferred`) to one contradiction candidate as a new child artifact; a note
+   * is required. The candidate payload and the evidence stay immutable.
+   * `confirmed` / `false_positive` remain the one-shot `reviewArtifact`.
+   */
+  resolveContradiction(
+    caseId: string,
+    artifactId: string,
+    input: ContradictionResolveRequest,
+  ): Promise<DerivedArtifactOut>;
 }
 
 export interface ApiGraphService {

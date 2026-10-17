@@ -85,6 +85,10 @@ const EV = (key: string): EntitySeed => ({ key, type: "event", value: key });
 
 const MAIN_ENTITY_SEEDS: EntitySeed[] = [
   H("Rajesh Kumar"),
+  /* Deliberate misspelling from an arrest-record typo: the case-wide entity
+   * resolution run proposes it for review (same blocking bucket, strong name
+   * band); approval records additive aliases — it never merges the two. */
+  H("Rajesh Kumarr"),
   H("Sunita Sharma"),
   H("Arjun Mehta"),
   H("Kavita Rao"),

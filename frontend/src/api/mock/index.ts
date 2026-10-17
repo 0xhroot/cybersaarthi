@@ -28,7 +28,7 @@ import type {
   IoTEventListParams,
 } from "@/api/contract";
 import { authSession } from "@/api/client/session";
-import { ApiError } from "@/types/api";
+import { ApiError, type ApiErrorCode } from "@/types/api";
 import type {
   AdminUserOut,
   AnalysisJobList,
@@ -46,6 +46,7 @@ import type {
   Collection,
   CollectionList,
   CollectionUpdateRequest,
+  ContradictionResolveRequest,
   CustodyChronologyResponse,
   CustodyEventCreateRequest,
   CustodyEventOut,
@@ -88,6 +89,7 @@ import type {
   ReviewDecisionResponse,
   ReviewList,
   SearchResponse,
+  TimelineCommitResponse,
   TimelineEvent,
   TimelineEventList,
   Victim,
@@ -834,6 +836,7 @@ export function resetMockState(): void {
   artifactsState.length = 0;
   custodyEventsState.length = 0;
   extractionSourceTexts.clear();
+  for (const key of Object.keys(resolutionAliasState)) delete resolutionAliasState[key];
   seedCustodyState();
   for (const k of Object.keys(membersState)) delete membersState[k];
   Object.assign(membersState, seedMembers());
@@ -1191,7 +1194,7 @@ export const mockApi: Api = {
       const detail = MAIN_ENTITY_DETAILS[entity.display_value] ?? MAIN_ENTITY_DETAILS[entity.canonical_value];
       return {
         ...entity,
-        aliases: detail?.aliases ?? [],
+        aliases: [...(detail?.aliases ?? []), ...(resolutionAliasState[entity.id] ?? [])],
         context: detail?.context ?? null,
       };
     },
@@ -1307,6 +1310,9 @@ export const mockApi: Api = {
         primary_id: input.primary_entity_id,
         merge_id: input.merge_entity_id,
       });
+      // Mirror the backend: the duplicate leaves the active set, so any open
+      // candidate pair involving it becomes stale and can no longer be approved.
+      duplicate.status = "merged";
       timelineState.unshift({
         id: uid(3900 + timelineState.length),
         case_id: caseId,
@@ -1663,7 +1669,8 @@ export const mockApi: Api = {
       requirePermission("ingestion.run");
       assertCaseAccess(caseId);
       const job = intelJobsState.find((j) => j.id === jobId && j.case_id === caseId);
-      if (!job || (job.feature !== "ingestion" && job.feature !== "custody")) {
+      const phase3 = job?.feature === "entity_resolution" || job?.feature === "timeline" || job?.feature === "contradiction";
+      if (!job || (job.feature !== "ingestion" && job.feature !== "custody" && !phase3)) {
         throw notFound(`job ${jobId} not found`);
       }
       if (job.status !== "pending" && job.status !== "running") {
@@ -1673,7 +1680,14 @@ export const mockApi: Api = {
       job.status = "canceled";
       job.completed_at = isoNow();
       job.updated_at = isoNow();
-      pushAudit("job.canceled", "analysis_job", caseId, { job_id: job.id, feature: job.feature });
+      if (phase3) {
+        // Route flag + terminal transition (the mock runner observes it instantly).
+        const prefix = PHASE3_FEATURES[job.feature as Phase3Feature].audit;
+        pushAudit(`${prefix}.cancel_requested`, "analysis_job", caseId, { job_id: job.id, feature: job.feature });
+        pushAudit(`${prefix}.canceled`, "analysis_job", caseId, { job_id: job.id, feature: job.feature });
+      } else {
+        pushAudit("job.canceled", "analysis_job", caseId, { job_id: job.id, feature: job.feature });
+      }
       return job;
     },
 
@@ -1694,16 +1708,21 @@ export const mockApi: Api = {
       assertCaseAccess(caseId);
       const artifact = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
       if (!artifact) throw notFound("artifact not found");
-      if (artifact.kind !== "extraction") {
-        throw new ApiError({ status: 409, code: "ARTIFACT_KIND_UNSUPPORTED", message: "only extraction artifacts support review" });
-      }
-      if (artifact.status !== "pending_review") {
-        throw new ApiError({ status: 409, code: "ARTIFACT_NOT_REVIEWABLE", message: "artifact already left pending_review" });
-      }
       if (input.note && input.note.length > 2000) {
         throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "note must be 2000 characters or fewer" });
       }
-      if (input.decision === "approved" && input.payload?.fields) {
+      if (input.payload?.fields) {
+        // Edited payloads mirror the server: extraction only, approval only,
+        // one-shot from pending_review, original never rewritten.
+        if (artifact.status !== "pending_review") {
+          throw new ApiError({ status: 409, code: "ARTIFACT_NOT_REVIEWABLE", message: "artifact already left pending_review" });
+        }
+        if (artifact.kind !== "extraction") {
+          throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "payload edits apply only to extraction artifacts" });
+        }
+        if (input.decision !== "approved") {
+          throw new ApiError({ status: 422, code: "INVALID_PAYLOAD", message: "an edited payload can only accompany approval" });
+        }
         // Mirror the server rule: every edited value must appear in the
         // artifact's own source snapshot, or the edit is refused (422).
         const source = (extractionSourceTexts.get(artifact.id) ?? "").toLowerCase();
@@ -1717,6 +1736,7 @@ export const mockApi: Api = {
             }
           }
         }
+        const originalHash = artifact.content_hash;
         artifact.status = "superseded";
         const child: DerivedArtifactOut = {
           ...artifact,
@@ -1734,15 +1754,36 @@ export const mockApi: Api = {
         };
         extractionSourceTexts.set(child.id, extractionSourceTexts.get(artifact.id) ?? "");
         artifactsState.unshift(child);
-        pushAudit("artifact.reviewed", "derived_artifact", caseId, { artifact_id: child.id, decision: "approved", edited: true });
+        pushAudit("derived_artifact.approved", "derived_artifact", caseId, {
+          artifact_id: child.id,
+          kind: child.kind,
+          content_hash: child.content_hash,
+          edited: true,
+          original_artifact_id: artifact.id,
+          edited_artifact_id: child.id,
+          original_content_hash: originalHash,
+          edited_content_hash: child.content_hash,
+        });
         return child;
       }
+      if (artifact.status !== "pending_review") {
+        throw new ApiError({ status: 409, code: "ARTIFACT_NOT_REVIEWABLE", message: "artifact already left pending_review" });
+      }
+      // Approving an entity candidate records additive cross-aliases only —
+      // the entities stay separate rows (merging needs entity.merge).
+      const resolutionMeta: Record<string, unknown> =
+        input.decision === "approved" && artifact.kind === "entity_resolution" ? mockResolutionApprove(artifact) : {};
       artifact.status = input.decision === "approved" ? "approved" : "rejected";
       artifact.review_note = input.note ?? null;
       artifact.reviewed_by = currentUser().record?.id ?? null;
       artifact.reviewed_at = isoNow();
       artifact.updated_at = isoNow();
-      pushAudit("artifact.reviewed", "derived_artifact", caseId, { artifact_id: artifact.id, decision: input.decision });
+      pushAudit(`derived_artifact.${input.decision}`, "derived_artifact", caseId, {
+        artifact_id: artifact.id,
+        kind: artifact.kind,
+        content_hash: artifact.content_hash,
+        ...resolutionMeta,
+      });
       return artifact;
     },
 
@@ -2034,6 +2075,163 @@ export const mockApi: Api = {
         text: explanation.payload.text as string,
         rule,
       };
+    },
+
+    /* ------------------ Case intelligence (phase 3) ------------------ */
+
+    async submitEntityResolution(caseId: string): Promise<JobSubmitResponse> {
+      return submitPhase3Feature(caseId, "entity_resolution");
+    },
+
+    async submitTimelineReconstruction(caseId: string): Promise<JobSubmitResponse> {
+      return submitPhase3Feature(caseId, "timeline");
+    },
+
+    async submitContradictions(caseId: string): Promise<JobSubmitResponse> {
+      return submitPhase3Feature(caseId, "contradiction");
+    },
+
+    async commitTimelineProposal(caseId: string, artifactId: string): Promise<TimelineCommitResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("case.update");
+      assertCaseAccess(caseId);
+      const artifact = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
+      if (!artifact) throw notFound("proposal not found");
+      if (artifact.kind !== "timeline_proposal") {
+        throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "artifact is not a timeline proposal" });
+      }
+      const payload = artifact.payload as {
+        title?: string;
+        description?: string | null;
+        occurred_at?: string | null;
+        original_timestamp?: string;
+        kind?: string;
+        proposal_key?: string;
+        time_semantics?: string;
+        tz_assumed?: boolean;
+        missing_timestamp?: boolean;
+      };
+      if (artifact.status !== "approved") {
+        throw new ApiError({ status: 409, code: "PROPOSAL_NOT_APPROVED", message: "proposal must be approved before it can be committed" });
+      }
+      if (payload.missing_timestamp || !payload.occurred_at) {
+        throw new ApiError({
+          status: 422,
+          code: "TIMELINE_TIMESTAMP_MISSING",
+          message: "no timestamp was established for this proposal; it cannot be committed",
+        });
+      }
+      // Idempotency: one event per proposal key — a retry returns the same row.
+      const key = payload.proposal_key ?? `artifact-${artifact.id}`;
+      const existing = timelineState.find(
+        (event) => event.case_id === caseId && (event.payload as { proposal_key?: unknown } | null)?.proposal_key === key,
+      );
+      if (existing) {
+        pushAudit("reconstruction.proposal_committed", "timeline_event", caseId, {
+          proposal_artifact_id: artifact.id,
+          duplicate: true,
+        });
+        return { event: existing, duplicate: true };
+      }
+      const event: TimelineEvent = {
+        id: nextIntelId(),
+        case_id: caseId,
+        occurred_at: payload.occurred_at,
+        kind: payload.kind ?? "case_event",
+        title: payload.title ?? "Reconstructed event",
+        description: payload.description ?? null,
+        entity_id: null,
+        evidence_file_id: null,
+        collection_id: null,
+        device_id: null,
+        actor_user_id: currentUser().record?.id ?? null,
+        payload: {
+          origin: "timeline_reconstruction",
+          proposal_artifact_id: artifact.id,
+          proposal_key: key,
+          original_timestamp: payload.original_timestamp ?? null,
+          time_semantics: payload.time_semantics ?? null,
+          tz_assumed: payload.tz_assumed ?? false,
+        },
+        created_at: isoNow(),
+      };
+      timelineState.push(event);
+      pushAudit("reconstruction.proposal_committed", "timeline_event", caseId, {
+        proposal_artifact_id: artifact.id,
+        duplicate: false,
+        occurred_at: event.occurred_at,
+      });
+      return { event, duplicate: false };
+    },
+
+    async resolveContradiction(
+      caseId: string,
+      artifactId: string,
+      input: ContradictionResolveRequest,
+    ): Promise<DerivedArtifactOut> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("findings.review");
+      assertCaseAccess(caseId);
+      const allowed = ["explained", "requires_evidence", "deferred"];
+      if (!allowed.includes(input.state)) {
+        throw new ApiError({
+          status: 422,
+          code: "CONTRADICTION_STATE_INVALID",
+          message: `unknown contradiction state '${input.state}' (expected one of: ${allowed.join(", ")})`,
+        });
+      }
+      if (!input.note?.trim()) {
+        throw new ApiError({ status: 422, code: "REVIEW_NOTE_REQUIRED", message: "a resolution note is required for every state" });
+      }
+      const parent = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
+      if (!parent) throw notFound("artifact not found");
+      if (parent.kind !== "contradiction" || (parent.payload as { type?: string }).type !== "contradiction") {
+        throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "artifact is not a contradiction candidate" });
+      }
+      if (parent.status !== "pending_review") {
+        throw new ApiError({
+          status: 409,
+          code: "ARTIFACT_NOT_REVIEWABLE",
+          message: `candidate is ${parent.status}; only unresolved candidates accept resolution states`,
+        });
+      }
+      // Appended child artifact: the candidate payload stays byte-for-byte intact.
+      const child: DerivedArtifactOut = {
+        id: nextIntelId(),
+        case_id: caseId,
+        kind: "contradiction",
+        origin: "deterministic",
+        status: "recorded",
+        validation_status: "valid",
+        evidence_file_id: parent.evidence_file_id,
+        source_record_id: parent.source_record_id,
+        source_locator: parent.source_locator,
+        payload: {
+          type: "contradiction_review",
+          state: input.state,
+          note: input.note.trim().slice(0, 2000),
+          for_artifact_id: parent.id,
+        },
+        content_hash: `review-${parent.id}-${input.state}`,
+        parser_version: "contradiction_review:1.0.0",
+        prompt_version: null,
+        model_profile: null,
+        analysis_job_id: null,
+        validation_errors: null,
+        review_note: input.note.trim().slice(0, 2000),
+        reviewed_by: currentUser().record?.id ?? null,
+        reviewed_at: isoNow(),
+        parent_artifact_id: parent.id,
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      artifactsState.unshift(child);
+      pushAudit(`contradiction.${input.state}`, "derived_artifact", caseId, {
+        state: input.state,
+        child_artifact_id: child.id,
+        child_content_hash: child.content_hash,
+      });
+      return child;
     },
   },
 
@@ -3220,6 +3418,486 @@ function entitiesFor(caseId: string): Entity[] {
   if (caseId === CASE_ID_SECONDARY) return SECONDARY_CASE_DATA.entities;
   if (caseId === CASE_ID_CLOSED) return CLOSED_CASE_ENTITIES;
   return TERTIARY_CASE_ENTITIES;
+}
+
+/* ------------------ Case intelligence (phase 3) ------------------ */
+
+type Phase3Feature = "entity_resolution" | "timeline" | "contradiction";
+
+/** Mirrors the backend submit route: refusal code, audit prefix, success action. */
+const PHASE3_FEATURES: Record<Phase3Feature, { audit: string; activeCode: ApiErrorCode; successAction: string }> = {
+  entity_resolution: {
+    audit: "resolution",
+    activeCode: "RESOLUTION_ACTIVE",
+    successAction: "resolution.analysis_completed",
+  },
+  timeline: {
+    audit: "reconstruction",
+    activeCode: "RECONSTRUCTION_ACTIVE",
+    successAction: "reconstruction.completed",
+  },
+  contradiction: {
+    audit: "contradiction",
+    activeCode: "CONTRADICTION_ACTIVE",
+    successAction: "contradiction.completed",
+  },
+};
+
+const RESOLUTION_MESSAGES: Record<string, string> = {
+  no_identifier_evidence:
+    "no shared identifier or alias; name or context similarity alone never proves identity",
+  conflicting_identifiers:
+    "the two entities carry disjoint identifier signals alongside the matching evidence",
+  ai_unverified: "an LLM verdict is included; it is unverified and cannot certify identity",
+};
+
+/** Simplified deterministic similarity for mock candidates: 0-100 ratio. */
+function nameSimilarity(a: string, b: string): number {
+  if (!a.length || !b.length) return 0;
+  const rows = Array.from({ length: a.length + 1 }, (_, i) => i);
+  for (let j = 1; j <= b.length; j += 1) {
+    let prev = rows[0];
+    rows[0] = j;
+    for (let i = 1; i <= a.length; i += 1) {
+      const current = rows[i];
+      rows[i] = Math.min(
+        rows[i] + 1,
+        rows[i - 1] + 1,
+        prev + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      prev = current;
+    }
+  }
+  return Math.round((1 - rows[a.length] / Math.max(a.length, b.length)) * 10000) / 100;
+}
+
+/** Person blocking-key mirror: surname-prefix-3 + first initial (lowercased). */
+function personBucket(canonical: string): string | null {
+  const tokens = canonical.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return null;
+  const [first, ...rest] = tokens;
+  const last = rest[rest.length - 1];
+  if (last.length < 3) return null;
+  return `${last.slice(0, 3)}_${first[0]}`;
+}
+
+function scoreBand(score: number): "strong" | "ambiguous" | "weak" {
+  if (score >= 92) return "strong";
+  if (score >= 78) return "ambiguous";
+  return "weak";
+}
+
+/** Indexed same-bucket person pairs (never an all-pairs scan). */
+function mockResolutionPairs(
+  caseId: string,
+): Array<{ a: Entity; b: Entity; score: number }> {
+  const people = entitiesFor(caseId).filter(
+    (e) => e.entity_type === "person" && e.status === "active",
+  );
+  const buckets = new Map<string, Entity[]>();
+  for (const person of people) {
+    const key = personBucket(person.canonical_value);
+    if (!key) continue;
+    buckets.set(key, [...(buckets.get(key) ?? []), person]);
+  }
+  const pairs: Array<{ a: Entity; b: Entity; score: number }> = [];
+  for (const group of buckets.values()) {
+    for (let i = 0; i < group.length; i += 1) {
+      for (let j = i + 1; j < group.length; j += 1) {
+        const score = nameSimilarity(
+          group[i].canonical_value.toLowerCase(),
+          group[j].canonical_value.toLowerCase(),
+        );
+        if (score >= 78) pairs.push({ a: group[i], b: group[j], score });
+      }
+    }
+  }
+  return pairs;
+}
+
+function mockEntitySide(entity: Entity): Record<string, unknown> {
+  return {
+    id: entity.id,
+    entity_type: entity.entity_type,
+    canonical_value: entity.canonical_value,
+    display_value: entity.display_value,
+  };
+}
+
+function mockResolutionArtifact(caseId: string, jobId: string, pair: { a: Entity; b: Entity; score: number }): DerivedArtifactOut {
+  const codes = ["no_identifier_evidence"];
+  return {
+    id: nextIntelId(),
+    case_id: caseId,
+    kind: "entity_resolution",
+    origin: "deterministic",
+    status: "pending_review",
+    validation_status: "flagged",
+    evidence_file_id: null,
+    source_record_id: null,
+    source_locator: { entity_a: pair.a.id, entity_b: pair.b.id },
+    payload: {
+      type: "entity_candidate",
+      entity_a: mockEntitySide(pair.a),
+      entity_b: mockEntitySide(pair.b),
+      method: "name_similarity",
+      score: pair.score,
+      score_band: scoreBand(pair.score),
+      score_semantics: "0-100 similarity band (not a probability)",
+      name_similarity: pair.score,
+      matching_fields: [{ field: "name_variant", detail: { similarity: pair.score } }],
+      conflicting_fields: [],
+      shared_identifiers: [],
+      shared_source_record_ids: [],
+      source_record_ids: [],
+    },
+    content_hash: `resolution-${pair.a.id}-${pair.b.id}`,
+    parser_version: "entity_match:1.0.0",
+    prompt_version: null,
+    model_profile: null,
+    analysis_job_id: jobId,
+    validation_errors: codes.map((code) => ({ field: "pair", code, message: RESOLUTION_MESSAGES[code] })),
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+}
+
+/**
+ * Deterministic reconstruction snapshot: one date-only field, one zone-less
+ * datetime (documented UTC assumption, flagged) and one unparseable strong
+ * field (flagged `missing_timestamp`, never an invented instant). The mock has
+ * no source records, so locators cite record 1 of the ingested file.
+ */
+const MOCK_RECONSTRUCTION_DRAFTS = [
+  {
+    field: "txn_date",
+    original: "2026-03-15",
+    title: "Transaction recorded on 2026-03-15",
+    occurred_at: "2026-03-15T00:00:00+00:00",
+    tz: null,
+    tz_assumed: false,
+    time_granularity: "date",
+    time_semantics: "record_occurs_on",
+    missing_timestamp: false,
+    errors: [],
+  },
+  {
+    field: "incident_at",
+    original: "15/03/2026 14:30",
+    title: "Incident recorded at 14:30",
+    occurred_at: "2026-03-15T14:30:00+00:00",
+    tz: null,
+    tz_assumed: true,
+    time_granularity: "datetime",
+    time_semantics: "record_occurs_on",
+    missing_timestamp: false,
+    errors: [
+      {
+        field: "timestamp",
+        code: "ambiguous_timezone",
+        message: "the source timestamp has no time zone; it was interpreted as UTC for ordering and flagged",
+      },
+    ],
+  },
+  {
+    field: "reported_at",
+    original: "TBD",
+    title: "Reported at TBD",
+    occurred_at: null,
+    tz: null,
+    tz_assumed: false,
+    time_granularity: null,
+    time_semantics: "statement_refers_to_event",
+    missing_timestamp: true,
+    errors: [
+      {
+        field: "timestamp",
+        code: "missing_timestamp",
+        message:
+          "no timestamp could be established from the source; this proposal cannot be committed until a reviewer supplies the time elsewhere",
+      },
+    ],
+  },
+] as const;
+
+/** Stable proposal identity across retries (mirrors the backend key inputs). */
+function mockProposalKey(draft: (typeof MOCK_RECONSTRUCTION_DRAFTS)[number]): string {
+  return `proposal-${draft.field}-${draft.original}`;
+}
+
+function mockReconstructionArtifact(caseId: string, jobId: string, draft: (typeof MOCK_RECONSTRUCTION_DRAFTS)[number]): DerivedArtifactOut {
+  const flagged = draft.errors.length > 0;
+  return {
+    id: nextIntelId(),
+    case_id: caseId,
+    kind: "timeline_proposal",
+    origin: "deterministic",
+    status: "pending_review",
+    validation_status: flagged ? "flagged" : "valid",
+    evidence_file_id: null,
+    source_record_id: null,
+    source_locator: { record_no: 1, field: draft.field },
+    payload: {
+      type: "timeline_proposal",
+      kind: "case_event",
+      title: draft.title,
+      description: `Reconstructed from record 1 field ${draft.field}`,
+      occurred_at: draft.occurred_at,
+      original_timestamp: draft.original,
+      tz: draft.tz,
+      tz_assumed: draft.tz_assumed,
+      time_granularity: draft.time_granularity,
+      time_semantics: draft.time_semantics,
+      missing_timestamp: draft.missing_timestamp,
+      proposal_key: mockProposalKey(draft),
+      evidence_file_id: null,
+      source_record_id: null,
+      source_locator: { record_no: 1, field: draft.field },
+      flags: [],
+    },
+    content_hash: `reconstruction-${mockProposalKey(draft)}`,
+    parser_version: "timeline_recon:1.0.0",
+    prompt_version: null,
+    model_profile: null,
+    analysis_job_id: jobId,
+    validation_errors: draft.errors.map((error) => ({ ...error })),
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+}
+
+/** Deterministic amount conflict on one shared transaction anchor. */
+function mockContradictionArtifact(caseId: string, jobId: string): DerivedArtifactOut {
+  const side = (recordNo: number, value: string): Record<string, unknown> => ({
+    source_record_id: null,
+    evidence_file_id: null,
+    record_no: recordNo,
+    field: "txn_amount",
+    class: "amount",
+    value,
+    original: value,
+    locator: { record_no: recordNo, field: "txn_amount" },
+  });
+  return {
+    id: nextIntelId(),
+    case_id: caseId,
+    kind: "contradiction",
+    origin: "deterministic",
+    status: "pending_review",
+    validation_status: "valid",
+    evidence_file_id: null,
+    source_record_id: null,
+    source_locator: { record_no: 1, field: "txn_id" },
+    payload: {
+      type: "contradiction",
+      category: "amount",
+      rule: "contradiction.amount_disagreement",
+      rule_version: "1.0.0",
+      priority: "high",
+      anchor: { value: "txn9001", scope: "transaction", fields: "txn_id" },
+      first: side(1, "1500"),
+      second: side(2, "2500"),
+      conflicting_values: [
+        {
+          field: "txn_amount",
+          first: "1500",
+          second: "2500",
+          first_original: "1500",
+          second_original: "2500",
+        },
+      ],
+      alternatives: [
+        "currency_or_unit: the two records may use different units or minor units",
+        "partial_payment: one record may capture a partial settlement",
+        "data_entry_error: one of the two values may be a transcription mistake",
+      ],
+      explanation:
+        "Both records reference txn9001 via 'txn_id', but 'txn_amount' differs: '1500' vs '2500'.",
+    },
+    content_hash: "contradiction-txn9001-txn_amount",
+    parser_version: "1.0.0",
+    prompt_version: null,
+    model_profile: null,
+    analysis_job_id: jobId,
+    validation_errors: null,
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+}
+
+/** Resolution approvals add reviewed cross-aliases here — entities never merge. */
+const resolutionAliasState: Record<string, Array<{ id: string; alias_value: string; alias_type: string }>> = {};
+
+function mockResolutionApprove(artifact: DerivedArtifactOut): { aliases_added: number; entity_a_id: string; entity_b_id: string } {
+  const locator = artifact.source_locator as { entity_a?: string; entity_b?: string };
+  const entityA = entitiesFor(artifact.case_id).find((e) => e.id === locator.entity_a);
+  const entityB = entitiesFor(artifact.case_id).find((e) => e.id === locator.entity_b);
+  if (!entityA || !entityB || entityA.status !== "active" || entityB.status !== "active") {
+    throw new ApiError({ status: 409, code: "CANDIDATE_ENTITY_UNAVAILABLE", message: "candidate entities are no longer available (missing or merged)" });
+  }
+  const added =
+    recordResolutionAlias(entityA.id, entityB.canonical_value) +
+    recordResolutionAlias(entityB.id, entityA.canonical_value);
+  return { aliases_added: added, entity_a_id: entityA.id, entity_b_id: entityB.id };
+}
+
+function recordResolutionAlias(entityId: string, aliasValue: string): number {
+  const existing = resolutionAliasState[entityId] ?? [];
+  if (existing.some((a) => a.alias_value === aliasValue)) return 0;
+  resolutionAliasState[entityId] = [...existing, { id: nextIntelId(), alias_value: aliasValue, alias_type: "resolution" }];
+  return 1;
+}
+
+/** Is this proposal already committed to the authoritative timeline? */
+function committedProposalKeys(): Set<string> {
+  const keys = new Set<string>();
+  for (const event of timelineState) {
+    const key = (event.payload as { proposal_key?: unknown } | null)?.proposal_key;
+    if (typeof key === "string") keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * One bounded case-wide run: one active job per feature (concurrent submit ->
+ * typed 409), attempt-numbered idempotency keys, deterministic artifacts with
+ * content-hash reuse on re-runs, completion audits mirroring the backend.
+ */
+async function submitPhase3Feature(caseId: string, feature: Phase3Feature): Promise<JobSubmitResponse> {
+  await delay(MOCK_LATENCY * 2);
+  requirePermission("ingestion.run");
+  assertCaseAccess(caseId);
+  const meta = PHASE3_FEATURES[feature];
+  const active = intelJobsState.find(
+    (j) => j.case_id === caseId && j.feature === feature && (j.status === "pending" || j.status === "running"),
+  );
+  if (active) {
+    throw new ApiError({
+      status: 409,
+      code: meta.activeCode,
+      message: `a ${feature} run is already active for this case`,
+    });
+  }
+  const attempts = intelJobsState.filter((j) => j.case_id === caseId && j.feature === feature).length + 1;
+  const job: AnalysisJobOut = {
+    id: nextIntelId(),
+    case_id: caseId,
+    feature,
+    status: "succeeded",
+    idempotency_key: `${feature}:${caseId}:a${attempts}`,
+    progress: 100,
+    total_records: 1,
+    processed_records: 1,
+    attempts,
+    timeout_seconds: 300,
+    cancel_requested: false,
+    error: null,
+    result_summary: {},
+    evidence_file_id: null,
+    actor_id: currentUser().record?.id ?? null,
+    started_at: isoNow(),
+    completed_at: isoNow(),
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+
+  const record = (artifact: DerivedArtifactOut): boolean => {
+    const reuse = artifactsState.some((a) => a.case_id === caseId && a.content_hash === artifact.content_hash);
+    if (!reuse) artifactsState.unshift(artifact);
+    return !reuse;
+  };
+
+  const summary: Record<string, unknown> = {};
+  if (feature === "entity_resolution") {
+    const entities = entitiesFor(caseId);
+    const pairs = mockResolutionPairs(caseId);
+    Object.assign(summary, {
+      entities_scanned: entities.length,
+      entities_bounded: false,
+      pairs_generated: pairs.length,
+      pairs_proposed: 0,
+      pairs_llm: 0,
+      pairs_llm_invalid: 0,
+      pairs_llm_failed: 0,
+      pairs_llm_skipped: 0,
+      artifacts_created: 0,
+      artifacts_reused: 0,
+    });
+    for (const pair of pairs) {
+      summary["pairs_proposed"] = Number(summary["pairs_proposed"]) + 1;
+      // The mock has no local model: ambiguous pairs are honestly skipped.
+      if (scoreBand(pair.score) === "ambiguous") {
+        summary["pairs_llm_skipped"] = Number(summary["pairs_llm_skipped"]) + 1;
+      }
+      const created = record(mockResolutionArtifact(caseId, job.id, pair));
+      summary[created ? "artifacts_created" : "artifacts_reused"] =
+        Number(summary[created ? "artifacts_created" : "artifacts_reused"]) + 1;
+    }
+  } else if (feature === "timeline") {
+    const committed = committedProposalKeys();
+    Object.assign(summary, {
+      records_scanned: 0,
+      records_bounded: false,
+      artifacts_scanned: artifactsState.filter((a) => a.case_id === caseId && a.kind === "timeline_proposal").length,
+      artifacts_bounded: false,
+      drafts_generated: 0,
+      proposals_recorded: 0,
+      proposals_reused: 0,
+      proposals_committed_skipped: 0,
+      duplicates: 0,
+      conflicts: 0,
+      overlaps: 0,
+      missing_timestamps: 0,
+      ambiguous_timezones: 0,
+    });
+    for (const draft of MOCK_RECONSTRUCTION_DRAFTS) {
+      if (committed.has(mockProposalKey(draft))) {
+        summary["proposals_committed_skipped"] = Number(summary["proposals_committed_skipped"]) + 1;
+        continue;
+      }
+      summary["drafts_generated"] = Number(summary["drafts_generated"]) + 1;
+      if (draft.missing_timestamp) summary["missing_timestamps"] = Number(summary["missing_timestamps"]) + 1;
+      if (draft.tz_assumed) summary["ambiguous_timezones"] = Number(summary["ambiguous_timezones"]) + 1;
+      const created = record(mockReconstructionArtifact(caseId, job.id, draft));
+      summary[created ? "proposals_recorded" : "proposals_reused"] =
+        Number(summary[created ? "proposals_recorded" : "proposals_reused"]) + 1;
+    }
+  } else {
+    Object.assign(summary, {
+      records_scanned: 0,
+      records_bounded: false,
+      records_with_claims: 2,
+      anchor_groups: 1,
+      pair_evals: 1,
+      conflicts: 1,
+      artifacts_created: 0,
+      artifacts_reused: 0,
+      semantic_pairs: 0,
+      semantic_llm: 0,
+      semantic_invalid: 0,
+      semantic_skipped: 0,
+    });
+    const created = record(mockContradictionArtifact(caseId, job.id));
+    summary[created ? "artifacts_created" : "artifacts_reused"] = 1;
+  }
+
+  job.result_summary = summary;
+  intelJobsState.unshift(job);
+  pushAudit(`${meta.audit}.submitted`, "analysis_job", caseId, { feature, attempt: attempts });
+  pushAudit(meta.successAction, "analysis_job", caseId, { ...summary });
+  return { job, duplicate: false };
 }
 
 function relatedEntityId(key: string, caseId: string): string {

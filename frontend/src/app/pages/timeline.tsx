@@ -1,5 +1,6 @@
 import { useParams } from "react-router-dom";
 import { useTimeline } from "@/hooks/queries";
+import { ReconstructionPanel } from "@/components/evidence/reconstruction-panel";
 import { PageContainer } from "@/components/layout/page";
 import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,6 +50,14 @@ export default function TimelinePage() {
       />
 
       <div className="mt-5">
+        <Card>
+          <CardContent>
+            <ReconstructionPanel caseId={caseId} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-5">
         {timeline.isLoading ? (
           <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
         ) : timeline.isError ? (
@@ -65,6 +74,9 @@ export default function TimelinePage() {
                   <div className="min-w-0 flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone="info">{kindLabel(event.kind)}</Badge>
+                      {(event.payload as { origin?: string } | null)?.origin === "timeline_reconstruction" ? (
+                        <Badge tone="accent">reconstructed</Badge>
+                      ) : null}
                       <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{event.title}</span>
                       <span className="ml-auto whitespace-nowrap text-[10px] tabular text-dim" title={event.occurred_at}>
                         {formatRelative(event.occurred_at)} · {formatTime(event.occurred_at)}

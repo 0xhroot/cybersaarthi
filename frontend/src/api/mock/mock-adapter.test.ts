@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mockApi, resetMockState } from "@/api/mock";
 import { MAIN_EVIDENCE } from "@/api/mock/data";
+import type { ContradictionResolutionState } from "@/types/domain";
 
 const MAIN_CASE_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -556,5 +557,195 @@ describe("mock adapter", () => {
     const list = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 5 }).catch(() => ({ items: [] as never[] }));
     if (list.items.length === 0) return; // viewer may lack case access entirely
     await expect(mockApi.evidence.extract(MAIN_CASE_ID, list.items[0].id)).rejects.toMatchObject({ status: 403 });
+  });
+});
+describe("case intelligence (phase 3)", () => {
+  it("proposes one resolution candidate; approval adds cross-aliases and never merges", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const submitted = await mockApi.evidence.submitEntityResolution(MAIN_CASE_ID);
+    expect(submitted.job.feature).toBe("entity_resolution");
+    expect(submitted.job.status).toBe("succeeded");
+    expect(submitted.job.idempotency_key).toBe(`entity_resolution:${MAIN_CASE_ID}:a1`);
+    expect(submitted.job.result_summary).toMatchObject({ pairs_proposed: 1, pairs_llm_skipped: 0 });
+
+    // Retry after the terminal run: a new attempt that reuses every artifact.
+    const second = await mockApi.evidence.submitEntityResolution(MAIN_CASE_ID);
+    expect(second.job.attempts).toBe(2);
+    expect(second.job.idempotency_key).toBe(`entity_resolution:${MAIN_CASE_ID}:a2`);
+    expect(second.job.result_summary).toMatchObject({ artifacts_created: 0, artifacts_reused: 1 });
+
+    const candidates = await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "entity_resolution" });
+    expect(candidates.items.length).toBe(1);
+    const candidate = candidates.items[0];
+    expect(candidate.status).toBe("pending_review");
+    // The name-only pair is honestly flagged, and the band is never a probability.
+    expect(candidate.validation_status).toBe("flagged");
+    expect(candidate.validation_errors?.[0]).toMatchObject({ code: "no_identifier_evidence" });
+    const payload = candidate.payload as {
+      type: string;
+      score_band: string;
+      score_semantics: string;
+      entity_a: { id: string };
+      entity_b: { id: string };
+    };
+    expect(payload.type).toBe("entity_candidate");
+    expect(payload.score_band).toBe("strong");
+    expect(payload.score_semantics).toContain("not a probability");
+
+    // Approval records additive aliases for both entities — no merge happens.
+    const reviewed = await mockApi.evidence.reviewArtifact(MAIN_CASE_ID, candidate.id, { decision: "approved", note: "same person" });
+    expect(reviewed.status).toBe("approved");
+    const entityA = await mockApi.entities.get(MAIN_CASE_ID, payload.entity_a.id);
+    const entityB = await mockApi.entities.get(MAIN_CASE_ID, payload.entity_b.id);
+    expect(entityA.status).toBe("active");
+    expect(entityB.status).toBe("active");
+    expect(entityA.aliases.some((a) => a.alias_value === entityB.canonical_value && a.alias_type === "resolution")).toBe(true);
+    expect(entityB.aliases.some((a) => a.alias_value === entityA.canonical_value && a.alias_type === "resolution")).toBe(true);
+    // The review is one-shot: re-reviewing is refused.
+    await expect(
+      mockApi.evidence.reviewArtifact(MAIN_CASE_ID, candidate.id, { decision: "rejected" }),
+    ).rejects.toMatchObject({ code: "ARTIFACT_NOT_REVIEWABLE" });
+
+    const audit = await mockApi.audit.list({ case_id: MAIN_CASE_ID, limit: 50 });
+    const actions = audit.items.map((e) => e.action);
+    expect(actions).toContain("resolution.submitted");
+    expect(actions).toContain("resolution.analysis_completed");
+    const approval = audit.items.find((e) => e.action === "derived_artifact.approved");
+    expect(approval?.metadata_).toMatchObject({ kind: "entity_resolution", aliases_added: 2 });
+  });
+
+  it("refuses approval of a candidate whose entity was merged away (stale candidate)", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    await mockApi.evidence.submitEntityResolution(MAIN_CASE_ID);
+    const candidate = (await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "entity_resolution" })).items[0];
+    const payload = candidate.payload as { entity_a: { id: string }; entity_b: { id: string } };
+
+    // Merging one entity away makes the open candidate stale.
+    await mockApi.entities.mergeEntities(MAIN_CASE_ID, {
+      primary_entity_id: payload.entity_a.id,
+      merge_entity_id: payload.entity_b.id,
+    });
+    await expect(
+      mockApi.evidence.reviewArtifact(MAIN_CASE_ID, candidate.id, { decision: "approved" }),
+    ).rejects.toMatchObject({ status: 409, code: "CANDIDATE_ENTITY_UNAVAILABLE" });
+  });
+
+  it("commits an approved proposal idempotently and never commits an unestablished timestamp", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const submitted = await mockApi.evidence.submitTimelineReconstruction(MAIN_CASE_ID);
+    expect(submitted.job.feature).toBe("timeline");
+    expect(submitted.job.result_summary).toMatchObject({
+      drafts_generated: 3,
+      proposals_recorded: 3,
+      missing_timestamps: 1,
+      ambiguous_timezones: 1,
+    });
+
+    const proposals = (await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "timeline_proposal" })).items;
+    expect(proposals.length).toBe(3);
+    const dateOnly = proposals.find((p) => (p.payload as { time_granularity?: string }).time_granularity === "date");
+    const missing = proposals.find((p) => (p.payload as { missing_timestamp?: boolean }).missing_timestamp);
+    expect(dateOnly).toBeTruthy();
+    // An unparseable strong field is a flagged proposal, never an invented instant.
+    expect(missing?.validation_status).toBe("flagged");
+    expect(missing?.validation_errors?.[0]).toMatchObject({ code: "missing_timestamp" });
+
+    // Commit requires explicit approval first.
+    await expect(
+      mockApi.evidence.commitTimelineProposal(MAIN_CASE_ID, dateOnly!.id),
+    ).rejects.toMatchObject({ status: 409, code: "PROPOSAL_NOT_APPROVED" });
+
+    await mockApi.evidence.reviewArtifact(MAIN_CASE_ID, dateOnly!.id, { decision: "approved" });
+    const first = await mockApi.evidence.commitTimelineProposal(MAIN_CASE_ID, dateOnly!.id);
+    expect(first.duplicate).toBe(false);
+    expect(first.event.payload).toMatchObject({
+      origin: "timeline_reconstruction",
+      proposal_artifact_id: dateOnly!.id,
+    });
+
+    // Idempotent: the retry returns the same event, never a second row.
+    const feedBefore = await mockApi.timeline.events(MAIN_CASE_ID, {});
+    const again = await mockApi.evidence.commitTimelineProposal(MAIN_CASE_ID, dateOnly!.id);
+    expect(again.duplicate).toBe(true);
+    expect(again.event.id).toBe(first.event.id);
+    const feedAfter = await mockApi.timeline.events(MAIN_CASE_ID, {});
+    expect(feedAfter.total).toBe(feedBefore.total);
+
+    // A missing-timestamp proposal stays uncommittable even after approval.
+    await mockApi.evidence.reviewArtifact(MAIN_CASE_ID, missing!.id, { decision: "approved" });
+    await expect(
+      mockApi.evidence.commitTimelineProposal(MAIN_CASE_ID, missing!.id),
+    ).rejects.toMatchObject({ status: 422, code: "TIMELINE_TIMESTAMP_MISSING" });
+
+    // Re-running skips the committed proposal and reuses the open ones.
+    const rerun = await mockApi.evidence.submitTimelineReconstruction(MAIN_CASE_ID);
+    expect(rerun.job.result_summary).toMatchObject({
+      drafts_generated: 2,
+      proposals_committed_skipped: 1,
+      proposals_reused: 2,
+      proposals_recorded: 0,
+    });
+
+    const audit = await mockApi.audit.list({ case_id: MAIN_CASE_ID, limit: 50 });
+    const committed = audit.items.filter((e) => e.action === "reconstruction.proposal_committed");
+    expect(committed.length).toBe(2);
+    expect(committed.some((e) => e.metadata_?.duplicate === true)).toBe(true);
+  });
+
+  it("appends contradiction resolutions as child artifacts and keeps the candidate immutable", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const submitted = await mockApi.evidence.submitContradictions(MAIN_CASE_ID);
+    expect(submitted.job.feature).toBe("contradiction");
+    expect(submitted.job.result_summary).toMatchObject({ conflicts: 1, artifacts_created: 1 });
+
+    const items = (await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "contradiction" })).items;
+    const candidate = items.find((a) => (a.payload as { type?: string }).type === "contradiction");
+    expect(candidate).toBeTruthy();
+    const snapshot = JSON.stringify(candidate!.payload);
+
+    // Typed refusals mirror the backend: unknown state, then a required note.
+    await expect(
+      mockApi.evidence.resolveContradiction(MAIN_CASE_ID, candidate!.id, { state: "banana" as ContradictionResolutionState, note: "x" }),
+    ).rejects.toMatchObject({ status: 422, code: "CONTRADICTION_STATE_INVALID" });
+    await expect(
+      mockApi.evidence.resolveContradiction(MAIN_CASE_ID, candidate!.id, { state: "explained", note: "   " }),
+    ).rejects.toMatchObject({ status: 422, code: "REVIEW_NOTE_REQUIRED" });
+
+    // A valid resolution is appended: child artifact, candidate untouched.
+    const child = await mockApi.evidence.resolveContradiction(MAIN_CASE_ID, candidate!.id, {
+      state: "explained",
+      note: "one record captured a partial settlement",
+    });
+    expect(child.status).toBe("recorded");
+    expect(child.parent_artifact_id).toBe(candidate!.id);
+    expect(child.payload).toMatchObject({
+      type: "contradiction_review",
+      state: "explained",
+      for_artifact_id: candidate!.id,
+    });
+    const after = (await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "contradiction" })).items.find((a) => a.id === candidate!.id);
+    expect(JSON.stringify(after?.payload)).toBe(snapshot);
+    expect(after?.status).toBe("pending_review");
+
+    // The review child itself is not a candidate: resolving it is refused.
+    await expect(
+      mockApi.evidence.resolveContradiction(MAIN_CASE_ID, child.id, { state: "deferred", note: "later" }),
+    ).rejects.toMatchObject({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED" });
+
+    // Confirming is the one-shot review; later resolution states are refused.
+    await mockApi.evidence.reviewArtifact(MAIN_CASE_ID, candidate!.id, { decision: "approved" });
+    await expect(
+      mockApi.evidence.resolveContradiction(MAIN_CASE_ID, candidate!.id, { state: "deferred", note: "later" }),
+    ).rejects.toMatchObject({ status: 409, code: "ARTIFACT_NOT_REVIEWABLE" });
+
+    const audit = await mockApi.audit.list({ case_id: MAIN_CASE_ID, limit: 50 });
+    expect(audit.items.map((e) => e.action)).toContain("contradiction.explained");
+  });
+
+  it("denies case-intelligence runs to users without ingestion.run", async () => {
+    await signIn("viewer", "viewer-demo-password");
+    await expect(mockApi.evidence.submitEntityResolution(MAIN_CASE_ID)).rejects.toMatchObject({ status: 403 });
+    await expect(mockApi.evidence.submitTimelineReconstruction(MAIN_CASE_ID)).rejects.toMatchObject({ status: 403 });
+    await expect(mockApi.evidence.submitContradictions(MAIN_CASE_ID)).rejects.toMatchObject({ status: 403 });
   });
 });

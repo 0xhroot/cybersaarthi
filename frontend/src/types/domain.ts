@@ -1095,6 +1095,16 @@ export interface TimelineEventCreateRequest {
   payload?: Record<string, unknown> | null;
 }
 
+/**
+ * Commit of one approved reconstruction proposal. `duplicate: true` means the
+ * event was already committed earlier — the same event id comes back, never a
+ * second row (the commit is idempotent).
+ */
+export interface TimelineCommitResponse {
+  event: TimelineEvent;
+  duplicate: boolean;
+}
+
 /* -------------------------------- Search -------------------------------- */
 
 export interface SearchResult {
@@ -1224,6 +1234,18 @@ export interface ArtifactReviewRequest {
   note?: string | null;
   /** Approved extraction edits: `{"fields": {...}}`, re-validated server-side. */
   payload?: { fields?: Record<string, string[]> } | null;
+}
+
+/**
+ * Reviewer resolution states appended to one contradiction candidate as a new
+ * child artifact. `confirmed` / `false_positive` are NOT here — they stay the
+ * one-shot approve/reject artifact review. A note is required for every state.
+ */
+export type ContradictionResolutionState = "explained" | "requires_evidence" | "deferred";
+
+export interface ContradictionResolveRequest {
+  state: ContradictionResolutionState;
+  note: string;
 }
 
 /** Deterministic hash verification result. `missing_*` are results, not errors. */

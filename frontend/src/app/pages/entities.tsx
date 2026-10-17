@@ -4,6 +4,7 @@ import { Search, Users, Merge, Check, X } from "lucide-react";
 import { useEntities, useReviewResolution, useAcceptMatch, useRejectMatch, useMergeEntities } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
 import { useDebounce } from "@/hooks/ui";
+import { ResolutionPanel } from "@/components/evidence/resolution-panel";
 import { PageContainer } from "@/components/layout/page";
 import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -215,6 +216,14 @@ export default function EntitiesPage() {
             </Table>
           </Card>
         )}
+      </div>
+
+      <div className="mt-5">
+        <Card>
+          <CardContent>
+            <ResolutionPanel caseId={caseId} />
+          </CardContent>
+        </Card>
       </div>
 
       {review.data && review.data.items.length > 0 ? (

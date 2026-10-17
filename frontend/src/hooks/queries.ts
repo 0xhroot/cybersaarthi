@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
 import type { AdminUserListParams, CaseListParams, CaseMemberAddRequest, EntityListParams, FindingListParams, AuditParams, VictimListParams, IoTDeviceListParams, IoTEventListParams, InvestigationHypothesisListParams } from "@/api/contract";
-import type { ArtifactReviewRequest, CaseStatus, CollectionCreateRequest, CustodyEventCreateRequest, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest, DeviceRegisterRequest, HypothesisLinkEvidenceRequest, ReportGenerateRequest, InvestigationHypothesisCreateRequest } from "@/types/domain";
+import type { ArtifactReviewRequest, CaseStatus, CollectionCreateRequest, ContradictionResolveRequest, CustodyEventCreateRequest, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest, DeviceRegisterRequest, HypothesisLinkEvidenceRequest, ReportGenerateRequest, InvestigationHypothesisCreateRequest } from "@/types/domain";
 
 const MINUTE = 60_000;
 
@@ -909,6 +909,70 @@ export function useRecordCustodyEvent(caseId: string) {
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+    },
+  });
+}
+
+/* ------------------ Case intelligence (phase 3) ------------------ */
+
+/** Queue the case-wide entity-resolution run (one active job per feature). */
+export function useSubmitEntityResolution(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.evidence.submitEntityResolution(caseId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/** Queue the deterministic timeline-reconstruction run. */
+export function useSubmitTimelineReconstruction(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.evidence.submitTimelineReconstruction(caseId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/** Queue the anchored contradiction-detection run. */
+export function useSubmitContradictions(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.evidence.submitContradictions(caseId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/** Commit an approved proposal (idempotent server-side); refresh the feed. */
+export function useCommitTimelineProposal(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (artifactId: string) => api.evidence.commitTimelineProposal(caseId, artifactId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/** Append a reviewer resolution state as a child artifact (note required). */
+export function useResolveContradiction(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { artifactId: string; resolution: ContradictionResolveRequest }) =>
+      api.evidence.resolveContradiction(caseId, input.artifactId, input.resolution),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
     },
   });
 }

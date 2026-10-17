@@ -109,6 +109,7 @@ import type {
   ReviewDecisionResponse,
   ReviewList,
   SearchResponse,
+  TimelineCommitResponse,
   TimelineEvent,
   TimelineEventList,
   TokenResponse,
@@ -401,6 +402,39 @@ const evidenceService: ApiEvidenceService = {
     return request<CustodyExplainResponse>(
       `/cases/${caseId}/evidence-intelligence/artifacts/${artifactId}/explain`,
       { method: "POST", body: {} },
+    );
+  },
+
+  /* ------------------ Case intelligence (phase 3) ------------------ */
+
+  submitEntityResolution(caseId) {
+    return request<JobSubmitResponse>(
+      `/cases/${caseId}/evidence-intelligence/entity-resolution`,
+      { method: "POST", body: {} },
+    );
+  },
+  submitTimelineReconstruction(caseId) {
+    return request<JobSubmitResponse>(
+      `/cases/${caseId}/evidence-intelligence/timeline-reconstruction`,
+      { method: "POST", body: {} },
+    );
+  },
+  submitContradictions(caseId) {
+    return request<JobSubmitResponse>(
+      `/cases/${caseId}/evidence-intelligence/contradiction-detection`,
+      { method: "POST", body: {} },
+    );
+  },
+  commitTimelineProposal(caseId, artifactId) {
+    return request<TimelineCommitResponse>(
+      `/cases/${caseId}/evidence-intelligence/timeline-proposals/${artifactId}/commit`,
+      { method: "POST", body: {} },
+    );
+  },
+  resolveContradiction(caseId, artifactId, input) {
+    return request<DerivedArtifactOut>(
+      `/cases/${caseId}/evidence-intelligence/contradictions/${artifactId}/resolve`,
+      { method: "POST", body: input },
     );
   },
 };
