@@ -261,3 +261,173 @@ mapped reusable foundation, gaps, authorization rules and the 7-phase order.
 user-facing workflow of its own to integrate yet; eval-gate wiring for all 10
 features lands in Phase 7. Next: **Phase 2** (Feature 1 ingestion copilot +
 Feature 9 custody auditor).
+
+### Phase 2 — Feature 1 ingestion copilot + Feature 9 custody auditor ✓ (this session)
+
+**Delivered (backend):**
+
+| Piece | File |
+|---|---|
+| PDF/text extraction service: lazy pypdf, page-aware bounded extraction (25 pages/unit, 10 units/file, 120k chars), OCR-required refusal, encrypted-PDF refusal, format allow-list | `backend/app/services/evidence_extraction.py` |
+| Extraction pipeline: prompt/schema v1, structured-output validation (exact `Decimal`, normalized dates, per-claim source locator), one active job per evidence (`EXTRACTION_ACTIVE`), idempotent retry reusing reviewed-eligible records, cancel/timeout end as `canceled`/`failed` never `succeeded` | same + `app/ai/prompts.py`, `app/schemas/evidence_extraction.py` |
+| Integrity verification: deterministic sha256 re-hash vs recorded digest (`match`/`mismatch`/`missing_expected`/`missing_source`/`unsupported_algorithm`), fact artifact recorded per run | `backend/app/services/integrity.py` |
+| Custody: append-only `EvidenceCustodyEvent` model + policy validation (10 event types, required parties per type, tz-aware + skew-bounded `occurred_at`, optional 64-hex digest) | `backend/app/models/evidence_custody_event.py`, `app/services/custody.py` |
+| Custody rule engine v1.0.0 (documented semantics: `unacknowledged_transfer`, `chronology_anomaly`, `orphaned_event`, `digest_mismatch`; no fixed universal sequence, optional fields never trigger findings) | `app/services/custody.py` |
+| Migration `c5e2b8f4d9a3` (custody events table; head verified) | `backend/migrations/versions/` |
+| API: `POST .../evidence-intelligence/extract`, `POST .../jobs/{id}/cancel`, `POST .../evidence-integrity/verify`, `POST .../evidence-integrity/custody-audit`, `GET .../evidence/{id}/custody`, `POST .../evidence/{id}/custody-events`, `POST .../artifacts/{id}/explain` (RBAC per action, case-scope + authz recheck before retrieval and model context, audit on every mutation) | `app/api/routes/evidence_intelligence.py`, `app/api/routes/evidence_integrity.py` |
+| Explain = facts-only narration; stored artifact always `validation_status "flagged"` + `ai_unverified` error; model certifies nothing | `app/services/custody.py` |
+| Eval harness + fixtures: 10 deterministic ingestion cases, 14 custody cases, 3 live cases (hash match/tamper/delete); gates on locator accuracy, hash correctness, custody rule agreement + zero false positives | `backend/scripts/eval_evidence.py`, `tests/fixtures/evidence_intelligence/`, `scripts/ai/eval_evidence.sh` |
+
+**Delivered (frontend, Increment C):** domain types + contract/real/mock/parity for
+`extract`, `evidenceJobs`, `cancelJob`, `artifacts`, `reviewArtifact`,
+`verifyIntegrity`, `custodyAudit`, `custodyChronology`, `recordCustodyEvent`,
+`explainFinding`; React Query hooks; evidence-page drawer panels
+(`components/evidence/extraction-panel.tsx`, `integrity-panel.tsx`) with honest
+status rendering (mismatch red, cannot-verify amber, only `match` green;
+flagged fields listed, never hidden; AI narration labelled unverified; PDF in
+the upload accept-list).
+
+**Measured (Phase 2 validation run, 2026-10-17):**
+- Alembic: `a9b8c7d6e5f4 → c5e2b8f4d9a3 (head)` applied clean.
+- Backend hermetic battery: **788 passed / 8 deselected, exit 0** (701 prior + **87 new**: 47 unit, 32 API, 8 eval-fixture).
+- Integration battery: live llama-server path **1 passed / 7 skipped** when the
+  local server is down (skips are the pre-existing honest-skip guard, not
+  failures); with the server up the AI-live tests run as in Phase 1.
+- `ruff check .`: **0**; `mypy app/ + scripts/eval_evidence.py`: **0** (159 files).
+- Frontend: **132 passed** (127 prior + 5 mock-adapter Phase 2 tests), `typecheck` 0, `lint` 0.
+- Live eval (real Qwen3-8B-Q4_K_M, 3 synthetic cases): claim recall **12/13 (92%)**,
+  extraction precision **21/22 (95%)**, field-level validation **59/60**,
+  unsupported-claim rate **1/22 (5%, flagged not accepted)**, schema-invalid
+  artifacts **0**, locator violations **0** (gated). Hash verification **3/3**
+  (match / tampered→mismatch / deleted→missing_source, harness re-hash agrees).
+  Custody: rule agreement exact (`custody.unacknowledged_transfer`), zero false
+  positives on the clean chain; job wall time ~2-3 s per case. Harness cleanup
+  verified: synthetic case + all objects removed.
+- API matrix: viewer 403 on extract/cancel/verify/audit; stranger-investigator
+  403 CASE_ACCESS_DENIED; recorded custody event refused for tz-less/future
+  timestamps, missing required parties, malformed digest (422 typed codes);
+  explain refused for hash facts (`ARTIFACT_KIND_UNSUPPORTED`); canceled job
+  listed as `canceled` with `cancel_requested=true`.
+
+**Limitations (honest):** no OCR engine installed — scanned/image PDFs are
+refused with `EXTRACTION_PARSE_FAILED`/unsupported notice rather than silently
+zero-yielded; PDF extraction covers text-layer PDFs only (pypdf); the 92% live
+recall is the local model on a 3-case synthetic set, not a general accuracy
+claim; custody rule v1 documents its semantics and does not assume any fixed
+universal event sequence.
+
+## 8. Phase 2 design (Feature 1 ingestion copilot + Feature 9 custody auditor)
+
+### 8.1 Pre-implementation audit findings (verified 2026-10-16)
+
+- HEAD `656d157`, clean tree, alembic head `a9b8c7d6e5f4` applied; pypdf 6.20.0
+  importable (currently a dev-only dependency); **no OCR engine installed**.
+- `EvidenceFormat` = csv/json/txt only; `sniff_format` rejects `%PDF-` uploads
+  today. `evidence_files.format` has no DB check constraint → adding `pdf` needs
+  no constraint change. `EVIDENCE_MAX_SIZE_BYTES = 5 MiB`.
+- **No chain-of-custody event model exists** (only Phase 1 vocabulary
+  constants). The provenance endpoint shows file→record→relationship lineage;
+  audit_log (`evidence.uploaded|deleted|restored`) is the only real custody
+  history. → a genuine `evidence_custody_events` migration is required; nothing
+  may be back-filled.
+- Reuse seams confirmed: upload pipeline (`fingerprint` → MinIO → row → audit),
+  `storage.download`/`exists`, ingestion record creation
+  (`create_source_record`, unique `(evidence_file_id, record_no)`),
+  FastAPI `BackgroundTasks` async-ingest pattern, `request.app.state.ai_service`,
+  `AIClient.chat` + `_generation_semaphore`, `fence_data` prompt-injection
+  fencing, Phase 1 `AnalysisJob`/`DerivedArtifact`/validation services.
+
+### 8.2 Feature 1 — Smart Evidence Ingestion Copilot
+
+- **PDF support extends the existing pipeline**: `EvidenceFormat.PDF`, magic +
+  `.pdf` detection, `parsing._parse_pdf` (pypdf) → one source record per page
+  (`{"page": n, "text": ...}`); page cap + per-page char cap; **no text layer →
+  explicit ParseError ("OCR required, not available") — never invented content**.
+- Extraction schema `EvidenceExtractionSchema` (persons, orgs, phones, emails,
+  accounts, amounts-as-decimal-strings, dates, urls/domains, devices, claims,
+  events) validated by Phase 1 `parse_structured` + `check_fields_against_source`
+  against the page/record text; amounts compared as exact `Decimal`.
+- `AIService.extract_page()`: server-owned versioned prompt
+  (`EXTRACTION_PROMPT_VERSION`), fenced `EVIDENCE` data block (untrusted),
+  generation-semaphore bounded, behind `AI_FEATURE_EXTRACTION`.
+- `app/services/extraction.py`: idempotent submit (one active job per evidence;
+  attempt-numbered idempotency key) → `AnalysisJob(feature="ingestion")` run in
+  a FastAPI background task (existing app pattern). Runner: **rechecks case
+  membership before every context assembly**, verifies stored sha256 against
+  bytes before parsing, ensures page source records idempotently, extracts
+  page-by-page with cooperative cancel/timeout between pages, records one
+  extraction artifact per page (locator `{record_no, field:"text"}`), status by
+  validation: `valid→pending_review`, `flagged→pending_review` + errors,
+  `invalid→failed` (raw excerpt kept), `status="recorded"` never used here.
+  Result summary counts pages/fields/artifacts/invalid/ocr_required.
+- Review: `ArtifactReviewRequest` gains optional edited `payload`; edits are
+  re-validated against schema + source before approval (422 if an edit invents
+  values). Approved artifacts are readable via existing `GET artifacts` and
+  provenance; approval/rejection/edits audit-logged.
+- Endpoints: `POST /{case}/evidence-intelligence/extract`,
+  `POST .../jobs/{id}/cancel`, extended review. Codes: `EVIDENCE_UNAVAILABLE`,
+  `UNSUPPORTED_FORMAT`, `EXTRACTION_ACTIVE`, `OCR_REQUIRED`, `INVALID_PAYLOAD`.
+
+### 8.3 Feature 9 — Integrity & Chain-of-Custody Auditor
+
+- **New `evidence_custody_events` table** (case/evidence FKs, event_type check
+  collected|transferred|received|sealed|unsealed|verified|accessed|exported|
+  restored|disposed, tz-aware `occurred_at`, actor/collector/transferor/
+  recipient/notes/`recorded_sha256`, indexes `(evidence_file_id, occurred_at)`).
+  Recorded only through an authorized endpoint going forward — **no fabricated
+  history, no back-fill**.
+- **Integrity verification** (`app/services/integrity.py`): pure
+  `compare_hashes(algorithm, expected, actual)` → `match|mismatch|
+  missing_expected|missing_source|unsupported_algorithm` (sha256 only, alias
+  tolerant); `verify_evidence()` downloads original bytes (to_thread), hashes
+  with the shared `fingerprint()`, compares, records a deterministic
+  `custody_finding` artifact with `status="recorded"` (facts need no review)
+  + `integrity.verified` audit row. Never writes evidence row or bytes.
+- **Custody audit** (`app/services/custody.py`): pure `evaluate_custody(snapshot)`
+  rule engine, `CUSTODY_RULE_SET_VERSION="1.0.0"`, rules grounded in the real
+  schema: `hash_mismatch`, `hash_missing` (no sha/metadata — documentation gap,
+  not tampering), `source_missing` (no object bytes), `chronology_predates_evidence`,
+  `chronology_future`, `unacknowledged_transfer`, `duplicate_event`,
+  `orphaned_event` (reference lost), `missing_required_field` (per-type policy:
+  collected→collector, transferred→transferor+recipient, received→recipient),
+  `no_documented_custody` (no audit entry & no custody event; severity info).
+  Optional fields (location/notes) never fire. Findings → `custody_finding`
+  artifacts (content-hash idempotent, `pending_review`), job `feature="custody"`.
+- **AI explanations are separate artifacts** (`type:"ai_explanation"`,
+  origin `llm`, `status="recorded"`, parent = finding): explain-what/why/
+  missing/next-steps only — prompt forbids inventing custody entries or
+  certifying integrity; behind `AI_FEATURE_INTEGRITY_EXPLAIN`.
+- **Review mapping** (C5): open→`pending_review`, resolved→`approved` (with
+  note; remediation = new custody event, never editing history), false
+  positive→`rejected`, explained→explanation artifact attached.
+- Endpoints: `POST .../evidence-integrity/verify`,
+  `POST .../evidence-integrity/custody-audit` (job),
+  `GET .../evidence/{id}/custody`, `POST .../evidence/{id}/custody-events`,
+  `POST .../artifacts/{id}/explain`.
+
+### 8.4 Frontend (extends evidence page; no redesign)
+
+Contract/real/mock + hooks gain: `extract`, `cancelJob`, `reviewArtifact`
+(edit), `verifyIntegrity`, `custodyAudit`, `custodyEvents`, `recordCustodyEvent`,
+`explainArtifact`. Evidence drawer gets two panels: **Extraction** (action,
+job progress, page-located preview, warnings/uncertain fields, original-vs-derived
+badge, approve/edit/reject/retry, OCR-required notice) and **Integrity &
+Custody** (verify result with algorithm + expected-vs-calculated + time, event
+chronology, gaps/rules with review states, record-event form, AI explanation).
+No fabricated green: unavailable source bytes/metadata render explicit
+unknowns.
+
+### 8.5 Evaluation additions (extend Phase 1 harness)
+
+- `fixtures/evidence_intelligence/ingestion_checks.json`: valid extraction,
+  multi-page mapping, empty content, invalid schema, unsupported fields,
+  prompt injection, incorrect locator, exact decimal/date, all through the real
+  validators (loader test counts executed checks — no vacuous passes).
+- `fixtures/evidence_intelligence/custody_checks.json`: hash match/mismatch/
+  missing source/unsupported algorithm, missing ack, duplicates, chronology
+  conflict, valid optional omissions (must yield **zero** findings), orphaned
+  references — through `evaluate_custody`.
+- Reported separately: extraction precision, field-level validation rate,
+  locator accuracy, unsupported-claim rate, hash-verification correctness,
+  custody false-positive rate — with set sizes and limitations; no accuracy
+  percentages beyond the measurements.
