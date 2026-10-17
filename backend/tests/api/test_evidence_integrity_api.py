@@ -542,7 +542,9 @@ async def test_custody_job_cancellation_contract(
     assert again.status_code == 409
     assert again.json()["error"]["code"] == CODE_JOB_TERMINAL
 
-    wrong_feature = await _seed("pending", feature="timeline")
+    # Phase 3 made entity_resolution/timeline/contradiction cancelable too;
+    # financial_flow stays a non-covered feature for this contract check.
+    wrong_feature = await _seed("pending", feature="financial_flow")
     refused = await http_client.post(
         f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/jobs/{wrong_feature}/cancel"
     )

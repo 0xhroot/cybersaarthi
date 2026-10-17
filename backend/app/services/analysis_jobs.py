@@ -190,3 +190,121 @@ async def list_jobs(
         query.order_by(AnalysisJob.created_at.desc()).limit(limit).offset(offset)
     )
     return list(result.scalars()), total
+
+
+# -- case-level feature submission (phase-3 features) ---------------------------
+
+
+class FeatureJobActive(ValueError):
+    """A non-terminal job of this feature already runs for the case."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+async def _active_case_job(
+    session: AsyncSession, case_id: uuid.UUID, feature: str
+) -> AnalysisJob | None:
+    result = await session.execute(
+        select(AnalysisJob)
+        .where(
+            AnalysisJob.case_id == str(case_id),
+            AnalysisJob.feature == feature,
+            AnalysisJob.status.in_(("pending", "running")),
+        )
+        .order_by(AnalysisJob.created_at.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
+def _clear_stale_case_job(job: AnalysisJob, *, timeout_seconds: int) -> bool:
+    """Terminal-ize an orphaned pending/running job (restart, no queue).
+
+    Same honest contract as the extraction/custody variants: a stale job is
+    failed/canceled, never left alive and never able to report success.
+    """
+    try:
+        if job.status == "running":
+            if not is_timed_out(job):
+                return False  # genuinely running (or never started): stay active
+            job.error = f"superseded: exceeded {job.timeout_seconds}s timeout budget"
+            transition(job, "failed")
+        elif job.status == "pending":
+            if (datetime.now(UTC) - job.created_at).total_seconds() <= 2 * max(
+                1, job.timeout_seconds or timeout_seconds
+            ):
+                return False  # freshly queued, not stale
+            transition(job, "canceled")
+        else:
+            return False
+        return True
+    except InvalidJobTransition:  # pragma: no cover - raced to terminal
+        return False
+
+
+async def submit_case_feature_job(
+    session: AsyncSession,
+    *,
+    case_id: uuid.UUID,
+    feature: str,
+    actor_id: uuid.UUID,
+    timeout_seconds: int,
+    active_code: str,
+) -> tuple[AnalysisJob, bool]:
+    """Idempotent case-level submission shared by the phase-3 features.
+
+    One active job per (case, feature): a typed 409-style refusal
+    (``active_code``) while one runs, honest clearing of stale jobs left by a
+    restart, and attempt-numbered idempotency keys so a retry after
+    failure/cancellation becomes attempt N+1 while a duplicate submission
+    collapses onto the same job (``created=False``).
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    active = await _active_case_job(session, case_id, feature)
+    if active is not None and not _clear_stale_case_job(
+        active, timeout_seconds=timeout_seconds
+    ):
+        raise FeatureJobActive(
+            active_code, f"a {feature} job is already running for this case"
+        )
+    if active is not None:
+        await session.flush()
+
+    attempts = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(AnalysisJob)
+                .where(
+                    AnalysisJob.case_id == str(case_id),
+                    AnalysisJob.feature == feature,
+                )
+            )
+        ).scalar_one()
+    )
+    idempotency_key = f"{feature}:{case_id}:a{attempts + 1}"
+    try:
+        return await create_job(
+            session,
+            case_id=case_id,
+            feature=feature,
+            idempotency_key=idempotency_key,
+            actor_id=actor_id,
+            timeout_seconds=timeout_seconds,
+        )
+    except IntegrityError:
+        # Concurrent duplicate submission won the unique-key race.
+        await session.rollback()
+        existing = await session.execute(
+            select(AnalysisJob).where(
+                AnalysisJob.case_id == str(case_id),
+                AnalysisJob.idempotency_key == idempotency_key,
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row is None:
+            raise
+        return row, False

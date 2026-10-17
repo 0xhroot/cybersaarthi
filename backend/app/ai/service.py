@@ -43,9 +43,11 @@ from app.ai.client import (
 )
 from app.ai.drafts import mark_unverified_ids, parse_hypothesis_drafts
 from app.ai.prompts import (
+    CONTRADICTION_SYSTEM_PROMPT,
     CUSTODY_EXPLAIN_SYSTEM_PROMPT,
     EXTRACTION_SYSTEM_PROMPT,
     PROMPT_VERSION,
+    RESOLUTION_SYSTEM_PROMPT,
     build_system_prompt,
     fence_data,
 )
@@ -176,6 +178,8 @@ class AIService:
             "report_draft": self.settings.AI_FEATURE_REPORT_DRAFT,
             "extraction": self.settings.AI_FEATURE_EXTRACTION,
             "integrity_explain": self.settings.AI_FEATURE_INTEGRITY_EXPLAIN,
+            "resolution": self.settings.AI_FEATURE_RESOLUTION,
+            "contradiction": self.settings.AI_FEATURE_CONTRADICTION,
             "knowledge": self.settings.AI_KNOWLEDGE_ENABLED,
         }
         return snapshot
@@ -246,6 +250,70 @@ class AIService:
                 messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
             )
         return result.text.strip()
+
+    async def compare_entity_pair(
+        self, *, entity_a: dict[str, Any], entity_b: dict[str, Any], features: dict[str, Any]
+    ) -> CompletionResult:
+        """Ambiguous entity-pair comparison for phase-3 resolution proposals.
+
+        The prompt is server-owned; the two records and their deterministic
+        features are fenced as untrusted DATA. The verdict is advisory only -
+        it lands in a reviewable artifact flagged ``ai_unverified`` and never
+        approves a match by itself. No ids are sent to the model, so no id can
+        be echoed back or substituted.
+        """
+        if not self.settings.AI_FEATURE_RESOLUTION:
+            raise _disabled_error()
+        await self.ensure_ready()
+        facts = json.dumps(
+            {"entity_a": entity_a, "entity_b": entity_b, "features": features},
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        )
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": RESOLUTION_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("ENTITY PAIR", facts)},
+            {"role": "user", "content": "Compare this entity pair for the investigator."},
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
+            )
+
+    async def compare_statements(
+        self, *, first: str, second: str, anchor: str
+    ) -> CompletionResult:
+        """Semantic statement comparison for phase-3 contradiction proposals.
+
+        Both statements come from authorized same-anchor records and are fenced
+        as untrusted DATA. A ``contradicts: true`` reply only ever becomes a
+        reviewable, ``ai_unverified``-flagged proposal - never a confirmation.
+        """
+        if not self.settings.AI_FEATURE_CONTRADICTION:
+            raise _disabled_error()
+        await self.ensure_ready()
+        safe_anchor = re.sub(r"[\r\n\t]+", " ", anchor).strip()[:120]
+        facts = json.dumps(
+            {"first": first[:4000], "second": second[:4000]},
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        )
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": CONTRADICTION_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("STATEMENTS", facts)},
+            {
+                "role": "user",
+                "content": (
+                    "Do these two statements (both referencing " + safe_anchor + ") disagree?"
+                ),
+            },
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
+            )
 
     # -- rate limiting ---------------------------------------------------
 

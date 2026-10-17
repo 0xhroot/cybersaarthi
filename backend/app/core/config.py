@@ -94,6 +94,25 @@ class Settings(BaseSettings):
     RESOLUTION_AUTO_THRESHOLD: float = 92.0
     RESOLUTION_REVIEW_THRESHOLD: float = 78.0
 
+    # Phase 3 feature A: entity-pair resolution jobs (bounded pair generation).
+    RESOLUTION_MAX_ENTITIES: int = 500  # entities scanned per case-wide run
+    RESOLUTION_MAX_PER_BUCKET: int = 25  # pairs generated inside one blocking bucket
+    RESOLUTION_MAX_PAIRS: int = 150  # candidate pairs evaluated per run
+    RESOLUTION_MAX_LLM_PAIRS: int = 10  # ambiguous pairs sent to the local model
+    RESOLUTION_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
+
+    # Phase 3 feature B: timeline reconstruction (deterministic extraction).
+    TIMELINE_MAX_RECORDS: int = 500  # source records scanned per run
+    TIMELINE_MAX_ARTIFACTS: int = 50  # extraction artifacts scanned per run
+    TIMELINE_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
+
+    # Phase 3 feature C: contradiction detection (bounded comparisons).
+    CONTRADICTION_MAX_RECORDS: int = 200  # source records scanned per run
+    CONTRADICTION_MAX_RECORDS_PER_ANCHOR: int = 8  # pairs per anchor group are O(n^2)
+    CONTRADICTION_MAX_PAIR_EVALS: int = 2000  # deterministic pair-evaluation budget
+    CONTRADICTION_MAX_LLM_PAIRS: int = 10  # statement pairs sent to the local model
+    CONTRADICTION_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
+
     # Graph sync
     GRAPH_CHUNK_SIZE: int = 250
 
@@ -157,6 +176,8 @@ class Settings(BaseSettings):
     AI_FEATURE_REPORT_DRAFT: bool = True
     AI_FEATURE_EXTRACTION: bool = True  # smart ingestion copilot (feature 1)
     AI_FEATURE_INTEGRITY_EXPLAIN: bool = True  # custody AI explanations (feature 9)
+    AI_FEATURE_RESOLUTION: bool = True  # ambiguous entity-pair comparison (phase 3 A)
+    AI_FEATURE_CONTRADICTION: bool = True  # semantic statement comparison (phase 3 C)
     AI_LOG_PROMPTS: bool = False  # prompt/answer content is never logged by default
 
     # Security

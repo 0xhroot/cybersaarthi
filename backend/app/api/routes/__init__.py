@@ -12,6 +12,7 @@ from app.api.routes.ai import router as ai_router
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.audit import router as audit_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.case_intelligence import router as case_intelligence_router
 from app.api.routes.cases import router as cases_router
 from app.api.routes.collections import router as collections_router
 from app.api.routes.devices import router as devices_router
@@ -44,6 +45,7 @@ __all__ = [
     "analytics_router",
     "audit_router",
     "auth_router",
+    "case_intelligence_router",
     "cases_router",
     "collections_router",
     "devices_router",

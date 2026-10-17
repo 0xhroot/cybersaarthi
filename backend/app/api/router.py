@@ -9,6 +9,7 @@ from app.api.routes import (
     analytics_router,
     audit_router,
     auth_router,
+    case_intelligence_router,
     cases_router,
     collections_router,
     devices_router,
@@ -46,6 +47,8 @@ api_router.include_router(entities_router, prefix="/api/v1")
 
 # Evidence intelligence foundation (shared across the 10 features).
 api_router.include_router(evidence_intelligence_router, prefix="/api/v1")
+# Phase 3 features: submission + review-driven writes (commit/resolve).
+api_router.include_router(case_intelligence_router, prefix="/api/v1")
 api_router.include_router(evidence_integrity_router, prefix="/api/v1")
 api_router.include_router(graph_router, prefix="/api/v1")
 

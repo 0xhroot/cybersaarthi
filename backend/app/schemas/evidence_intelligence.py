@@ -92,3 +92,24 @@ class ExtractionSubmitRequest(BaseModel):
     """Queue one extraction run for an authorized evidence file."""
 
     evidence_file_id: UUID
+
+
+class CaseAnalysisSubmitRequest(BaseModel):
+    """Queue one case-level phase-3 analysis run (features A, B, C).
+
+    Intentionally empty: these jobs scan the whole case, are idempotent
+    (one active job per feature, attempt-numbered retries) and take their
+    bounds from deployment settings, not from the request.
+    """
+
+
+class ContradictionResolveRequest(BaseModel):
+    """Append a reviewer resolution state to one contradiction candidate.
+
+    ``state`` and ``note`` are validated in the service layer so the API
+    answers with typed codes (``CONTRADICTION_STATE_INVALID``,
+    ``REVIEW_NOTE_REQUIRED``) instead of a generic validation error.
+    """
+
+    state: str = Field(max_length=32)
+    note: str = Field(max_length=2000)

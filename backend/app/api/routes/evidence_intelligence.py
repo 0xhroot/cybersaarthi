@@ -28,6 +28,7 @@ from app.core.codes import (
     CODE_ARTIFACT_KIND_UNSUPPORTED,
     CODE_ARTIFACT_NOT_FOUND,
     CODE_ARTIFACT_NOT_REVIEWABLE,
+    CODE_CANDIDATE_ENTITY_UNAVAILABLE,
     CODE_EVIDENCE_NOT_FOUND,
     CODE_EVIDENCE_UNAVAILABLE,
     CODE_EXTRACTION_ACTIVE,
@@ -58,6 +59,7 @@ from app.schemas.evidence_intelligence import (
 from app.services import analysis_jobs as jobs_svc
 from app.services import artifacts as artifacts_svc
 from app.services import audit as audit_svc
+from app.services import entity_matching as resolution_svc
 from app.services import evidence_extraction as extraction_svc
 
 router = APIRouter(prefix="/cases", tags=["evidence-intelligence"])
@@ -145,8 +147,20 @@ def _rejection(exc: extraction_svc.ExtractionRejected) -> ApiHTTPException:
 
 
 # Audit-action prefix per cancellable feature (job feature -> audit vocabulary).
-_CANCELABLE_FEATURES = ("ingestion", "custody")
-_AUDIT_PREFIX = {"ingestion": "extraction", "custody": "custody"}
+_CANCELABLE_FEATURES = (
+    "ingestion",
+    "custody",
+    "entity_resolution",
+    "timeline",
+    "contradiction",
+)
+_AUDIT_PREFIX = {
+    "ingestion": "extraction",
+    "custody": "custody",
+    "entity_resolution": "resolution",
+    "timeline": "reconstruction",
+    "contradiction": "contradiction",
+}
 
 
 @router.post(
@@ -319,6 +333,11 @@ async def review_evidence_artifact(
     re-validated against the strict schema *and* the artifact's source record,
     then persisted as a new lineage-linked artifact while the original model
     output is marked ``superseded`` - review never rewrites recorded output.
+
+    Approving an entity-resolution candidate additionally records the reviewed
+    relationship: additive cross-aliases only (append-only, idempotent). It
+    never merges entities - ``entity.merge`` stays its own explicit action -
+    and a proposal whose entities no longer exist is refused as a typed 409.
     """
     case = await get_case_or_404(case_id, request, session)
     assert_case_investigation_mutable(case)
@@ -397,6 +416,25 @@ async def review_evidence_artifact(
             await session.flush()
             target = child
 
+    resolution_meta: dict[str, Any] = {}
+    if body.decision == "approved" and artifact.kind == "entity_resolution":
+        if artifact.status != "pending_review":
+            raise ApiHTTPException(
+                409,
+                CODE_ARTIFACT_NOT_REVIEWABLE,
+                f"artifact is {artifact.status}; only pending_review candidates can be approved",
+            )
+        # Validate the pair first (entities must still exist and be unmerged),
+        # then append cross-aliases. Both live in this transaction: if the
+        # review below refuses, the session close discards them.
+        try:
+            resolution_meta = await resolution_svc.apply_approved_match(
+                session, case_id=case_id, artifact=artifact
+            )
+        except resolution_svc.ResolutionRejected as exc:
+            status = 409 if exc.code == CODE_CANDIDATE_ENTITY_UNAVAILABLE else 422
+            raise ApiHTTPException(status, exc.code, str(exc)) from exc
+
     try:
         await artifacts_svc.review_artifact(
             session,
@@ -414,7 +452,12 @@ async def review_evidence_artifact(
         resource_type="derived_artifact",
         resource_id=target.id,
         case_id=case_id,
-        metadata={"kind": target.kind, "content_hash": target.content_hash, **edit_meta},
+        metadata={
+            "kind": target.kind,
+            "content_hash": target.content_hash,
+            **edit_meta,
+            **resolution_meta,
+        },
     )
     await session.commit()
     return _artifact_out(target)
