@@ -45,3 +45,35 @@ async def still_authorized_for_case(
         .where(UserRole.user_id == user.id)
     )
     return rbac.has_permission(list(role_rows.scalars()), permission)
+
+
+async def still_authorized_for_cross_case(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    case_ids: list[uuid.UUID],
+    permission: str,
+) -> bool:
+    """True only while the account is active, holds *permission*, and every
+    case in the cross-case scope is still visible - each re-derived from fresh
+    rows, never from state cached at submission time.
+
+    A cross-case run reads evidence from several cases at once, so a single
+    revoked membership anywhere in the scope must fail the whole run closed
+    (``CROSS_CASE_SCOPE_REVOKED``), not silently narrow it.
+    """
+    user = await session.get(User, user_id)
+    if user is None or user.status != AccountStatus.ACTIVE.value:
+        return False
+    role_rows = await session.execute(
+        select(Role.name)
+        .select_from(UserRole)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(UserRole.user_id == user.id)
+    )
+    if not rbac.has_permission(list(role_rows.scalars()), permission):
+        return False
+    for case_id in case_ids:
+        if not await case_visible_to(session, user, case_id):
+            return False
+    return True

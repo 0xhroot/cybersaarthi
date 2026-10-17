@@ -252,6 +252,7 @@ async def submit_case_feature_job(
     actor_id: uuid.UUID,
     timeout_seconds: int,
     active_code: str,
+    scope_hash: str | None = None,
 ) -> tuple[AnalysisJob, bool]:
     """Idempotent case-level submission shared by the phase-3 features.
 
@@ -260,6 +261,10 @@ async def submit_case_feature_job(
     restart, and attempt-numbered idempotency keys so a retry after
     failure/cancellation becomes attempt N+1 while a duplicate submission
     collapses onto the same job (``created=False``).
+
+    ``scope_hash`` (cross-case runs) additionally distinguishes submissions by
+    their authorized case scope: two different scopes on the same anchor case
+    are different jobs, never a silent collapse onto a run over another scope.
     """
     from sqlalchemy.exc import IntegrityError
 
@@ -285,7 +290,11 @@ async def submit_case_feature_job(
             )
         ).scalar_one()
     )
-    idempotency_key = f"{feature}:{case_id}:a{attempts + 1}"
+    idempotency_key = (
+        f"{feature}:{case_id}:h{scope_hash}:a{attempts + 1}"
+        if scope_hash
+        else f"{feature}:{case_id}:a{attempts + 1}"
+    )
     try:
         return await create_job(
             session,

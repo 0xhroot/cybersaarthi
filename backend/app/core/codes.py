@@ -95,6 +95,11 @@ CODE_REVIEW_NOTE_REQUIRED = "REVIEW_NOTE_REQUIRED"
 # Phase 4: financial flow intelligence (feature A).
 CODE_FLOW_ACTIVE = "FLOW_ACTIVE"
 
+# Phase 4: cross-case pattern discovery (feature B).
+CODE_CROSS_CASE_ACTIVE = "CROSS_CASE_ACTIVE"
+CODE_CROSS_CASE_SCOPE_DENIED = "CROSS_CASE_SCOPE_DENIED"
+CODE_CROSS_CASE_SCOPE_REVOKED = "CROSS_CASE_SCOPE_REVOKED"
+
 MESSAGES = {
     CODE_INVALID_CREDENTIALS: "invalid username or password",
     CODE_ACCOUNT_PENDING: "account is pending administrator approval",

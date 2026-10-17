@@ -12,6 +12,7 @@ from app.api.routes import (
     case_intelligence_router,
     cases_router,
     collections_router,
+    cross_case_router,
     devices_router,
     entities_router,
     evidence_integrity_router,
@@ -50,6 +51,8 @@ api_router.include_router(evidence_intelligence_router, prefix="/api/v1")
 # Phase 3 features: submission + review-driven writes (commit/resolve).
 api_router.include_router(case_intelligence_router, prefix="/api/v1")
 api_router.include_router(evidence_integrity_router, prefix="/api/v1")
+# Phase 4 feature B: cross-case pattern discovery (submit + scope-checked read).
+api_router.include_router(cross_case_router, prefix="/api/v1")
 api_router.include_router(graph_router, prefix="/api/v1")
 
 # Phase 3: investigation intelligence (analytics + explainable findings).

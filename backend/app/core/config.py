@@ -124,6 +124,15 @@ class Settings(BaseSettings):
     FLOW_TRACE_MAX_PATHS: int = 50  # bounded trace path results
     FLOW_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
 
+    # Phase 4 feature B (cross-case discovery): every bound below is per run and
+    # echoed in the payload/summary so a truncated scan is always visible.
+    CROSSCASE_MAX_CASES: int = 25  # scope size per request (submit + read)
+    CROSSCASE_MAX_RECORDS: int = 1000  # source records scanned per case
+    CROSSCASE_MAX_INDICATORS: int = 5000  # extracted indicators kept per case
+    CROSSCASE_MAX_CANDIDATES: int = 200  # candidate artifacts per run
+    CROSSCASE_MAX_SUPPORTING_IDS: int = 10  # supporting ids listed per side
+    CROSSCASE_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
+
     # Graph sync
     GRAPH_CHUNK_SIZE: int = 250
 

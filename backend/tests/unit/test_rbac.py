@@ -89,5 +89,6 @@ def test_every_permission_is_covered_and_valid() -> None:
         rbac.PERM_AUDIT_READ,
         rbac.PERM_ENTITY_MERGE,
         rbac.PERM_EVIDENCE_RESTORE,
+        rbac.PERM_CROSSCASE_READ,
     }
     assert rbac.ALL_PERMISSIONS == frozenset(expected)

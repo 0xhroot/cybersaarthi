@@ -60,6 +60,7 @@ from app.schemas.evidence_intelligence import (
 from app.services import analysis_jobs as jobs_svc
 from app.services import artifacts as artifacts_svc
 from app.services import audit as audit_svc
+from app.services import cross_case as cross_case_svc
 from app.services import entity_matching as resolution_svc
 from app.services import evidence_extraction as extraction_svc
 from app.services.graph_sync import GraphSyncService
@@ -157,6 +158,8 @@ _CANCELABLE_FEATURES = (
     "entity_resolution",
     "timeline",
     "contradiction",
+    "financial_flow",
+    "cross_case",
 )
 _AUDIT_PREFIX = {
     "ingestion": "extraction",
@@ -164,6 +167,8 @@ _AUDIT_PREFIX = {
     "entity_resolution": "resolution",
     "timeline": "reconstruction",
     "contradiction": "contradiction",
+    "financial_flow": "flow",
+    "cross_case": "cross_case",
 }
 
 
@@ -348,6 +353,12 @@ async def review_evidence_artifact(
     artifact = await artifacts_svc.get_artifact(session, case_id, artifact_id)
     if artifact is None:
         raise ApiHTTPException(404, CODE_ARTIFACT_NOT_FOUND, f"artifact {artifact_id} not found")
+    # Cross-case candidates carry several cases' identifiers in one payload:
+    # they are readable/reviewable only when the caller may see every side,
+    # otherwise shown as not-found (no disclosure). Name-similarity-only
+    # candidates are informational and can never be approved.
+    await cross_case_svc.guard_cross_case_artifact(session, user, artifact)
+    cross_case_svc.assert_candidate_decision_allowed(artifact, body.decision)
 
     target = artifact
     edit_meta: dict[str, Any] = {}

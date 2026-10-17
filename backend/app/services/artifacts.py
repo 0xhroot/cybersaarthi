@@ -150,8 +150,20 @@ async def list_artifacts(
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[DerivedArtifact], int]:
-    """Case-scoped listing with filters (used by the Evidence Intelligence UI)."""
-    query = select(DerivedArtifact).where(DerivedArtifact.case_id == str(case_id))
+    """Case-scoped listing with filters (used by the Evidence Intelligence UI).
+
+    Cross-case candidates (``cross_case_link``) are deliberately never returned
+    here: their payloads reference several cases at once, so an unscoped read
+    would leak an inaccessible case's identifiers. They are read only through
+    the dedicated scope-checked ``/cross-case/candidates`` endpoint.
+    """
+    query = (
+        select(DerivedArtifact)
+        .where(
+            DerivedArtifact.case_id == str(case_id),
+            DerivedArtifact.kind != "cross_case_link",
+        )
+    )
     if kind is not None:
         query = query.where(DerivedArtifact.kind == kind)
     if status is not None:

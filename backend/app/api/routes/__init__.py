@@ -15,6 +15,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.case_intelligence import router as case_intelligence_router
 from app.api.routes.cases import router as cases_router
 from app.api.routes.collections import router as collections_router
+from app.api.routes.cross_case import router as cross_case_router
 from app.api.routes.devices import router as devices_router
 from app.api.routes.entities import router as entities_router
 from app.api.routes.evidence import router as evidence_router
@@ -48,6 +49,7 @@ __all__ = [
     "case_intelligence_router",
     "cases_router",
     "collections_router",
+    "cross_case_router",
     "devices_router",
     "entities_router",
     "evidence_intelligence_router",

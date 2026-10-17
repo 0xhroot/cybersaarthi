@@ -46,6 +46,10 @@ PERM_USERS_MANAGE = "users.manage"
 PERM_AUDIT_READ = "audit.read"
 PERM_ENTITY_MERGE = "entity.merge"
 PERM_EVIDENCE_RESTORE = "evidence.restore"
+# Phase 4 feature B: the cross-case capability. Held by INVESTIGATOR/ADMIN
+# only (ANALYST/VIEWER are deliberately excluded); code-derived from role
+# names, so no data migration is needed to grant it.
+PERM_CROSSCASE_READ = "crosscase.read"
 
 ALL_PERMISSIONS: frozenset[str] = frozenset(
     {
@@ -66,6 +70,7 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         PERM_USERS_MANAGE,
         PERM_AUDIT_READ,
         PERM_ENTITY_MERGE,
+        PERM_CROSSCASE_READ,
     }
 )
 
@@ -89,6 +94,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             PERM_FINDINGS_DISMISS,
             PERM_ENTITY_MERGE,
             PERM_AUDIT_READ,
+            PERM_CROSSCASE_READ,
         }
     ),
     ROLE_ANALYST: frozenset(
