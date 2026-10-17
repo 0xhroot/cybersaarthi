@@ -1129,6 +1129,251 @@ async def _load_owns_edges(session: AsyncSession, case_id: uuid.UUID) -> list[di
     return edges
 
 
+# -- bounded trace (read-only, deterministic, no LLM) --------------------------
+#
+# The trace answers "what else is documented about this account" over the
+# association network. A ``transfer`` trace is accepted as an API capability and
+# answered honestly: the ingest contains no transfer edges, so it returns
+# ``insufficient_data`` with the reason instead of inventing a trail.
+
+TRACE_LIMITATIONS: tuple[str, ...] = (
+    "every hop is an association (documented co-occurrence) or a recorded "
+    "relationship, never a confirmed transfer, so a trace answers what else is "
+    "documented about an account — not where money went",
+    "no ingested record carries a transaction timestamp, so a trace has no time "
+    "dimension",
+    "a path ending dead_end means the trail stops there in the ingested "
+    "evidence; no destination beyond it is ever guessed",
+)
+
+
+def _trace_paths(
+    start: str,
+    adjacency: dict[str, dict[str, dict[str, Any]]],
+    *,
+    max_depth: int,
+    max_paths: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Enumerate bounded maximal simple paths from *start*.
+
+    Deterministic: neighbours are visited in sorted node-id order, so repeated
+    calls over the same data return the same paths in the same order. Only
+    maximal paths are returned (a path that could be extended is not reported
+    on its own), each terminated by ``end_state``:
+
+    * ``dead_end`` — no further documented link exists (``incomplete``: the
+      trail stops here in the ingested evidence);
+    * ``depth_limit`` — more evidence may exist beyond the configured bound.
+    """
+    results: list[dict[str, Any]] = []
+    truncated = False
+
+    def dfs(
+        node: str,
+        nodes_path: list[str],
+        hops: list[dict[str, Any]],
+        visited: set[str],
+    ) -> None:
+        nonlocal truncated
+        open_neighbors = [n for n in sorted(adjacency.get(node, {})) if n not in visited]
+        at_depth_limit = len(hops) >= max_depth
+        if not open_neighbors or at_depth_limit:
+            if len(nodes_path) > 1:
+                if len(results) >= max_paths:
+                    truncated = True
+                    return
+                end_state = "depth_limit" if (at_depth_limit and open_neighbors) else "dead_end"
+                results.append(
+                    {
+                        "nodes": list(nodes_path),
+                        "hops": list(hops),
+                        "depth": len(hops),
+                        "end_state": end_state,
+                        "incomplete": end_state == "dead_end",
+                    }
+                )
+            elif at_depth_limit and open_neighbors:
+                truncated = True
+            return
+        for neighbor in open_neighbors:
+            if len(results) >= max_paths:
+                truncated = True
+                return
+            edge = adjacency[node][neighbor]
+            hop = {
+                "source": node,
+                "target": neighbor,
+                "edge_kind": edge["edge_kind"],
+                "derivation": edge["derivation"],
+                "confidence": edge["confidence"],
+                "relationship_type": edge.get("relationship_type"),
+                "supporting_source_record_ids": list(edge["supporting_source_record_ids"]),
+            }
+            dfs(neighbor, [*nodes_path, neighbor], [*hops, hop], visited | {neighbor})
+
+    dfs(start, [start], [], {start})
+    return results, truncated
+
+
+async def trace_flows(
+    session: AsyncSession,
+    *,
+    case_id: uuid.UUID,
+    settings: Settings,
+    target: str,
+    target_kind: str,
+    edge_kind: str,
+    max_depth: int | None = None,
+    max_paths: int | None = None,
+) -> dict[str, Any]:
+    """Bounded, read-only, deterministic trace for one account or transaction.
+
+    Recomputed from the caller's authorized case records on every request (no
+    cache, no LLM, no SQL/graph traversal issued by the model). Bounds are
+    clamped to the server configuration and reported back, so a caller always
+    sees exactly how far the answer reaches.
+    """
+    effective_depth = min(
+        max_depth if max_depth and max_depth > 0 else settings.FLOW_TRACE_MAX_DEPTH,
+        settings.FLOW_TRACE_MAX_DEPTH,
+    )
+    effective_paths = min(
+        max_paths if max_paths and max_paths > 0 else settings.FLOW_TRACE_MAX_PATHS,
+        settings.FLOW_TRACE_MAX_PATHS,
+    )
+    bounds: dict[str, Any] = {
+        "max_depth": effective_depth,
+        "max_paths": effective_paths,
+        "max_records": settings.FLOW_MAX_RECORDS,
+        "records_scanned": 0,
+    }
+
+    def base_response(**overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "case_id": str(case_id),
+            "flow_rules_version": FLOW_RULES_VERSION,
+            "target": target,
+            "target_kind": target_kind,
+            "edge_kind": edge_kind,
+            "status": "ok",
+            "reason": None,
+            "start_node": None,
+            "matched_facts": 0,
+            "target_degree": 0,
+            "paths": [],
+            "paths_bounded": False,
+            "bounds": bounds,
+            "network": {
+                "nodes_total": 0,
+                "edges_total": 0,
+                "confirmed_transfer_edges": 0,
+            },
+            "limitations": list(TRACE_LIMITATIONS),
+        }
+        payload.update(overrides)
+        return payload
+
+    if edge_kind == "transfer":
+        # Accepted as a capability, answered as absent — never approximated.
+        # The network is still scanned so the response states the real scope
+        # (nodes/edges seen, zero of them transfers) rather than a bare zero
+        # that could be misread as "this case has no financial structure".
+        rows, bounded = await _load_records(session, case_id, settings.FLOW_MAX_RECORDS)
+        bounds["records_scanned"] = len(rows)
+        facts, _warnings = extract_facts(rows)
+        owns_edges = await _load_owns_edges(session, case_id)
+        network = build_structure_network(facts, owns_edges, max_edges=settings.FLOW_MAX_EDGES)
+        return base_response(
+            status="insufficient_data",
+            reason="no_transfer_edges_in_ingest",
+            records_bounded=bounded,
+            network={
+                "nodes_total": network["nodes_total"],
+                "edges_total": network["edges_total"],
+                "confirmed_transfer_edges": 0,
+            },
+            limitations=[
+                *TRACE_LIMITATIONS,
+                "a transfer trace was requested but no ingested record states a "
+                "two-sided money movement and relationships contains no transfer "
+                "edge type, so there is no transfer path to return; the trail is "
+                "reported as absent rather than approximated with associations",
+            ],
+        )
+
+    rows, bounded = await _load_records(session, case_id, settings.FLOW_MAX_RECORDS)
+    bounds["records_scanned"] = len(rows)
+    facts, _warnings = extract_facts(rows)
+    owns_edges = await _load_owns_edges(session, case_id)
+    network = build_structure_network(facts, owns_edges, max_edges=settings.FLOW_MAX_EDGES)
+
+    node_ids = {str(node["id"]) for node in network["nodes"]}
+    adjacency: dict[str, dict[str, dict[str, Any]]] = {}
+    for edge in network["edges"]:
+        source, target_node = str(edge["source"]), str(edge["target"])
+        adjacency.setdefault(source, {})[target_node] = edge
+        adjacency.setdefault(target_node, {})[source] = edge
+
+    network_summary = {
+        "nodes_total": network["nodes_total"],
+        "edges_total": network["edges_total"],
+        "confirmed_transfer_edges": 0,
+    }
+
+    start: str | None = None
+    matched_facts = 0
+    status = "ok"
+    reason: str | None = None
+    records_bounded_note = bounded
+
+    if target_kind == "transaction":
+        normalized = target.strip().upper()
+        matched = [f for f in facts if f.txn_ref_normalized == normalized]
+        matched_facts = len(matched)
+        if not matched:
+            status = "not_found"
+            reason = "no_source_record_in_this_case_carries_that_transaction_reference"
+        else:
+            start = next(
+                (
+                    f"account:{fact.account_normalized}"
+                    for fact in matched
+                    if fact.account_normalized and f"account:{fact.account_normalized}" in node_ids
+                ),
+                None,
+            )
+            if start is None:
+                reason = "transaction_found_but_no_account_is_documented_for_it"
+    else:
+        start = f"account:{normalize_ref(target)}"
+        if start not in node_ids:
+            status = "not_found"
+            reason = "no_account_matching_that_reference_is_documented_in_this_case"
+            start = None
+
+    paths: list[dict[str, Any]] = []
+    paths_bounded = False
+    target_degree = 0
+    if status == "ok" and start is not None:
+        target_degree = len(adjacency.get(start, {}))
+        paths, paths_bounded = _trace_paths(
+            start, adjacency, max_depth=effective_depth, max_paths=effective_paths
+        )
+
+    return base_response(
+        status=status,
+        reason=reason,
+        start_node=start,
+        matched_facts=matched_facts,
+        target_degree=target_degree,
+        paths=paths,
+        paths_bounded=paths_bounded,
+        network=network_summary,
+        # The scan itself may have been bounded; stated rather than hidden.
+        records_bounded=records_bounded_note,
+    )
+
+
 async def _stop_job(
     session: AsyncSession,
     job: AnalysisJob,
@@ -1424,4 +1669,5 @@ __all__ = [
     "normalize_ref",
     "parse_amount",
     "run_financial_flow_job",
+    "trace_flows",
 ]

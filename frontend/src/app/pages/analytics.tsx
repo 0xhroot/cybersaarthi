@@ -17,6 +17,7 @@ import { PageContainer } from "@/components/layout/page";
 import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { AnalysisPanel } from "@/components/ai/analysis-panel";
 import { ContradictionPanel } from "@/components/evidence/contradiction-panel";
+import { FinancialFlowPanel } from "@/components/evidence/financial-flow-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PriorityBadge, ProfileTierBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,12 @@ export default function AnalyticsPage() {
       <Card className="mt-5">
         <CardContent>
           <ContradictionPanel caseId={caseId} />
+        </CardContent>
+      </Card>
+
+      <Card className="mt-5">
+        <CardContent>
+          <FinancialFlowPanel caseId={caseId} />
         </CardContent>
       </Card>
 

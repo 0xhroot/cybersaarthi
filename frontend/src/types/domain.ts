@@ -1248,6 +1248,60 @@ export interface ContradictionResolveRequest {
   note: string;
 }
 
+/* ------------------ Financial flow (phase 4, feature A) ------------------ */
+
+/** One traversed edge of a bounded structure trace — never a confirmed transfer. */
+export interface FlowTraceHop {
+  source: string;
+  target: string;
+  edge_kind: string;
+  derivation: string;
+  confidence: string;
+  relationship_type: string | null;
+  supporting_source_record_ids: string[];
+}
+
+/**
+ * One maximal path from the traced node. `end_state: "dead_end"` marks a trail
+ * that stops in the ingested evidence (`incomplete`); `"depth_limit"` marks a
+ * path cut by the configured bound, where more evidence may exist beyond it.
+ */
+export interface FlowTracePath {
+  nodes: string[];
+  hops: FlowTraceHop[];
+  depth: number;
+  end_state: string;
+  incomplete: boolean;
+}
+
+export interface FlowTraceRequest {
+  target: string;
+  target_kind?: "account" | "transaction";
+  edge_kind?: "association" | "transfer";
+  max_depth?: number | null;
+  max_paths?: number | null;
+}
+
+/** Deterministic trace result: scope, bounds and limitations travel with it. */
+export interface FlowTraceResponse {
+  case_id: string;
+  flow_rules_version: string;
+  target: string;
+  target_kind: string;
+  edge_kind: string;
+  status: "ok" | "not_found" | "insufficient_data";
+  reason: string | null;
+  start_node: string | null;
+  matched_facts: number;
+  target_degree: number;
+  paths: FlowTracePath[];
+  paths_bounded: boolean;
+  records_bounded: boolean;
+  bounds: { max_depth: number; max_paths: number; max_records: number; records_scanned: number };
+  network: { nodes_total: number; edges_total: number; confirmed_transfer_edges: number };
+  limitations: string[];
+}
+
 /** Deterministic hash verification result. `missing_*` are results, not errors. */
 export interface IntegrityVerificationResponse {
   evidence_id: string;

@@ -114,3 +114,80 @@ class ContradictionResolveRequest(BaseModel):
 
     state: str = Field(max_length=32)
     note: str = Field(max_length=2000)
+
+
+class FlowTraceRequest(BaseModel):
+    """One bounded, read-only structure trace over a case's financial facts.
+
+    ``edge_kind="transfer"`` is a supported capability whose answer today is
+    ``insufficient_data`` (``reason="no_transfer_edges_in_ingest"``): the ingest
+    contains no transfer edges, so the API reports the trail as absent rather
+    than substituting associations. ``max_depth`` / ``max_paths`` are clamped to
+    the server's configured bounds and the effective values are echoed back.
+    """
+
+    target: str = Field(min_length=1, max_length=512)
+    target_kind: Literal["account", "transaction"] = "account"
+    edge_kind: Literal["association", "transfer"] = "association"
+    max_depth: int | None = Field(default=None, ge=1)
+    max_paths: int | None = Field(default=None, ge=1)
+
+
+class FlowTraceHop(BaseModel):
+    """One traversed edge, typed so a UI can warn it is not a transfer."""
+
+    source: str
+    target: str
+    edge_kind: str
+    derivation: str
+    confidence: str
+    relationship_type: str | None = None
+    supporting_source_record_ids: list[str]
+
+
+class FlowTracePath(BaseModel):
+    """One maximal path; ``incomplete`` marks a trail that stops in the evidence."""
+
+    nodes: list[str]
+    hops: list[FlowTraceHop]
+    depth: int
+    end_state: str
+    incomplete: bool
+
+
+class FlowTraceBounds(BaseModel):
+    """Effective bounds actually applied to this request."""
+
+    max_depth: int
+    max_paths: int
+    max_records: int
+    records_scanned: int
+
+
+class FlowTraceNetworkSummary(BaseModel):
+    """Honest scan scope: always zero confirmed transfer edges today."""
+
+    nodes_total: int
+    edges_total: int
+    confirmed_transfer_edges: int
+
+
+class FlowTraceResponse(BaseModel):
+    """Deterministic trace result with its limitations stated inline."""
+
+    case_id: UUID
+    flow_rules_version: str
+    target: str
+    target_kind: str
+    edge_kind: str
+    status: Literal["ok", "not_found", "insufficient_data"]
+    reason: str | None = None
+    start_node: str | None = None
+    matched_facts: int = 0
+    target_degree: int = 0
+    paths: list[FlowTracePath] = []
+    paths_bounded: bool = False
+    records_bounded: bool = False
+    bounds: FlowTraceBounds
+    network: FlowTraceNetworkSummary
+    limitations: list[str]

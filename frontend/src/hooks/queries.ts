@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
 import type { AdminUserListParams, CaseListParams, CaseMemberAddRequest, EntityListParams, FindingListParams, AuditParams, VictimListParams, IoTDeviceListParams, IoTEventListParams, InvestigationHypothesisListParams } from "@/api/contract";
-import type { ArtifactReviewRequest, CaseStatus, CollectionCreateRequest, ContradictionResolveRequest, CustodyEventCreateRequest, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest, DeviceRegisterRequest, HypothesisLinkEvidenceRequest, ReportGenerateRequest, InvestigationHypothesisCreateRequest } from "@/types/domain";
+import type { ArtifactReviewRequest, CaseStatus, CollectionCreateRequest, ContradictionResolveRequest, CustodyEventCreateRequest, FlowTraceRequest, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest, DeviceRegisterRequest, HypothesisLinkEvidenceRequest, ReportGenerateRequest, InvestigationHypothesisCreateRequest } from "@/types/domain";
 
 const MINUTE = 60_000;
 
@@ -974,6 +974,32 @@ export function useResolveContradiction(caseId: string) {
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
     },
+  });
+}
+
+/* ------------------ Financial flow (phase 4, feature A) ------------------ */
+
+/** Queue the deterministic financial-flow run (no LLM anywhere in it). */
+export function useSubmitFinancialFlow(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.evidence.submitFinancialFlow(caseId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/**
+ * Bounded read-only structure trace. A POST because the query travels in the
+ * body, but nothing is mutated: the server recomputes the result from the
+ * caller's authorized records on every call, so there is nothing to cache or
+ * invalidate.
+ */
+export function useTraceFinancialFlow(caseId: string) {
+  return useMutation({
+    mutationFn: (input: FlowTraceRequest) => api.evidence.traceFinancialFlow(caseId, input),
   });
 }
 

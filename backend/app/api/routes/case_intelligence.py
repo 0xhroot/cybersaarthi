@@ -55,6 +55,8 @@ from app.schemas.evidence_intelligence import (
     CaseAnalysisSubmitRequest,
     ContradictionResolveRequest,
     DerivedArtifactOut,
+    FlowTraceRequest,
+    FlowTraceResponse,
 )
 from app.services import analysis_jobs as jobs_svc
 from app.services import audit as audit_svc
@@ -302,6 +304,42 @@ async def submit_financial_flow(
         session=session,
         feature="financial_flow",
     )
+
+
+@router.post(
+    "/{case_id}/evidence-intelligence/financial-flow/trace",
+    response_model=FlowTraceResponse,
+)
+async def trace_financial_flow(
+    case_id: uuid.UUID,
+    body: FlowTraceRequest,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_EVIDENCE_READ)),
+) -> FlowTraceResponse:
+    """Bounded, read-only structure trace for one account or transaction.
+
+    Recomputed deterministically from the caller's authorized case records on
+    every request — no job, no cache, and no LLM anywhere on this path. Each
+    hop is typed ``association`` (suspected) or ``relationship`` (schema
+    asserted); ``edge_kind="transfer"`` is accepted and answered
+    ``insufficient_data`` because the ingest contains no transfer edges, so a
+    money-movement trail is reported as absent rather than approximated.
+    Bounds are clamped to deployment settings and echoed back with the result.
+    """
+    await get_case_or_404(case_id, request, session)
+    result = await flow_svc.trace_flows(
+        session,
+        case_id=case_id,
+        settings=settings,
+        target=body.target,
+        target_kind=body.target_kind,
+        edge_kind=body.edge_kind,
+        max_depth=body.max_depth,
+        max_paths=body.max_paths,
+    )
+    return FlowTraceResponse.model_validate(result)
 
 
 class TimelineCommitResponse(BaseModel):

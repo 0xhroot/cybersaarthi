@@ -120,6 +120,8 @@ class Settings(BaseSettings):
     FLOW_MAX_EDGES: int = 500  # structure-network edges per run
     FLOW_MAX_SUPPORTING_IDS: int = 100  # supporting ids kept per aggregate
     FLOW_AMOUNT_THRESHOLD: str = "5000"  # investigation default (exact Decimal)
+    FLOW_TRACE_MAX_DEPTH: int = 4  # bounded association trace depth
+    FLOW_TRACE_MAX_PATHS: int = 50  # bounded trace path results
     FLOW_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
 
     # Graph sync

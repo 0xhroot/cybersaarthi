@@ -70,6 +70,10 @@ import type {
   FindingList,
   FindingStats,
   FindingStatusOut,
+  FlowTraceHop,
+  FlowTracePath,
+  FlowTraceRequest,
+  FlowTraceResponse,
   GraphStats,
   GraphResponse,
   GraphSyncResult,
@@ -1669,8 +1673,12 @@ export const mockApi: Api = {
       requirePermission("ingestion.run");
       assertCaseAccess(caseId);
       const job = intelJobsState.find((j) => j.id === jobId && j.case_id === caseId);
-      const phase3 = job?.feature === "entity_resolution" || job?.feature === "timeline" || job?.feature === "contradiction";
-      if (!job || (job.feature !== "ingestion" && job.feature !== "custody" && !phase3)) {
+      const analysisRun =
+        job?.feature === "entity_resolution" ||
+        job?.feature === "timeline" ||
+        job?.feature === "contradiction" ||
+        job?.feature === "financial_flow";
+      if (!job || (job.feature !== "ingestion" && job.feature !== "custody" && !analysisRun)) {
         throw notFound(`job ${jobId} not found`);
       }
       if (job.status !== "pending" && job.status !== "running") {
@@ -1680,9 +1688,9 @@ export const mockApi: Api = {
       job.status = "canceled";
       job.completed_at = isoNow();
       job.updated_at = isoNow();
-      if (phase3) {
+      if (analysisRun) {
         // Route flag + terminal transition (the mock runner observes it instantly).
-        const prefix = PHASE3_FEATURES[job.feature as Phase3Feature].audit;
+        const prefix = ANALYSIS_FEATURES[job.feature as AnalysisFeature].audit;
         pushAudit(`${prefix}.cancel_requested`, "analysis_job", caseId, { job_id: job.id, feature: job.feature });
         pushAudit(`${prefix}.canceled`, "analysis_job", caseId, { job_id: job.id, feature: job.feature });
       } else {
@@ -2080,15 +2088,26 @@ export const mockApi: Api = {
     /* ------------------ Case intelligence (phase 3) ------------------ */
 
     async submitEntityResolution(caseId: string): Promise<JobSubmitResponse> {
-      return submitPhase3Feature(caseId, "entity_resolution");
+      return submitAnalysisFeature(caseId, "entity_resolution");
     },
 
     async submitTimelineReconstruction(caseId: string): Promise<JobSubmitResponse> {
-      return submitPhase3Feature(caseId, "timeline");
+      return submitAnalysisFeature(caseId, "timeline");
     },
 
     async submitContradictions(caseId: string): Promise<JobSubmitResponse> {
-      return submitPhase3Feature(caseId, "contradiction");
+      return submitAnalysisFeature(caseId, "contradiction");
+    },
+
+    async submitFinancialFlow(caseId: string): Promise<JobSubmitResponse> {
+      return submitAnalysisFeature(caseId, "financial_flow");
+    },
+
+    async traceFinancialFlow(caseId: string, input: FlowTraceRequest): Promise<FlowTraceResponse> {
+      await delay(MOCK_LATENCY);
+      requirePermission("evidence.read");
+      assertCaseAccess(caseId);
+      return traceMockFlow(caseId, input);
     },
 
     async commitTimelineProposal(caseId: string, artifactId: string): Promise<TimelineCommitResponse> {
@@ -3422,10 +3441,10 @@ function entitiesFor(caseId: string): Entity[] {
 
 /* ------------------ Case intelligence (phase 3) ------------------ */
 
-type Phase3Feature = "entity_resolution" | "timeline" | "contradiction";
+type AnalysisFeature = "entity_resolution" | "timeline" | "contradiction" | "financial_flow";
 
 /** Mirrors the backend submit route: refusal code, audit prefix, success action. */
-const PHASE3_FEATURES: Record<Phase3Feature, { audit: string; activeCode: ApiErrorCode; successAction: string }> = {
+const ANALYSIS_FEATURES: Record<AnalysisFeature, { audit: string; activeCode: ApiErrorCode; successAction: string }> = {
   entity_resolution: {
     audit: "resolution",
     activeCode: "RESOLUTION_ACTIVE",
@@ -3440,6 +3459,11 @@ const PHASE3_FEATURES: Record<Phase3Feature, { audit: string; activeCode: ApiErr
     audit: "contradiction",
     activeCode: "CONTRADICTION_ACTIVE",
     successAction: "contradiction.completed",
+  },
+  financial_flow: {
+    audit: "flow",
+    activeCode: "FLOW_ACTIVE",
+    successAction: "flow.analysis_completed",
   },
 };
 
@@ -3775,11 +3799,675 @@ function committedProposalKeys(): Set<string> {
  * typed 409), attempt-numbered idempotency keys, deterministic artifacts with
  * content-hash reuse on re-runs, completion audits mirroring the backend.
  */
-async function submitPhase3Feature(caseId: string, feature: Phase3Feature): Promise<JobSubmitResponse> {
+/* ------------------ Financial flow (phase 4, feature A) ------------------ */
+
+type MockFlowNode = { id: string; kind: string; label: string; origin: string };
+type MockFlowEdge = {
+  source: string;
+  target: string;
+  edge_kind: string;
+  confidence: string;
+  derivation: string;
+  relationship_type: string | null;
+  schema_confidence: number | null;
+  supporting_source_record_ids: string[];
+};
+type MockFlowAdjacency = Record<string, Record<string, MockFlowEdge>>;
+
+const MOCK_FLOW_RECORDS_SCANNED = 6;
+const MOCK_FLOW_TRACE_MAX_DEPTH = 4;
+const MOCK_FLOW_TRACE_MAX_PATHS = 50;
+const MOCK_FLOW_MAX_RECORDS = 1000;
+const MOCK_FLOW_RULES_VERSION = "flow-rules/1.0.0";
+const MOCK_FLOW_PATTERNS_VERSION = "flow-patterns/1.0.0";
+
+const mockFlowEdge = (source: string, target: string, ids: string[]): MockFlowEdge => ({
+  source,
+  target,
+  edge_kind: "association",
+  confidence: "suspected",
+  derivation: "account_star",
+  relationship_type: null,
+  schema_confidence: null,
+  supporting_source_record_ids: ids,
+});
+
+/**
+ * Deterministic structure the mock computes over: the same shape the backend
+ * derives from the fixtures (10 nodes, 7 association edges, zero transfers) so
+ * the panel always shows the honest picture — association only, never a
+ * confirmed transfer, and an empty trail rather than an invented one.
+ */
+const MOCK_FLOW_NODES: MockFlowNode[] = [
+  { id: "account:ACCSIH001", kind: "account", label: "ACC-SIH-001", origin: "record" },
+  { id: "merchant:phonepe merchant", kind: "merchant", label: "PhonePe Merchant", origin: "record" },
+  { id: "party:ananya sirohi", kind: "party", label: "Ananya Sirohi", origin: "record" },
+  { id: "account:ACCSIH002", kind: "account", label: "ACC-SIH-002", origin: "record" },
+  { id: "merchant:paytm merchant", kind: "merchant", label: "Paytm Merchant", origin: "record" },
+  { id: "party:rohan mehta", kind: "party", label: "Rohan Mehta", origin: "record" },
+  { id: "beneficiary:ananya sirohi", kind: "beneficiary", label: "Ananya Sirohi", origin: "record" },
+  { id: "account:3300445566", kind: "account", label: "3300445566", origin: "record" },
+  { id: "bank:securemart", kind: "bank", label: "SecureMart", origin: "record" },
+  { id: "party:sunita sharma", kind: "party", label: "Sunita Sharma", origin: "record" },
+];
+
+const MOCK_FLOW_EDGES: MockFlowEdge[] = [
+  mockFlowEdge("account:ACCSIH001", "merchant:phonepe merchant", ["mock-rec-1"]),
+  mockFlowEdge("account:ACCSIH001", "party:ananya sirohi", ["mock-rec-1"]),
+  mockFlowEdge("account:ACCSIH002", "merchant:paytm merchant", ["mock-rec-2"]),
+  mockFlowEdge("account:ACCSIH002", "party:rohan mehta", ["mock-rec-2"]),
+  mockFlowEdge("account:ACCSIH001", "beneficiary:ananya sirohi", ["mock-rec-3", "mock-rec-4"]),
+  mockFlowEdge("account:3300445566", "bank:securemart", ["mock-rec-5"]),
+  mockFlowEdge("account:3300445566", "party:sunita sharma", ["mock-rec-5"]),
+];
+
+const MOCK_FLOW_ADJACENCY: MockFlowAdjacency = {};
+for (const edge of MOCK_FLOW_EDGES) {
+  (MOCK_FLOW_ADJACENCY[edge.source] ??= {})[edge.target] = edge;
+  (MOCK_FLOW_ADJACENCY[edge.target] ??= {})[edge.source] = edge;
+}
+
+const mockFlowFact = (over: Record<string, unknown>): Record<string, unknown> => ({
+  fact_class: "transaction",
+  source_record_id: "mock-rec-1",
+  evidence_file_id: "mock-ev-1",
+  record_no: 1,
+  source_locator: { record_no: 1, evidence_file_id: "mock-ev-1" },
+  txn_ref_original: null,
+  txn_ref_normalized: null,
+  amount: null,
+  amount_original: null,
+  amount_precision: null,
+  currency: null,
+  currency_source: null,
+  receiver: null,
+  receiver_phone: null,
+  account_original: null,
+  account_normalized: null,
+  bank: null,
+  merchant: null,
+  party: null,
+  status: "unknown",
+  occurred_at: null,
+  occurred_at_original: null,
+  occurred_at_granularity: null,
+  missing: [],
+  limitations: [],
+  ...over,
+});
+
+/**
+ * Five deterministic facts mirroring the documented ingest shape: amounts are
+ * strings, no payer exists anywhere, nothing carries a timestamp, and one
+ * record documents an account holder with no movement at all.
+ */
+const MOCK_FLOW_FACTS: Record<string, unknown>[] = [
+  mockFlowFact({
+    source_record_id: "mock-rec-1",
+    record_no: 1,
+    source_locator: { record_no: 1, evidence_file_id: "mock-ev-1" },
+    txn_ref_original: "TXN-SIH-001",
+    txn_ref_normalized: "TXN-SIH-001",
+    amount: "4500.00",
+    amount_original: "4500.00",
+    amount_precision: "string_source",
+    account_original: "ACC-SIH-001",
+    account_normalized: "ACCSIH001",
+    merchant: "PhonePe Merchant",
+    party: "Ananya Sirohi",
+    missing: ["currency", "timestamp", "counterparty", "source_direction"],
+    limitations: ["currency_unknown", "missing_timestamp", "one_sided"],
+  }),
+  mockFlowFact({
+    source_record_id: "mock-rec-2",
+    record_no: 2,
+    source_locator: { record_no: 2, evidence_file_id: "mock-ev-1" },
+    txn_ref_original: "TXN-SIH-002",
+    txn_ref_normalized: "TXN-SIH-002",
+    amount: "12000.00",
+    amount_original: "12000.00",
+    amount_precision: "string_source",
+    account_original: "ACC-SIH-002",
+    account_normalized: "ACCSIH002",
+    merchant: "Paytm Merchant",
+    party: "Rohan Mehta",
+    missing: ["currency", "timestamp", "counterparty", "source_direction"],
+    limitations: ["currency_unknown", "missing_timestamp", "one_sided"],
+  }),
+  mockFlowFact({
+    source_record_id: "mock-rec-3",
+    record_no: 3,
+    source_locator: { record_no: 3, evidence_file_id: "mock-ev-1" },
+    txn_ref_original: "TXN-SIH-001",
+    txn_ref_normalized: "TXN-SIH-001",
+    amount: "4500.00",
+    amount_original: "4500.00",
+    amount_precision: "string_source",
+    account_original: "ACC-SIH-001",
+    account_normalized: "ACCSIH001",
+    receiver: "Ananya Sirohi",
+    missing: ["currency", "timestamp", "source_direction"],
+    limitations: ["currency_unknown", "missing_timestamp", "one_sided"],
+  }),
+  mockFlowFact({
+    source_record_id: "mock-rec-4",
+    record_no: 4,
+    source_locator: { record_no: 4, evidence_file_id: "mock-ev-1" },
+    amount: "4500.00",
+    amount_original: "4500.00",
+    amount_precision: "string_source",
+    account_original: "ACC-SIH-001",
+    account_normalized: "ACCSIH001",
+    receiver: "Ananya Sirohi",
+    receiver_phone: "+91 98200 00001",
+    missing: ["currency", "timestamp", "txn_ref", "source_direction"],
+    limitations: ["currency_unknown", "missing_timestamp", "one_sided"],
+  }),
+  mockFlowFact({
+    fact_class: "account_reference",
+    source_record_id: "mock-rec-5",
+    record_no: 5,
+    source_locator: { record_no: 5, evidence_file_id: "mock-ev-1" },
+    account_original: "3300445566",
+    account_normalized: "3300445566",
+    bank: "SecureMart",
+    party: "Sunita Sharma",
+    missing: ["amount", "currency", "timestamp", "txn_ref"],
+    limitations: [],
+  }),
+];
+
+const MOCK_FLOW_LIMITATIONS = [
+  "no transactions table exists; every fact is a deterministic extraction from source_records.raw_data and coverage equals ingestion coverage",
+  "no payer/sender key occurs in any record, so direction-dependent metrics (inflow/outflow/net) are reported not_computable_no_direction",
+  "relationships contains no transfer edge type, so confirmed_transfer_edges is 0 and every structure edge is an association or a recorded relationship",
+  "record-level amounts carry no currency attribution; totals are bucketed under currency=null flagged currency_unknown and never labelled with a default currency",
+  "no ingested record carries a transaction timestamp, so time-windowed pattern rules are returned not_evaluable(missing_timestamp)",
+  "pattern candidates are descriptive observations for human review; a pattern is never evidence of intent",
+];
+
+const MOCK_FLOW_CALCULATION_DEFINITIONS: Record<string, string> = {
+  fact: "one deterministic extraction from one source record's raw_data; fact_class=transaction when an amount or transaction reference is present, otherwise account_reference",
+  amount: "parsed with Decimal from the original value (JSON strings parse exactly); originals are preserved verbatim alongside; non-numeric values are rejected and counted, never coerced",
+  total_records: "sum of exact Decimal amounts over every record carrying an amount, duplicates included",
+  total_distinct:
+    "one contribution per distinct transaction group (grouped by the documented dedupe key: transaction reference, else amount+account), so a transfer recorded twice counts once; groups whose records disagree on the amount are excluded and listed in conflicting_groups. Records without a transaction reference cannot be told apart from genuinely repeated transfers, so both totals are always reported together and neither is the unique truth. When every group disagrees it is null, because a zero there would be a fabricated figure",
+  currency_bucketing: "amounts are summed only within one currency value; records without a currency fall into a null bucket flagged currency_unknown",
+  net_flow: "not computed: direction is absent from the ingest",
+  structure_edge:
+    "association edges are documented co-occurrence within one record (star from the account when present); relationship edges are schema-asserted (e.g. owns). No edge is a confirmed transfer",
+  pattern:
+    "deterministic rule over the extracted facts; status is firing (with exact evidence), not_fired (evaluated, no evidence) or not_evaluable (a documented input is missing)",
+};
+
+/** Four rules that fire over the fixed fixtures, rebuilt fresh per payload. */
+const mockFlowBaseFiring = (): Record<string, unknown>[] => [
+  {
+    rule: "duplicate_amount",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "firing",
+    evidence: { amount: "4500.00", record_count: 3, distinct_dedupe_keys: 2 },
+    supporting_source_record_ids: ["mock-rec-1", "mock-rec-3", "mock-rec-4"],
+    limitations: ["currency_unknown"],
+    review_status: "pending_review",
+    pattern_not_intent: true,
+  },
+  {
+    rule: "amount_threshold",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "firing",
+    evidence: {
+      threshold: "5000",
+      threshold_semantics: "investigation default constant, not a regulatory or universal limit",
+      matched_count: 1,
+      amounts: ["12000.00"],
+    },
+    supporting_source_record_ids: ["mock-rec-2"],
+    limitations: ["currency_unknown"],
+    review_status: "pending_review",
+    pattern_not_intent: true,
+  },
+  {
+    rule: "missing_currency",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "firing",
+    evidence: { matched_count: 4 },
+    supporting_source_record_ids: ["mock-rec-1", "mock-rec-2", "mock-rec-3", "mock-rec-4"],
+    limitations: ["currency_unknown"],
+    review_status: "pending_review",
+    pattern_not_intent: true,
+  },
+  {
+    rule: "missing_timestamp",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "firing",
+    evidence: { matched_count: 4 },
+    supporting_source_record_ids: ["mock-rec-1", "mock-rec-2", "mock-rec-3", "mock-rec-4"],
+    limitations: ["missing_timestamp"],
+    review_status: "pending_review",
+    pattern_not_intent: true,
+  },
+];
+
+/** Rules the ingest cannot support — each states the specific missing input. */
+const mockFlowNotEvaluable = (): Record<string, unknown>[] => [
+  {
+    rule: "rapid_succession",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "not_evaluable",
+    reason: "missing_timestamp",
+    explanation:
+      "requires several movements from one source inside a rolling time window; no ingested record carries a transaction timestamp",
+  },
+  {
+    rule: "repeated_pair",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "not_evaluable",
+    reason: "missing_direction",
+    explanation: "requires an ordered account pair (payer -> payee); no record states a direction",
+  },
+  {
+    rule: "circular_path",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "not_evaluable",
+    reason: "no_transfer_edges",
+    explanation: "requires a cycle of confirmed transfers; no transfer edge exists to traverse",
+  },
+  {
+    rule: "amount_splitting",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "not_evaluable",
+    reason: "missing_direction",
+    explanation:
+      "requires one source splitting identical amounts to several destinations inside a window; neither direction nor timestamps exist",
+  },
+  {
+    rule: "concentration",
+    version: MOCK_FLOW_PATTERNS_VERSION,
+    status: "not_evaluable",
+    reason: "missing_direction",
+    explanation:
+      "requires counting distinct counterparties sending to or receiving from one account; direction is absent",
+  },
+];
+
+/** Victim loss totals, flagged `float_source` exactly like the backend. */
+function mockFlowVictims(caseId: string): Record<string, unknown>[] {
+  const exact = (value: number | null): string | null => {
+    if (value === null || value === undefined) return null;
+    return Number.isInteger(value) ? `${value}.0` : String(value);
+  };
+  return victimState
+    .filter((victim) => victim.case_id === caseId)
+    .map((victim) => {
+      const missing: string[] = [];
+      const limitations = ["float_source"];
+      if (victim.reported_amount === null || victim.reported_amount === undefined) missing.push("reported_amount");
+      if (victim.amount_lost === null || victim.amount_lost === undefined) missing.push("amount_lost");
+      if (victim.recovery_amount === null || victim.recovery_amount === undefined) missing.push("recovery_amount");
+      if (!victim.currency) {
+        missing.push("currency");
+        limitations.push("currency_unknown");
+      }
+      if (!victim.incident_date) missing.push("incident_date");
+      return {
+        victim_id: victim.id,
+        case_id: victim.case_id,
+        reported_amount: exact(victim.reported_amount ?? null),
+        amount_lost: exact(victim.amount_lost ?? null),
+        recovery_amount: exact(victim.recovery_amount ?? null),
+        currency: victim.currency ? victim.currency.trim().toUpperCase() : null,
+        incident_date: victim.incident_date ?? null,
+        precision: "float_source",
+        missing,
+        limitations,
+      };
+    });
+}
+
+/** The deterministic payload the mock records — same shape as the backend. */
+function mockFlowPayload(caseId: string): Record<string, unknown> {
+  const victimFinancials = mockFlowVictims(caseId);
+  const transactionAmounts = new Set(
+    MOCK_FLOW_FACTS.filter((fact) => fact.amount !== null).map((fact) => String(fact.amount)),
+  );
+  const unmatchedVictims = victimFinancials.filter((victim) => {
+    const reported = (victim.reported_amount ?? victim.amount_lost) as string | null;
+    return reported !== null && !transactionAmounts.has(reported);
+  });
+  const firing = mockFlowBaseFiring();
+  for (const victim of unmatchedVictims) {
+    firing.push({
+      rule: "victim_loss_unmatched",
+      version: MOCK_FLOW_PATTERNS_VERSION,
+      status: "firing",
+      evidence: {
+        victim_id: victim.victim_id,
+        amount: victim.reported_amount ?? victim.amount_lost,
+        currency: victim.currency,
+        incident_date: victim.incident_date,
+        match_rule:
+          "exact Decimal equality against a transaction fact amount; no victim-to-record foreign key exists, so this is the only deterministic link available",
+        transaction_amounts_in_case: [...transactionAmounts].sort(),
+      },
+      supporting_source_record_ids: [],
+      supporting_victim_ids: [victim.victim_id],
+      limitations: ["no_transaction_level_match", "float_source"],
+      review_status: "pending_review",
+      pattern_not_intent: true,
+    });
+  }
+  const limitations = [...MOCK_FLOW_LIMITATIONS];
+  if (victimFinancials.length > 0) {
+    limitations.push(
+      "some amounts originate in double precision columns and carry precision=float_source; exact-Decimal guarantees apply only to string/int-sourced amounts",
+    );
+  }
+  return {
+    flow_rules_version: MOCK_FLOW_RULES_VERSION,
+    pattern_rules_version: MOCK_FLOW_PATTERNS_VERSION,
+    case_id: caseId,
+    scope: {
+      records_scanned: MOCK_FLOW_RECORDS_SCANNED,
+      records_bounded: false,
+      victim_rows_scanned: victimFinancials.length,
+      owns_edges_scanned: 0,
+      flow_max_records: MOCK_FLOW_MAX_RECORDS,
+    },
+    facts: MOCK_FLOW_FACTS,
+    facts_bounded: false,
+    facts_total: MOCK_FLOW_FACTS.length,
+    victim_financials: victimFinancials,
+    aggregates: {
+      counts: {
+        facts_total: MOCK_FLOW_FACTS.length,
+        fact_class_transaction: 4,
+        fact_class_account_reference: 1,
+        transaction_with_amount: 4,
+        transaction_without_amount: 0,
+        with_currency: 0,
+        without_currency: 4,
+        with_timestamp: 0,
+        without_timestamp: 4,
+        with_txn_ref: 3,
+        without_txn_ref: 1,
+      },
+      currency_buckets: [
+        {
+          currency: null,
+          currency_unknown: true,
+          count: 4,
+          distinct_groups: 3,
+          conflicting_groups: [],
+          distinct_amounts: 2,
+          min: "4500.00",
+          max: "12000.00",
+          total_records: "25500.00",
+          total_distinct: "21000.00",
+          total_distinct_conflicts_excluded: 0,
+          dedupe_key_definition:
+            "normalized transaction reference when present, else (exact amount, normalized account)",
+          dedupe_caveat:
+            "records without a transaction reference cannot be told apart from genuinely repeated transfers; both totals are reported and neither is presented as the unique truth",
+          supporting_source_record_ids: ["mock-rec-1", "mock-rec-2", "mock-rec-3", "mock-rec-4"],
+          supporting_ids_capped: false,
+        },
+      ],
+      by_account: [
+        {
+          account_normalized: "ACCSIH001",
+          count: 3,
+          total_records: "13500.00",
+          supporting_source_record_ids: ["mock-rec-1", "mock-rec-3", "mock-rec-4"],
+          supporting_ids_capped: false,
+        },
+        {
+          account_normalized: "ACCSIH002",
+          count: 1,
+          total_records: "12000.00",
+          supporting_source_record_ids: ["mock-rec-2"],
+          supporting_ids_capped: false,
+        },
+      ],
+      by_bank: [],
+      by_merchant: [
+        {
+          merchant: "Paytm Merchant",
+          count: 1,
+          total_records: "12000.00",
+          supporting_source_record_ids: ["mock-rec-2"],
+          supporting_ids_capped: false,
+        },
+        {
+          merchant: "PhonePe Merchant",
+          count: 1,
+          total_records: "4500.00",
+          supporting_source_record_ids: ["mock-rec-1"],
+          supporting_ids_capped: false,
+        },
+      ],
+      not_computable: {
+        inflow: "not_computable_no_direction",
+        outflow: "not_computable_no_direction",
+        net: "not_computable_no_direction",
+        reason:
+          "no payer-side key exists in any ingested record and relationships contains no transfer edge type, so no movement has a direction; these are reported as absent, never as zero",
+      },
+    },
+    structure_network: {
+      nodes: MOCK_FLOW_NODES,
+      edges: MOCK_FLOW_EDGES,
+      nodes_total: MOCK_FLOW_NODES.length,
+      edges_total: MOCK_FLOW_EDGES.length,
+      edges_bounded: false,
+      max_edges: 500,
+      confirmed_transfer_edges: 0,
+      transfer_edge_note:
+        "no ingested record states a two-sided money movement and relationships has no transfer edge type, so no edge is a confirmed transfer; association edges are candidates for review",
+      account_node_linkage:
+        "fact-derived and entity-derived account nodes share one documented normalization; a mismatch yields two nodes rather than an assumed merge",
+    },
+    patterns: {
+      firing,
+      not_fired: unmatchedVictims.length === 0 ? ["victim_loss_unmatched"] : [],
+      not_evaluable: mockFlowNotEvaluable(),
+      rule_count: 10,
+      rules_version: MOCK_FLOW_PATTERNS_VERSION,
+    },
+    extraction_warnings: {
+      records_without_financial_fields: 1,
+      amount_invalid: 0,
+      amounts_parsed: 4,
+    },
+    limitations,
+    calculation_definitions: MOCK_FLOW_CALCULATION_DEFINITIONS,
+  };
+}
+
+function mockFinancialFindingArtifact(caseId: string, jobId: string): DerivedArtifactOut {
+  return {
+    id: nextIntelId(),
+    case_id: caseId,
+    kind: "financial_finding",
+    origin: "deterministic",
+    status: "pending_review",
+    validation_status: "valid",
+    evidence_file_id: null,
+    source_record_id: null,
+    source_locator: null,
+    payload: mockFlowPayload(caseId),
+    // Content-derived: a rerun reuses the artifact instead of duplicating it.
+    content_hash: `financial-finding-${caseId}`,
+    parser_version: MOCK_FLOW_RULES_VERSION,
+    prompt_version: null,
+    model_profile: null,
+    analysis_job_id: jobId,
+    validation_errors: null,
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+}
+
+/**
+ * Bounded structure trace over `MOCK_FLOW_NETWORK` — the same rules as the
+ * backend: sorted neighbours, simple paths only, dead ends marked incomplete,
+ * bounds clamped and echoed, and `transfer` answered as absent instead of
+ * approximated with associations.
+ */
+function traceMockFlow(caseId: string, input: FlowTraceRequest): FlowTraceResponse {
+  const target = input.target;
+  const edgeKind = input.edge_kind ?? "association";
+  const targetKind = input.target_kind ?? "account";
+  const maxDepth = Math.min(Math.max(input.max_depth ?? MOCK_FLOW_TRACE_MAX_DEPTH, 1), MOCK_FLOW_TRACE_MAX_DEPTH);
+  const maxPaths = Math.min(Math.max(input.max_paths ?? MOCK_FLOW_TRACE_MAX_PATHS, 1), MOCK_FLOW_TRACE_MAX_PATHS);
+  const limitations = [
+    "every hop is an association (documented co-occurrence) or a recorded relationship, never a confirmed transfer, so a trace answers what else is documented about an account \u2014 not where money went",
+    "no ingested record carries a transaction timestamp, so a trace has no time dimension",
+    "a path ending dead_end means the trail stops there in the ingested evidence; no destination beyond it is ever guessed",
+  ];
+  const response: FlowTraceResponse = {
+    case_id: caseId,
+    flow_rules_version: MOCK_FLOW_RULES_VERSION,
+    target,
+    target_kind: targetKind,
+    edge_kind: edgeKind,
+    status: "ok",
+    reason: null,
+    start_node: null,
+    matched_facts: 0,
+    target_degree: 0,
+    paths: [],
+    paths_bounded: false,
+    records_bounded: false,
+    bounds: {
+      max_depth: maxDepth,
+      max_paths: maxPaths,
+      max_records: MOCK_FLOW_MAX_RECORDS,
+      records_scanned: MOCK_FLOW_RECORDS_SCANNED,
+    },
+    network: {
+      nodes_total: MOCK_FLOW_NODES.length,
+      edges_total: MOCK_FLOW_EDGES.length,
+      confirmed_transfer_edges: 0,
+    },
+    limitations,
+  };
+
+  if (edgeKind === "transfer") {
+    return {
+      ...response,
+      status: "insufficient_data",
+      reason: "no_transfer_edges_in_ingest",
+      limitations: [
+        ...limitations,
+        "a transfer trace was requested but no ingested record states a two-sided money movement and relationships contains no transfer edge type, so there is no transfer path to return; the trail is reported as absent rather than approximated with associations",
+      ],
+    };
+  }
+
+  const nodeIds = new Set(MOCK_FLOW_NODES.map((node) => node.id));
+  let start: string | null = null;
+  if (targetKind === "transaction") {
+    const normalized = target.trim().toUpperCase();
+    const matched = MOCK_FLOW_FACTS.filter((fact) => fact.txn_ref_normalized === normalized);
+    response.matched_facts = matched.length;
+    if (matched.length === 0) {
+      response.status = "not_found";
+      response.reason = "no_source_record_in_this_case_carries_that_transaction_reference";
+    } else {
+      const accountFact = matched.find(
+        (fact) =>
+          typeof fact.account_normalized === "string" &&
+          nodeIds.has(`account:${String(fact.account_normalized)}`),
+      );
+      start = accountFact ? `account:${String(accountFact.account_normalized)}` : null;
+      if (!start) response.reason = "transaction_found_but_no_account_is_documented_for_it";
+    }
+  } else {
+    const candidate = `account:${target.replace(/[^A-Za-z0-9]/g, "").toUpperCase()}`;
+    if (nodeIds.has(candidate)) {
+      start = candidate;
+    } else {
+      response.status = "not_found";
+      response.reason = "no_account_matching_that_reference_is_documented_in_this_case";
+    }
+  }
+
+  if (response.status === "ok" && start) {
+    response.start_node = start;
+    const paths: FlowTracePath[] = [];
+    let truncated = false;
+    const dfs = (node: string, nodesPath: string[], hops: FlowTraceHop[], visited: Set<string>): void => {
+      if (paths.length >= maxPaths) {
+        truncated = true;
+        return;
+      }
+      const open = Object.keys(MOCK_FLOW_ADJACENCY[node] ?? {})
+        .filter((neighbor) => !visited.has(neighbor))
+        .sort();
+      const atDepthLimit = hops.length >= maxDepth;
+      if (open.length === 0 || atDepthLimit) {
+        if (nodesPath.length > 1) {
+          if (paths.length >= maxPaths) {
+            truncated = true;
+            return;
+          }
+          const endState = atDepthLimit && open.length > 0 ? "depth_limit" : "dead_end";
+          paths.push({
+            nodes: [...nodesPath],
+            hops: [...hops],
+            depth: hops.length,
+            end_state: endState,
+            incomplete: endState === "dead_end",
+          });
+        } else if (atDepthLimit && open.length > 0) {
+          truncated = true;
+        }
+        return;
+      }
+      for (const neighbor of open) {
+        if (paths.length >= maxPaths) {
+          truncated = true;
+          return;
+        }
+        const edge = MOCK_FLOW_ADJACENCY[node][neighbor];
+        dfs(
+          neighbor,
+          [...nodesPath, neighbor],
+          [
+            ...hops,
+            {
+              source: node,
+              target: neighbor,
+              edge_kind: edge.edge_kind,
+              derivation: edge.derivation,
+              confidence: edge.confidence,
+              relationship_type: edge.relationship_type,
+              supporting_source_record_ids: [...edge.supporting_source_record_ids],
+            },
+          ],
+          new Set([...visited, neighbor]),
+        );
+      }
+    };
+    dfs(start, [start], [], new Set([start]));
+    response.target_degree = Object.keys(MOCK_FLOW_ADJACENCY[start] ?? {}).length;
+    response.paths = paths;
+    response.paths_bounded = truncated;
+  }
+
+  return response;
+}
+
+async function submitAnalysisFeature(caseId: string, feature: AnalysisFeature): Promise<JobSubmitResponse> {
   await delay(MOCK_LATENCY * 2);
   requirePermission("ingestion.run");
   assertCaseAccess(caseId);
-  const meta = PHASE3_FEATURES[feature];
+  const meta = ANALYSIS_FEATURES[feature];
   const active = intelJobsState.find(
     (j) => j.case_id === caseId && j.feature === feature && (j.status === "pending" || j.status === "running"),
   );
@@ -3874,6 +4562,30 @@ async function submitPhase3Feature(caseId: string, feature: Phase3Feature): Prom
       summary[created ? "proposals_recorded" : "proposals_reused"] =
         Number(summary[created ? "proposals_recorded" : "proposals_reused"]) + 1;
     }
+  } else if (feature === "financial_flow") {
+    const payload = mockFlowPayload(caseId);
+    const patterns = payload.patterns as { firing: unknown[]; not_fired: string[]; not_evaluable: unknown[] };
+    const aggregates = payload.aggregates as { currency_buckets: unknown[] };
+    const network = payload.structure_network as { nodes_total: number; edges_total: number };
+    const scope = payload.scope as { records_scanned: number; victim_rows_scanned: number };
+    Object.assign(summary, {
+      records_scanned: scope.records_scanned,
+      records_bounded: false,
+      victim_rows_scanned: scope.victim_rows_scanned,
+      facts_extracted: payload.facts_total,
+      facts_transaction: 4,
+      facts_account_reference: 1,
+      currency_buckets: aggregates.currency_buckets.length,
+      network_nodes: network.nodes_total,
+      network_edges: network.edges_total,
+      patterns_firing: patterns.firing.length,
+      patterns_not_evaluable: patterns.not_evaluable.length,
+      patterns_not_fired: patterns.not_fired.length,
+      artifacts_created: 0,
+      artifacts_reused: 0,
+    });
+    const created = record(mockFinancialFindingArtifact(caseId, job.id));
+    summary[created ? "artifacts_created" : "artifacts_reused"] = 1;
   } else {
     Object.assign(summary, {
       records_scanned: 0,

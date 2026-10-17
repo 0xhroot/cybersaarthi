@@ -45,6 +45,7 @@ from app.models import (
 )
 from app.services import financial_flow as flow_svc
 from app.services.financial_flow import (
+    _trace_paths,
     aggregate_facts,
     build_structure_network,
     classify_status,
@@ -821,3 +822,275 @@ async def test_identical_rerun_reuses_the_artifact(
     artifacts = await _artifacts(database, _owned_case, kind="financial_finding")
     assert len(artifacts) == 1
     assert artifacts[0].content_hash == original_hash
+
+
+# -- bounded trace (read-only endpoint) ----------------------------------------
+
+
+async def _trace(
+    client: AsyncClient, case_id: uuid.UUID, body: dict[str, object]
+) -> httpx.Response:
+    return await client.post(
+        f"{PREFIX}/cases/{case_id}/evidence-intelligence/financial-flow/trace",
+        json=body,
+    )
+
+
+def _trace_edge(**overrides: object) -> dict[str, object]:
+    edge: dict[str, object] = {
+        "edge_kind": "association",
+        "derivation": "co_occurrence",
+        "confidence": "suspected",
+        "relationship_type": None,
+        "supporting_source_record_ids": ["rec-1"],
+    }
+    edge.update(overrides)
+    return edge
+
+
+def test_trace_paths_are_bounded_deterministic_and_honest_about_ends() -> None:
+    # a -> b -> c chain
+    chain = {
+        "a": {"b": _trace_edge()},
+        "b": {"a": _trace_edge(), "c": _trace_edge()},
+        "c": {"b": _trace_edge()},
+    }
+
+    # Depth 1 stops at b with more evidence beyond the bound: not a dead end.
+    paths, truncated = _trace_paths("a", chain, max_depth=1, max_paths=10)
+    assert truncated is False
+    assert [p["nodes"] for p in paths] == [["a", "b"]]
+    assert paths[0]["end_state"] == "depth_limit"
+    assert paths[0]["incomplete"] is False
+
+    # Full depth reaches c: the trail genuinely stops in the evidence.
+    paths, _ = _trace_paths("a", chain, max_depth=5, max_paths=10)
+    assert [p["nodes"] for p in paths] == [["a", "b", "c"]]
+    assert paths[0]["end_state"] == "dead_end"
+    assert paths[0]["incomplete"] is True
+    assert paths[0]["depth"] == 2
+
+    # A cycle never revisits a node.
+    cyclic = {
+        "a": {"b": _trace_edge()},
+        "b": {"a": _trace_edge(), "c": _trace_edge()},
+        "c": {"b": _trace_edge(), "a": _trace_edge()},
+    }
+    paths, _ = _trace_paths("a", cyclic, max_depth=5, max_paths=10)
+    for path in paths:
+        assert len(path["nodes"]) == len(set(path["nodes"]))
+
+    # Path budget is enforced and the truncation is reported, not hidden.
+    star = {
+        "a": {"b": _trace_edge(), "c": _trace_edge(), "d": _trace_edge()},
+        "b": {"a": _trace_edge()},
+        "c": {"a": _trace_edge()},
+        "d": {"a": _trace_edge()},
+    }
+    paths, truncated = _trace_paths("a", star, max_depth=4, max_paths=2)
+    assert len(paths) == 2
+    assert truncated is True
+
+    # Deterministic: identical input yields byte-identical output, twice.
+    first, _ = _trace_paths("a", star, max_depth=4, max_paths=10)
+    second, _ = _trace_paths("a", star, max_depth=4, max_paths=10)
+    assert first == second
+
+
+async def test_trace_returns_association_paths_with_typed_hops(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+    settings,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="trace")
+
+    response = await _trace(http_client, _owned_case, {"target": "ACC-SIH-001"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["status"] == "ok"
+    assert body["edge_kind"] == "association"
+    assert body["start_node"] == "account:ACCSIH001"
+    assert body["target_degree"] == 3
+    assert body["paths_bounded"] is False
+    # Honest scope: the network was really scanned, and it holds no transfers.
+    assert body["network"]["nodes_total"] == 10
+    assert body["network"]["edges_total"] == 7
+    assert body["network"]["confirmed_transfer_edges"] == 0
+
+    # Neighbours are visited in sorted node-id order (deterministic contract).
+    assert [path["nodes"] for path in body["paths"]] == [
+        ["account:ACCSIH001", "beneficiary:ananya sirohi"],
+        ["account:ACCSIH001", "merchant:phonepe merchant"],
+        ["account:ACCSIH001", "party:ananya sirohi"],
+    ]
+    for path in body["paths"]:
+        assert path["depth"] == 1
+        # The trail stops here in the ingested evidence — no destination guessed.
+        assert path["end_state"] == "dead_end"
+        assert path["incomplete"] is True
+        (hop,) = path["hops"]
+        assert hop["edge_kind"] == "association"
+        assert hop["confidence"] == "suspected"
+        assert hop["relationship_type"] is None
+        assert hop["supporting_source_record_ids"]
+
+    # Effective bounds are echoed with the result.
+    assert body["bounds"]["records_scanned"] == 6
+    assert body["bounds"]["max_depth"] == settings.FLOW_TRACE_MAX_DEPTH
+    assert body["bounds"]["max_paths"] == settings.FLOW_TRACE_MAX_PATHS
+    assert body["bounds"]["max_records"] == settings.FLOW_MAX_RECORDS
+    assert any("not where money went" in lim for lim in body["limitations"])
+
+    # Repeated calls return identical results.
+    again = await _trace(http_client, _owned_case, {"target": "ACC-SIH-001"})
+    assert again.json()["paths"] == body["paths"]
+
+
+async def test_trace_transaction_target_resolves_via_reference(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="trace-txn")
+
+    response = await _trace(
+        http_client, _owned_case, {"target": "txn-sih-001", "target_kind": "transaction"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "ok"
+    # Two source records carry that reference (the transfer recorded twice).
+    assert body["matched_facts"] == 2
+    assert body["start_node"] == "account:ACCSIH001"
+    assert len(body["paths"]) == 3
+
+    missing = await _trace(
+        http_client, _owned_case, {"target": "TXN-DOES-NOT-EXIST", "target_kind": "transaction"}
+    )
+    missing_body = missing.json()
+    assert missing_body["status"] == "not_found"
+    assert missing_body["matched_facts"] == 0
+    assert missing_body["paths"] == []
+
+
+async def test_trace_transfer_kind_reports_the_ingest_gap(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+) -> None:
+    """The capability exists; the answer is 'absent', never an approximation."""
+    await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="trace-transfer")
+
+    response = await _trace(
+        http_client, _owned_case, {"target": "ACC-SIH-001", "edge_kind": "transfer"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "insufficient_data"
+    assert body["reason"] == "no_transfer_edges_in_ingest"
+    assert body["paths"] == []
+    # The real scan scope is still reported so a bare zero cannot be misread as
+    # "this case has no financial structure at all".
+    assert body["network"]["nodes_total"] == 10
+    assert body["network"]["edges_total"] == 7
+    assert body["network"]["confirmed_transfer_edges"] == 0
+    assert any("no transfer path to return" in lim for lim in body["limitations"])
+
+
+async def test_trace_unknown_target_reports_scope_not_a_guess(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="trace-missing")
+
+    response = await _trace(http_client, _owned_case, {"target": "ACC-NOPE-999"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "not_found"
+    assert body["reason"] == "no_account_matching_that_reference_is_documented_in_this_case"
+    assert body["start_node"] is None
+    assert body["paths"] == []
+    # The scan still happened: scope is reported alongside the miss.
+    assert body["network"]["nodes_total"] == 10
+    assert body["bounds"]["records_scanned"] == 6
+
+
+async def test_trace_clamps_bounds_and_rejects_bad_input(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+    settings,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="trace-bounds")
+
+    # Requested bounds beyond the server configuration are clamped, not obeyed.
+    oversized = await _trace(
+        http_client, _owned_case, {"target": "ACC-SIH-001", "max_depth": 999, "max_paths": 999}
+    )
+    assert oversized.status_code == 200, oversized.text
+    bounds = oversized.json()["bounds"]
+    assert bounds["max_depth"] == settings.FLOW_TRACE_MAX_DEPTH
+    assert bounds["max_paths"] == settings.FLOW_TRACE_MAX_PATHS
+
+    # A smaller explicit bound is honoured.
+    small = await _trace(http_client, _owned_case, {"target": "ACC-SIH-001", "max_depth": 1})
+    assert small.json()["bounds"]["max_depth"] == 1
+    assert len(small.json()["paths"]) == 3
+
+    # Invalid values never reach the analyzer.
+    for bad_body in (
+        {"target": "ACC-SIH-001", "max_depth": 0},
+        {"target": "ACC-SIH-001", "target_kind": "wallet"},
+        {"target": "ACC-SIH-001", "edge_kind": "laundering"},
+        {"target": ""},
+    ):
+        rejected = await _trace(http_client, _owned_case, bad_body)
+        assert rejected.status_code == 422, (bad_body, rejected.text)
+
+
+async def test_trace_is_read_only_and_permission_scoped(
+    database: Database,
+    _owned_case: uuid.UUID,
+    user_factory,
+    settings,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="trace-perm")
+
+    # A viewer holds evidence.read (but not ingestion.run) — tracing is read-only.
+    viewer = await user_factory(role="VIEWER")
+    factory = database.session_factory()
+    async with factory() as session:
+        session.add(
+            CaseMember(case_id=_owned_case, user_id=viewer.id, role="collaborator")
+        )
+        await session.commit()
+    async with _client(viewer.token) as client:
+        allowed = await _trace(client, _owned_case, {"target": "ACC-SIH-001"})
+    assert allowed.status_code == 200, allowed.text
+
+    # A stranger to the case is refused before any record is read.
+    stranger = await user_factory(role="INVESTIGATOR")
+    async with _client(stranger.token) as client:
+        refused = await _trace(client, _owned_case, {"target": "ACC-SIH-001"})
+    assert refused.status_code == 403, refused.text
+
+    # Anonymous callers are refused with 401.
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as anonymous:
+        unauthenticated = await _trace(anonymous, _owned_case, {"target": "ACC-SIH-001"})
+    assert unauthenticated.status_code == 401
+
+    # Read-only: no job queued, no artifact written, nothing mutated.
+    factory = database.session_factory()
+    async with factory() as session:
+        jobs = (
+            await session.execute(
+                select(AnalysisJob).where(AnalysisJob.case_id == str(_owned_case))
+            )
+        ).scalars()
+        assert list(jobs) == []
+    assert await _artifacts(database, _owned_case, kind="financial_finding") == []

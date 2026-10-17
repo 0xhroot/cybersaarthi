@@ -50,6 +50,8 @@ export type ApiErrorCode =
   | "TIMELINE_TIMESTAMP_MISSING"
   | "CONTRADICTION_STATE_INVALID"
   | "REVIEW_NOTE_REQUIRED"
+  /* Financial flow (phase 4, feature A). */
+  | "FLOW_ACTIVE"
   | "UNKNOWN";
 
 export interface ApiErrorBody {

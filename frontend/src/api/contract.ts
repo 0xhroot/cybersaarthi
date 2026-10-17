@@ -54,6 +54,8 @@ import type {
   FindingList,
   FindingStats,
   FindingStatusOut,
+  FlowTraceRequest,
+  FlowTraceResponse,
   GraphResponse,
   GraphStats,
   GraphSyncResult,
@@ -292,6 +294,28 @@ export interface ApiEvidenceService {
     artifactId: string,
     input: ContradictionResolveRequest,
   ): Promise<DerivedArtifactOut>;
+
+  /* ------------------ Financial flow (phase 4, feature A) ------------------ */
+
+  /**
+   * Queue one deterministic financial-fact analysis run (202 + background job,
+   * no LLM anywhere in the run). Exact-`Decimal` amounts, per-currency
+   * aggregates, a bounded association network and the declared pattern rules.
+   * Direction-dependent metrics come back `not_computable_no_direction`, and
+   * every rule the ingest cannot support comes back `not_evaluable` with the
+   * missing input — nothing is invented to fill a gap. One active job per
+   * feature: a concurrent submit is refused with `FLOW_ACTIVE`.
+   */
+  submitFinancialFlow(caseId: string): Promise<JobSubmitResponse>;
+  /**
+   * Bounded, read-only structure trace, recomputed from the caller's
+   * authorized records on every call (no cache, no job, no model). Every hop
+   * is typed `association` (suspected) or `relationship` (schema asserted);
+   * `edge_kind: "transfer"` is accepted and answered `insufficient_data`
+   * (`no_transfer_edges_in_ingest`) instead of being approximated with
+   * associations. Effective bounds are echoed back with the result.
+   */
+  traceFinancialFlow(caseId: string, input: FlowTraceRequest): Promise<FlowTraceResponse>;
 }
 
 export interface ApiGraphService {

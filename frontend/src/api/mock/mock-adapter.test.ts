@@ -749,3 +749,131 @@ describe("case intelligence (phase 3)", () => {
     await expect(mockApi.evidence.submitContradictions(MAIN_CASE_ID)).rejects.toMatchObject({ status: 403 });
   });
 });
+
+describe("financial flow (phase 4)", () => {
+  it("records a deterministic finding with exact totals, victims and zero confirmed transfers", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const submitted = await mockApi.evidence.submitFinancialFlow(MAIN_CASE_ID);
+    expect(submitted.job.feature).toBe("financial_flow");
+    expect(submitted.job.status).toBe("succeeded");
+    expect(submitted.job.idempotency_key).toBe(`financial_flow:${MAIN_CASE_ID}:a1`);
+    expect(submitted.job.result_summary).toMatchObject({
+      records_scanned: 6,
+      facts_extracted: 5,
+      currency_buckets: 1,
+      network_nodes: 10,
+      network_edges: 7,
+      artifacts_created: 1,
+    });
+    const summary = submitted.job.result_summary as Record<string, number>;
+    // 4 fixture rules fire + both case victims (amounts match no transaction).
+    expect(summary.patterns_firing).toBe(6);
+    expect(summary.patterns_not_evaluable).toBe(5);
+    expect(summary.patterns_not_fired).toBe(0);
+
+    const findings = await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "financial_finding" });
+    expect(findings.items.length).toBe(1);
+    const finding = findings.items[0];
+    expect(finding.origin).toBe("deterministic");
+    expect(finding.status).toBe("pending_review");
+    expect(finding.prompt_version).toBeNull(); // no model ran in this feature
+
+    const payload = finding.payload as {
+      flow_rules_version: string;
+      aggregates: {
+        currency_buckets: Array<{
+          currency: string | null;
+          total_records: string;
+          total_distinct: string;
+        }>;
+        not_computable: { net: string };
+      };
+      structure_network: { confirmed_transfer_edges: number; nodes_total: number; edges_total: number };
+      patterns: { firing: Array<{ rule: string }>; not_fired: string[]; not_evaluable: Array<{ rule: string; reason: string }> };
+      limitations: string[];
+      calculation_definitions: Record<string, string>;
+    };
+    expect(payload.flow_rules_version).toBe("flow-rules/1.0.0");
+    const bucket = payload.aggregates.currency_buckets[0];
+    expect(bucket.currency).toBeNull(); // never labelled with a default currency
+    expect(bucket.total_records).toBe("25500.00");
+    expect(bucket.total_distinct).toBe("21000.00");
+    expect(payload.aggregates.not_computable.net).toBe("not_computable_no_direction");
+    expect(payload.structure_network.confirmed_transfer_edges).toBe(0);
+    expect(payload.structure_network.nodes_total).toBe(10);
+    expect(payload.structure_network.edges_total).toBe(7);
+    const firingRules = payload.patterns.firing.map((p) => p.rule);
+    expect(firingRules).toEqual(expect.arrayContaining(["duplicate_amount", "amount_threshold", "victim_loss_unmatched"]));
+    expect(payload.patterns.not_fired).toEqual([]);
+    expect(payload.patterns.not_evaluable.map((p) => p.rule)).toContain("circular_path");
+    expect(payload.patterns.not_evaluable.every((p) => Boolean(p.reason))).toBe(true);
+    expect(payload.limitations.join(" ")).toContain("no payer/sender key");
+    expect(payload.calculation_definitions.net_flow).toContain("not computed");
+
+    // A rerun reuses the artifact by content hash and increments the attempt.
+    const second = await mockApi.evidence.submitFinancialFlow(MAIN_CASE_ID);
+    expect(second.job.attempts).toBe(2);
+    expect(second.job.idempotency_key).toBe(`financial_flow:${MAIN_CASE_ID}:a2`);
+    expect(second.job.result_summary).toMatchObject({ artifacts_created: 0, artifacts_reused: 1 });
+    const after = await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "financial_finding" });
+    expect(after.items.length).toBe(1);
+  });
+
+  it("traces association paths deterministically and answers a transfer request as absent", async () => {
+    await signIn("investigator", "investigator-dev-password");
+
+    const first = await mockApi.evidence.traceFinancialFlow(MAIN_CASE_ID, { target: "ACC-SIH-001" });
+    expect(first.status).toBe("ok");
+    expect(first.start_node).toBe("account:ACCSIH001");
+    expect(first.target_degree).toBe(3);
+    // Sorted neighbour order is the deterministic contract.
+    expect(first.paths.map((p) => p.nodes[1])).toEqual([
+      "beneficiary:ananya sirohi",
+      "merchant:phonepe merchant",
+      "party:ananya sirohi",
+    ]);
+    expect(first.paths.every((p) => p.end_state === "dead_end" && p.incomplete)).toBe(true);
+    expect(first.paths[0].hops[0]).toMatchObject({ edge_kind: "association", confidence: "suspected" });
+    expect(first.network).toMatchObject({ nodes_total: 10, edges_total: 7, confirmed_transfer_edges: 0 });
+    expect(first.bounds).toMatchObject({ max_depth: 4, max_paths: 50, max_records: 1000, records_scanned: 6 });
+
+    const again = await mockApi.evidence.traceFinancialFlow(MAIN_CASE_ID, { target: "ACC-SIH-001" });
+    expect(again.paths).toEqual(first.paths);
+
+    const transfer = await mockApi.evidence.traceFinancialFlow(MAIN_CASE_ID, {
+      target: "ACC-SIH-001",
+      edge_kind: "transfer",
+    });
+    expect(transfer.status).toBe("insufficient_data");
+    expect(transfer.reason).toBe("no_transfer_edges_in_ingest");
+    expect(transfer.paths).toEqual([]);
+    // The scan scope is still reported so a bare zero cannot be misread.
+    expect(transfer.network.nodes_total).toBe(10);
+
+    const missing = await mockApi.evidence.traceFinancialFlow(MAIN_CASE_ID, { target: "ACC-NOPE-999" });
+    expect(missing.status).toBe("not_found");
+    expect(missing.paths).toEqual([]);
+
+    const txn = await mockApi.evidence.traceFinancialFlow(MAIN_CASE_ID, {
+      target: "txn-sih-001",
+      target_kind: "transaction",
+    });
+    expect(txn.status).toBe("ok");
+    expect(txn.matched_facts).toBe(2);
+    expect(txn.start_node).toBe("account:ACCSIH001");
+
+    // Requested bounds beyond the server configuration are clamped and echoed.
+    const oversized = await mockApi.evidence.traceFinancialFlow(MAIN_CASE_ID, {
+      target: "ACC-SIH-001",
+      max_depth: 999,
+      max_paths: 999,
+    });
+    expect(oversized.bounds.max_depth).toBe(4);
+    expect(oversized.bounds.max_paths).toBe(50);
+  });
+
+  it("denies financial-flow runs to users without ingestion.run", async () => {
+    await signIn("viewer", "viewer-demo-password");
+    await expect(mockApi.evidence.submitFinancialFlow(MAIN_CASE_ID)).rejects.toMatchObject({ status: 403 });
+  });
+});

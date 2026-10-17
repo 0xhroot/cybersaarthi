@@ -81,6 +81,7 @@ import type {
   FindingList,
   FindingStats,
   FindingStatusOut,
+  FlowTraceResponse,
   GraphResponse,
   GraphStats,
   GraphSyncResult,
@@ -434,6 +435,21 @@ const evidenceService: ApiEvidenceService = {
   resolveContradiction(caseId, artifactId, input) {
     return request<DerivedArtifactOut>(
       `/cases/${caseId}/evidence-intelligence/contradictions/${artifactId}/resolve`,
+      { method: "POST", body: input },
+    );
+  },
+
+  /* ------------------ Financial flow (phase 4, feature A) ------------------ */
+
+  submitFinancialFlow(caseId) {
+    return request<JobSubmitResponse>(
+      `/cases/${caseId}/evidence-intelligence/financial-flow`,
+      { method: "POST", body: {} },
+    );
+  },
+  traceFinancialFlow(caseId, input) {
+    return request<FlowTraceResponse>(
+      `/cases/${caseId}/evidence-intelligence/financial-flow/trace`,
       { method: "POST", body: input },
     );
   },
