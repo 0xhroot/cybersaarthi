@@ -10,6 +10,7 @@ human-review decision.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -61,6 +62,9 @@ from app.services import artifacts as artifacts_svc
 from app.services import audit as audit_svc
 from app.services import entity_matching as resolution_svc
 from app.services import evidence_extraction as extraction_svc
+from app.services.graph_sync import GraphSyncService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cases", tags=["evidence-intelligence"])
 
@@ -460,4 +464,45 @@ async def review_evidence_artifact(
         },
     )
     await session.commit()
-    return _artifact_out(target)
+
+    out = _artifact_out(target)
+    if resolution_meta:
+        # Approved aliases live in PostgreSQL first; the Neo4j projection is
+        # refreshed best-effort *after* commit so a graph outage can never
+        # roll back the reviewer's decision. Failure is surfaced (never
+        # silently treated as current): `graph_synced: false` in the response
+        # plus a durable `graph.sync_failed` audit event.
+        graph_synced = True
+        try:
+            graph_svc = GraphSyncService(request.app.state.graph_store, get_settings())
+            await graph_svc.sync_entities_by_id(
+                session,
+                [
+                    str(resolution_meta["entity_a_id"]),
+                    str(resolution_meta["entity_b_id"]),
+                ],
+            )
+        except Exception:
+            logger.exception(
+                "graph projection failed after resolution approval",
+                extra={"case_id": str(case_id), "artifact_id": str(target.id)},
+            )
+            graph_synced = False
+            await audit_svc.record_audit(
+                session,
+                actor_id=user.id,
+                action="graph.sync_failed",
+                resource_type="entity",
+                resource_id=uuid.UUID(str(resolution_meta["entity_a_id"])),
+                case_id=case_id,
+                metadata={
+                    "entity_ids": [
+                        str(resolution_meta["entity_a_id"]),
+                        str(resolution_meta["entity_b_id"]),
+                    ],
+                    "trigger": "entity_resolution_approved",
+                },
+            )
+            await session.commit()
+        out.graph_synced = graph_synced
+    return out

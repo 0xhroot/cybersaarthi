@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_case_or_404, get_entity_query_service, require_permission
 from app.core import rbac
+from app.core.config import get_settings
 from app.db.postgres import get_db_session
 from app.models import Entity, User
 from app.schemas.entity import (
@@ -276,4 +278,37 @@ async def merge_entities(
         },
     )
     await session.commit()
-    return _to_entity_out(merged_into)
+
+    # Mirror the merge into the Neo4j projection after commit so a graph
+    # outage cannot roll back the canonical change; failure is surfaced
+    # (``graph_synced: false`` + a durable audit event), never hidden.
+    graph_synced = True
+    try:
+        from app.services.graph_sync import GraphSyncService
+
+        graph_svc = GraphSyncService(request.app.state.graph_store, get_settings())
+        await graph_svc.sync_entities_by_id(
+            session, [str(body.primary_entity_id), str(body.merge_entity_id)]
+        )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "graph projection failed after entity merge",
+            extra={"case_id": str(case_id), "primary_id": str(body.primary_entity_id)},
+        )
+        graph_synced = False
+        await audit_svc.record_audit(
+            session,
+            actor_id=user.id,
+            action="graph.sync_failed",
+            resource_type="entity",
+            resource_id=body.primary_entity_id,
+            case_id=case_id,
+            metadata={
+                "entity_ids": [str(body.primary_entity_id), str(body.merge_entity_id)],
+                "trigger": "entity_merged",
+            },
+        )
+        await session.commit()
+    out = _to_entity_out(merged_into)
+    out.graph_synced = graph_synced
+    return out

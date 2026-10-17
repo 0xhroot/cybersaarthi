@@ -36,6 +36,7 @@ class EntityOut(BaseModel):
     display_value: str
     confidence: float | None
     status: EntityStatusLiteral
+    graph_synced: bool | None = None
     created_at: datetime
 
 

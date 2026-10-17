@@ -28,7 +28,7 @@ from app.repositories.evidence_repository import (
 )
 from app.repositories.relationship_repository import RelationshipRepository
 from app.services.extraction import Mention, extract_record_mentions
-from app.services.graph_sync import GraphSyncService
+from app.services.graph_sync import GraphSyncService, load_alias_map
 from app.services.parsing import parse
 from app.services.relationships import extract_relationships
 from app.services.resolution import build_record_context, resolve_candidate
@@ -313,10 +313,14 @@ class IngestionService:
         try:
             entities = await self._list_entities(case_id)
             relationships = await self._list_relationships(case_id)
+            aliases = await load_alias_map(
+                self._session, [str(entity.id) for entity in entities]
+            )
             nodes, edges = await self._graph_sync.sync_case(
                 case_id=case_id,
                 entities=entities,
                 relationships=relationships,
+                aliases_by_entity=aliases,
             )
             await self._evidence_repository.mark_graph_sync(job.id, status="synced")
             if job.summary is None:

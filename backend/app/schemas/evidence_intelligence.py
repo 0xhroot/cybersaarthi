@@ -30,6 +30,7 @@ class DerivedArtifactOut(BaseModel):
     reviewed_by: UUID | None
     reviewed_at: datetime | None
     parent_artifact_id: UUID | None
+    graph_synced: bool | None = None
     created_at: datetime
     updated_at: datetime
 

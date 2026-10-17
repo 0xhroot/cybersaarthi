@@ -13,10 +13,12 @@ from datetime import UTC, datetime
 from typing import TypedDict
 
 from neo4j import AsyncDriver
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.db.neo4j import GraphStore
-from app.models import Entity, Relationship
+from app.models import Entity, EntityAlias, Relationship
 from app.models.relationship import RELATIONSHIP_TYPES
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,24 @@ def _assert_legal_relationship_types(payload: list[RelationshipPayload]) -> None
             raise ValueError(f"illegal relationship type for graph sync: {label!r}")
 
 
+async def load_alias_map(
+    session: AsyncSession, entity_ids: list[str]
+) -> dict[str, list[str]]:
+    """Batch-load alias values (one query) so projections carry identity
+    context — including Phase 3 reviewed ``resolution`` aliases."""
+    if not entity_ids:
+        return {}
+    result = await session.execute(
+        select(EntityAlias.entity_id, EntityAlias.alias_value).where(
+            EntityAlias.entity_id.in_(entity_ids)
+        )
+    )
+    alias_map: dict[str, list[str]] = {}
+    for entity_id, alias_value in result.all():
+        alias_map.setdefault(str(entity_id), []).append(str(alias_value))
+    return alias_map
+
+
 class GraphSyncService:
     def __init__(self, graph_store: GraphStore, settings: Settings) -> None:
         self._graph_store = graph_store
@@ -67,8 +87,14 @@ class GraphSyncService:
             for statement in constraints:
                 await session.run(statement)
 
-    async def sync_nodes(self, entities: list[Entity], case_id: uuid.UUID) -> int:
+    async def sync_nodes(
+        self,
+        entities: list[Entity],
+        case_id: uuid.UUID,
+        aliases_by_entity: dict[str, list[str]] | None = None,
+    ) -> int:
         await self.ensure_indexes()
+        alias_map = aliases_by_entity or {}
         payload = [
             {
                 "id": str(entity.id),
@@ -78,6 +104,7 @@ class GraphSyncService:
                 "display_value": entity.display_value,
                 "status": entity.status,
                 "confidence": entity.confidence,
+                "aliases": sorted(set(alias_map.get(str(entity.id), []))),
             }
             for entity in entities
         ]
@@ -96,14 +123,16 @@ class GraphSyncService:
                         n.canonical_value = row.canonical_value,
                         n.display_value = row.display_value,
                         n.status = row.status,
-                        n.confidence = row.confidence
+                        n.confidence = row.confidence,
+                        n.aliases = row.aliases
                     ON MATCH SET
                         n.case_id = row.case_id,
                         n.entity_type = row.entity_type,
                         n.canonical_value = row.canonical_value,
                         n.display_value = row.display_value,
                         n.status = row.status,
-                        n.confidence = row.confidence
+                        n.confidence = row.confidence,
+                        n.aliases = row.aliases
                     """,
                     {"batch": chunk},
                 )
@@ -193,8 +222,9 @@ class GraphSyncService:
         case_id: uuid.UUID,
         entities: list[Entity],
         relationships: list[Relationship],
+        aliases_by_entity: dict[str, list[str]] | None = None,
     ) -> tuple[int, int]:
-        nodes = await self.sync_nodes(entities, case_id)
+        nodes = await self.sync_nodes(entities, case_id, aliases_by_entity)
         edges = await self.sync_edges(relationships, case_id)
         removed = await self.prune_duplicate_edges(case_id, [str(rel.id) for rel in relationships])
         if removed:
@@ -208,6 +238,37 @@ class GraphSyncService:
             extra={"case_id": str(case_id), "nodes": nodes, "edges": edges},
         )
         return nodes, edges
+
+    async def sync_entities_by_id(self, session: AsyncSession, entity_ids: list[str]) -> int:
+        """Targeted refresh of specific entities (with their aliases) in the
+        projection.
+
+        Used by write paths that change entities *after* ingestion — review
+        approvals (additive aliases) and merges (status flips) — so the graph
+        never serves a stale identity view. Reads the canonical rows from
+        PostgreSQL (post-commit truth) and reuses the idempotent MERGE. Raises
+        on driver failure so callers can surface ``graph_synced: false``
+        instead of pretending the projection is current.
+        """
+        ids = [eid for eid in entity_ids if eid]
+        if not ids:
+            return 0
+        result = await session.execute(select(Entity).where(Entity.id.in_(ids)))
+        entities = list(result.scalars())
+        if not entities:
+            return 0
+        alias_map = await load_alias_map(session, ids)
+        nodes = 0
+        by_case: dict[str, list[Entity]] = {}
+        for entity in entities:
+            by_case.setdefault(str(entity.case_id), []).append(entity)
+        for case_id, group in by_case.items():
+            nodes += await self.sync_nodes(
+                group,
+                uuid.UUID(case_id),
+                {str(entity.id): alias_map.get(str(entity.id), []) for entity in group},
+            )
+        return nodes
 
     async def delete_case(self, case_id: uuid.UUID) -> tuple[int, int]:
         """Remove every node and relationship of a case from the projection.
@@ -265,6 +326,7 @@ class GraphSyncService:
                         "display_value": props["display_value"],
                         "status": props["status"],
                         "confidence": props.get("confidence"),
+                        "aliases": list(props.get("aliases") or []),
                     }
                 )
             edge_result = await session.run(
