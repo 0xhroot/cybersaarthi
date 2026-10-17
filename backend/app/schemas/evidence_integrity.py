@@ -10,7 +10,7 @@ requests; nothing in this contract can edit or delete recorded history.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, Field
@@ -137,6 +137,9 @@ class ExplainResponse(BaseModel):
     explanation_artifact: DerivedArtifactOut
     text: str
     rule: str
+    # Structured explanation for Phase 4 findings (financial/cross-case); the
+    # custody narration is plain text and leaves this None.
+    explanation: dict[str, Any] | None = None
 
 
 class JobSubmitResponse(BaseModel):

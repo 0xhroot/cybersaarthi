@@ -28,6 +28,7 @@ import uuid
 import httpx
 import pytest
 from app.core.codes import (
+    CODE_AI_EXPLANATION_INVALID,
     CODE_ARTIFACT_NOT_REVIEWABLE,
     CODE_CROSS_CASE_ACTIVE,
     CODE_CROSS_CASE_SCOPE_DENIED,
@@ -49,6 +50,7 @@ from app.models import (
     SourceRecord,
 )
 from app.services import cross_case as xc_svc
+from app.services import explanations as explanation_svc
 from app.services.normalization import blocking_key
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
@@ -935,3 +937,208 @@ async def test_anonymous_discover_is_unauthorized(
     ) as client:
         response = await _discover(client, _owned_case, [_owned_case, _second_case])
     assert response.status_code == 401, response.text
+
+# -- explanation resolvers (deterministic citation validation) ------------------
+
+
+def test_financial_citation_validator_drops_fabricated_ids_and_numbers() -> None:
+    payload = {
+        "facts": [
+            {"record_no": 1, "txn_ref_normalized": "TXN1", "amount": "150000"},
+        ]
+    }
+    facts = explanation_svc.financial_explain_facts(payload)
+    good = {
+        "summary": "observed flow of amount 150000",
+        "cited_transaction_ids": ["1"],
+        "alternative_explanations": ["a legitimate transfer"],
+        "missing_information": [],
+        "verification_steps": ["verify"],
+    }
+    assert explanation_svc._validate_financial(good, payload, facts) == []
+
+    bad_id = dict(good, cited_transaction_ids=["999"])
+    assert any(
+        i["code"] == "citation_not_in_facts"
+        for i in explanation_svc._validate_financial(bad_id, payload, facts)
+    )
+
+    bad_number = dict(good, summary="observed flow of amount 999999")
+    assert any(
+        i["code"] == "number_not_in_facts"
+        for i in explanation_svc._validate_financial(bad_number, payload, facts)
+    )
+
+
+def test_crosscase_citation_validator_drops_unknown_identifiers() -> None:
+    payload = {
+        "group": {"value_normalized": "ACCSIH001"},
+        "sides": [
+            {
+                "case_id": "a",
+                "value_originals": ["ACC-SIH-001"],
+                "source_record_ids": ["r1"],
+                "entity_ids": [],
+            }
+        ],
+    }
+    assert (
+        explanation_svc._validate_crosscase({"cited_identifiers": ["ACC-SIH-001"]}, payload)
+        == []
+    )
+    issues = explanation_svc._validate_crosscase({"cited_identifiers": ["GHOST-1"]}, payload)
+    assert issues and issues[0]["code"] == "citation_not_in_provenance"
+
+
+def _candidate_by_kind(artifacts: list[DerivedArtifact], kind: str) -> DerivedArtifact:
+    return next(
+        a for a in artifacts if (a.payload or {}).get("group", {}).get("indicator_kind") == kind
+    )
+
+
+async def _artifact_row(database: Database, artifact_id: uuid.UUID) -> DerivedArtifact | None:
+    factory = database.session_factory()
+    async with factory() as session:
+        return await session.get(DerivedArtifact, artifact_id)
+
+
+async def test_cross_case_explain_stores_flagged_child_artifact(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+    _second_case: uuid.UUID,
+    api_user: ApiUser,
+    phase2_fake_ai,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, [CASE_A_RECORD], label="ex-a")
+    await _seed_evidence_records(database, _second_case, [CASE_B_RECORD], label="ex-b")
+    response = await _discover(http_client, _owned_case, [_owned_case, _second_case])
+    assert response.status_code == 202, response.text
+
+    artifacts = await _artifacts(database, _owned_case)
+    account = _candidate_by_kind(artifacts, "account_ref")
+    explain = await http_client.post(
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{account.id}/explain"
+    )
+    assert explain.status_code == 200, explain.text
+    body = explain.json()
+    assert body["explanation"] is not None
+    assert body["text"]
+
+    child = await _artifact_row(database, uuid.UUID(body["explanation_artifact"]["id"]))
+    assert child is not None
+    assert child.origin == "llm"
+    assert child.validation_status == "flagged"
+    assert child.status == "recorded"
+    assert str(child.parent_artifact_id) == str(account.id)
+    assert (child.payload or {}).get("type") == "ai_explanation"
+    # the default fake cited a real shared value from the candidate's provenance
+    assert phase2_fake_ai.crosscase_explain_calls
+
+
+async def test_cross_case_explain_drops_fabricated_citation(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+    _second_case: uuid.UUID,
+    api_user: ApiUser,
+    phase2_fake_ai,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, [CASE_A_RECORD], label="fab-a")
+    await _seed_evidence_records(database, _second_case, [CASE_B_RECORD], label="fab-b")
+    response = await _discover(http_client, _owned_case, [_owned_case, _second_case])
+    assert response.status_code == 202, response.text
+
+    phase2_fake_ai.crosscase_explain_replies = [
+        json.dumps(
+            {
+                "summary": "fabricated",
+                "matching_signal": "shared identifier",
+                "cited_identifiers": ["GHOST-999"],
+                "conflicts": [],
+                "not_established": ["anything"],
+                "verification_steps": ["verify"],
+            }
+        )
+    ]
+    artifacts = await _artifacts(database, _owned_case)
+    account = _candidate_by_kind(artifacts, "account_ref")
+    before = len(await _artifacts(database, _owned_case))
+    explain = await http_client.post(
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{account.id}/explain"
+    )
+    assert explain.status_code == 422, explain.text
+    assert explain.json()["error"]["code"] == CODE_AI_EXPLANATION_INVALID
+    # nothing was stored: the fabricated citation was dropped, not asserted.
+    assert len(await _artifacts(database, _owned_case)) == before
+
+
+async def test_cross_case_explain_denies_an_inaccessible_side(
+    database: Database,
+    _owned_case: uuid.UUID,
+    _second_case: uuid.UUID,
+    api_user: ApiUser,
+    user_factory,
+    phase2_fake_ai,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, [CASE_A_RECORD], label="hid-a")
+    await _seed_evidence_records(database, _second_case, [CASE_B_RECORD], label="hid-b")
+    async with _client(api_user.token) as lead_client:
+        response = await _discover(lead_client, _owned_case, [_owned_case, _second_case])
+    assert response.status_code == 202, response.text
+
+    artifacts = await _artifacts(database, _owned_case)
+    account = _candidate_by_kind(artifacts, "account_ref")
+
+    member = await user_factory(role="INVESTIGATOR")
+    await _add_member(database, _owned_case, member.id)
+    async with _client(member.token) as member_client:
+        explain = await member_client.post(
+            f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{account.id}/explain"
+        )
+    # The candidate touches the side case the member cannot read: shown as
+    # not-found, never explained, no disclosure.
+    assert explain.status_code == 404, explain.text
+
+
+async def test_cross_case_approval_records_reviewed_child_artifact(
+    database: Database,
+    _owned_case: uuid.UUID,
+    _second_case: uuid.UUID,
+    api_user: ApiUser,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, [CASE_A_RECORD], label="ap2-a")
+    await _seed_evidence_records(database, _second_case, [CASE_B_RECORD], label="ap2-b")
+    async with _client(api_user.token) as client:
+        response = await _discover(client, _owned_case, [_owned_case, _second_case])
+        assert response.status_code == 202, response.text
+
+        artifacts = await _artifacts(database, _owned_case)
+        account = _candidate_by_kind(artifacts, "account_ref")
+        approve = await client.post(
+            f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{account.id}/review",
+            json={"decision": "approved"},
+        )
+        assert approve.status_code == 200, approve.text
+
+    # A reviewed_cross_case_link child records the decision (provenance for a
+    # future merge) - never a merge, never a graph write.
+    factory = database.session_factory()
+    async with factory() as session:
+        rows = (
+            await session.execute(
+                select(DerivedArtifact).where(
+                    DerivedArtifact.parent_artifact_id == str(account.id),
+                    DerivedArtifact.kind == "cross_case_link",
+                )
+            )
+        ).scalars()
+        children = list(rows)
+    reviewed = [
+        c for c in children if (c.payload or {}).get("type") == "reviewed_cross_case_link"
+    ]
+    assert len(reviewed) == 1
+    payload = reviewed[0].payload or {}
+    assert payload["decision"] == "approved"
+    assert payload["cases"] == sorted([str(_owned_case), str(_second_case)])
+    assert str(reviewed[0].parent_artifact_id) == str(account.id)

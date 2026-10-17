@@ -450,6 +450,40 @@ async def review_evidence_artifact(
             status = 409 if exc.code == CODE_CANDIDATE_ENTITY_UNAVAILABLE else 422
             raise ApiHTTPException(status, exc.code, str(exc)) from exc
 
+    cross_meta: dict[str, Any] = {}
+    if body.decision == "approved" and artifact.kind == "cross_case_link":
+        # B5: approval records a reviewed cross-case relationship as a child
+        # artifact - never a merge, never a graph write, never a canonical
+        # relationship. The approved state is the artifact status + audit; this
+        # child is the provenance a future safe merge workflow would build on.
+        payload: dict[str, Any] = dict(artifact.payload or {})
+        raw_group = payload.get("group")
+        group: dict[str, Any] = raw_group if isinstance(raw_group, dict) else {}
+        side_cases = sorted(cross_case_svc.candidate_side_cases(artifact))
+        reviewed_child, _ = await artifacts_svc.record_artifact(
+            session,
+            case_id=case_id,
+            kind="cross_case_link",
+            origin="deterministic",
+            parent_artifact_id=artifact.id,
+            payload={
+                "type": "reviewed_cross_case_link",
+                "decision": "approved",
+                "indicator_kind": group.get("indicator_kind"),
+                "value_normalized": group.get("value_normalized"),
+                "classification": payload.get("classification"),
+                "cases": side_cases,
+                "for_artifact_id": str(artifact.id),
+                "reviewer_id": str(user.id),
+            },
+            status="recorded",
+            created_by=user.id,
+        )
+        cross_meta = {
+            "reviewed_child_artifact_id": str(reviewed_child.id),
+            "reviewed_cases": side_cases,
+        }
+
     try:
         await artifacts_svc.review_artifact(
             session,
@@ -472,6 +506,7 @@ async def review_evidence_artifact(
             "content_hash": target.content_hash,
             **edit_meta,
             **resolution_meta,
+            **cross_meta,
         },
     )
     await session.commit()

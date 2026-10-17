@@ -1390,6 +1390,17 @@ def candidate_is_reviewable(artifact: DerivedArtifact) -> bool:
     return bool(payload.get("reviewable", True))
 
 
+def candidate_side_cases(artifact: DerivedArtifact) -> set[str]:
+    """Every case id a cross-case candidate references (anchor + every side)."""
+    cases: set[str] = set()
+    if artifact.case_id:
+        cases.add(str(artifact.case_id))
+    for side in _payload_sides(artifact.payload or {}):
+        if side.get("case_id"):
+            cases.add(str(side["case_id"]))
+    return cases
+
+
 async def guard_cross_case_artifact(
     session: AsyncSession, user: User, artifact: DerivedArtifact
 ) -> None:
@@ -1439,6 +1450,7 @@ __all__ = [
     "assert_candidate_decision_allowed",
     "build_candidate",
     "build_candidates",
+    "candidate_side_cases",
     "candidate_is_reviewable",
     "collect_case_indicators",
     "detect_unkeyed_kind",

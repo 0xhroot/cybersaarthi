@@ -44,8 +44,10 @@ from app.ai.client import (
 from app.ai.drafts import mark_unverified_ids, parse_hypothesis_drafts
 from app.ai.prompts import (
     CONTRADICTION_SYSTEM_PROMPT,
+    CROSSCASE_EXPLAIN_SYSTEM_PROMPT,
     CUSTODY_EXPLAIN_SYSTEM_PROMPT,
     EXTRACTION_SYSTEM_PROMPT,
+    FINANCIAL_EXPLAIN_SYSTEM_PROMPT,
     PROMPT_VERSION,
     RESOLUTION_SYSTEM_PROMPT,
     build_system_prompt,
@@ -180,6 +182,8 @@ class AIService:
             "integrity_explain": self.settings.AI_FEATURE_INTEGRITY_EXPLAIN,
             "resolution": self.settings.AI_FEATURE_RESOLUTION,
             "contradiction": self.settings.AI_FEATURE_CONTRADICTION,
+            "flow_explain": self.settings.AI_FEATURE_FLOW_EXPLAIN,
+            "crosscase_explain": self.settings.AI_FEATURE_CROSSCASE_EXPLAIN,
             "knowledge": self.settings.AI_KNOWLEDGE_ENABLED,
         }
         return snapshot
@@ -250,6 +254,54 @@ class AIService:
                 messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
             )
         return result.text.strip()
+
+    async def explain_financial_flow(self, *, summary: dict[str, Any]) -> CompletionResult:
+        """Explain one deterministic financial-flow analysis from its facts only.
+
+        The prompt is server-owned; the deterministic payload is fenced as
+        untrusted DATA. The reply is structured so the caller can validate every
+        cited transaction id against the deterministic result and every quoted
+        number against the facts before anything is stored - the model cannot
+        invent a number that survives that check, and it never sees or touches
+        SQL, the graph or the filesystem.
+        """
+        if not self.settings.AI_FEATURE_FLOW_EXPLAIN:
+            raise _disabled_error()
+        await self.ensure_ready()
+        facts = json.dumps(summary, sort_keys=True, ensure_ascii=False, default=str)
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": FINANCIAL_EXPLAIN_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("FINANCIAL FACTS", facts)},
+            {"role": "user", "content": "Explain this financial-flow analysis."},
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
+            )
+
+    async def explain_cross_case_candidate(
+        self, *, candidate_facts: dict[str, Any]
+    ) -> CompletionResult:
+        """Explain one cross-case candidate from its authorized facts only.
+
+        Both sides' already-retrieved, scope-checked facts are fenced as untrusted
+        DATA. The reply is structured so the caller can validate every cited
+        identifier against the candidate's own provenance before anything is
+        stored; the model cannot create, merge or promote anything.
+        """
+        if not self.settings.AI_FEATURE_CROSSCASE_EXPLAIN:
+            raise _disabled_error()
+        await self.ensure_ready()
+        facts = json.dumps(candidate_facts, sort_keys=True, ensure_ascii=False, default=str)
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": CROSSCASE_EXPLAIN_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("CANDIDATE FACTS", facts)},
+            {"role": "user", "content": "Explain this cross-case candidate."},
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
+            )
 
     async def compare_entity_pair(
         self, *, entity_a: dict[str, Any], entity_b: dict[str, Any], features: dict[str, Any]

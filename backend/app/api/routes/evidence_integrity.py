@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from sqlalchemy import func, select
@@ -23,18 +24,21 @@ from app.ai.service import AIService
 from app.api.dependencies import (
     assert_case_investigation_mutable,
     get_case_or_404,
+    get_current_roles,
     require_permission,
 )
 from app.api.errors import ApiHTTPException
 from app.core import rbac
 from app.core.codes import (
     CODE_AI_DISABLED,
+    CODE_AI_EXPLANATION_INVALID,
     CODE_ARTIFACT_KIND_UNSUPPORTED,
     CODE_ARTIFACT_NOT_FOUND,
     CODE_CUSTODY_AUDIT_ACTIVE,
     CODE_CUSTODY_FIELD_REQUIRED,
     CODE_EVIDENCE_NOT_FOUND,
     CODE_EVIDENCE_UNAVAILABLE,
+    CODE_INSUFFICIENT_PERMISSION,
     CODE_INVALID_PAYLOAD,
     CODE_JOB_NOT_FOUND,
     CODE_JOB_TERMINAL,
@@ -56,7 +60,9 @@ from app.schemas.evidence_intelligence import AnalysisJobOut, DerivedArtifactOut
 from app.services import analysis_jobs as jobs_svc
 from app.services import artifacts as artifacts_svc
 from app.services import audit as audit_svc
+from app.services import cross_case as cross_case_svc
 from app.services import custody as custody_svc
+from app.services import explanations as explanation_svc
 from app.services.integrity import IntegrityRejected, verify_evidence_integrity
 
 router = APIRouter(prefix="/cases", tags=["evidence-integrity"])
@@ -383,36 +389,20 @@ def _ai_service(request: Request) -> AIService:
     return request.app.state.ai_service
 
 
-@router.post(
-    "/{case_id}/evidence-intelligence/artifacts/{artifact_id}/explain",
-    response_model=ExplainResponse,
-)
-async def explain_custody_finding(
+async def _explain_custody(
+    session: AsyncSession,
+    *,
+    ai: AIService,
+    user: User,
+    artifact: DerivedArtifact,
+    settings: Settings,
     case_id: uuid.UUID,
-    artifact_id: uuid.UUID,
-    request: Request,
-    settings: Settings = Depends(get_settings),
-    session: AsyncSession = Depends(get_db_session),
-    user: User = Depends(require_permission(rbac.PERM_EVIDENCE_READ)),
-    ai: AIService = Depends(_ai_service),
 ) -> ExplainResponse:
-    """Explain one recorded custody/integrity finding from its facts only.
-
-    The deterministic rules already decided pass/fail; this endpoint records
-    an AI narration as a separate ``recorded`` artifact (parent = finding).
-    It refuses non-finding artifacts, forwards nothing but the finding payload
-    to the model, and the prompt forbids inventing custody entries, certifying
-    the chain or claiming any verification was performed by the model.
-    """
-    case = await get_case_or_404(case_id, request, session)
-    assert_case_investigation_mutable(case)
+    """Custody/integrity narration (Phase 3): facts-only, never certifying."""
     if not settings.AI_FEATURE_INTEGRITY_EXPLAIN:
         raise ApiHTTPException(403, CODE_AI_DISABLED, "AI integrity explanations are disabled")
-    artifact = await artifacts_svc.get_artifact(session, case_id, artifact_id)
-    if artifact is None:
-        raise _rejection(CODE_ARTIFACT_NOT_FOUND, f"artifact {artifact_id} not found")
     payload = artifact.payload or {}
-    if artifact.kind != "custody_finding" or payload.get("type") != "custody_finding":
+    if payload.get("type") != "custody_finding":
         raise _rejection(
             CODE_ARTIFACT_KIND_UNSUPPORTED,
             "explanations apply only to recorded custody/integrity findings",
@@ -477,4 +467,164 @@ async def explain_custody_finding(
     await session.commit()
     return ExplainResponse(
         explanation_artifact=_artifact_out(explanation), text=text, rule=rule
+    )
+
+
+def _invalid_explanation(outcome: explanation_svc.ExplanationOutcome) -> ApiHTTPException:
+    """A dropped explanation, surfaced honestly (never stored, never asserted)."""
+    detail = "; ".join(
+        f"{issue.get('code', '?')}@{issue.get('field', '?')}" for issue in outcome.issues
+    ) or "schema validation failed"
+    return ApiHTTPException(
+        422,
+        CODE_AI_EXPLANATION_INVALID,
+        f"the model explanation failed deterministic validation and was dropped: {detail}",
+    )
+
+
+def _structured_text(artifact: DerivedArtifact) -> dict[str, Any] | None:
+    payload = artifact.payload or {}
+    explanation = payload.get("explanation")
+    return explanation if isinstance(explanation, dict) else None
+
+
+async def _explain_financial(
+    session: AsyncSession,
+    *,
+    ai: AIService,
+    user: User,
+    artifact: DerivedArtifact,
+    settings: Settings,
+    case_id: uuid.UUID,
+) -> ExplainResponse:
+    """Financial-flow narration (Phase 4 A): citation + number validated."""
+    if not settings.AI_FEATURE_FLOW_EXPLAIN:
+        raise ApiHTTPException(
+            403, CODE_AI_DISABLED, "AI financial-flow explanations are disabled"
+        )
+    outcome = await explanation_svc.explain_financial_artifact(
+        session, artifact=artifact, ai=ai, actor_id=user.id
+    )
+    if outcome.status != "recorded" or outcome.artifact is None:
+        raise _invalid_explanation(outcome)
+    structured = _structured_text(outcome.artifact)
+    text = str((structured or {}).get("summary", ""))
+    await audit_svc.record_audit(
+        session,
+        actor_id=user.id,
+        action="flow.explanation_generated",
+        resource_type="derived_artifact",
+        resource_id=str(outcome.artifact.id),
+        case_id=case_id,
+        metadata={"for_artifact_id": str(artifact.id)},
+    )
+    await session.commit()
+    return ExplainResponse(
+        explanation_artifact=_artifact_out(outcome.artifact),
+        text=text,
+        rule="",
+        explanation=structured,
+    )
+
+
+async def _explain_cross_case(
+    session: AsyncSession,
+    *,
+    ai: AIService,
+    user: User,
+    roles: list[str],
+    artifact: DerivedArtifact,
+    settings: Settings,
+    case_id: uuid.UUID,
+) -> ExplainResponse:
+    """Cross-case narration (Phase 4 B): scope-rechecked, provenance validated."""
+    if not settings.AI_FEATURE_CROSSCASE_EXPLAIN:
+        raise ApiHTTPException(
+            403, CODE_AI_DISABLED, "AI cross-case explanations are disabled"
+        )
+    if not rbac.has_permission(roles, rbac.PERM_CROSSCASE_READ):
+        raise ApiHTTPException(
+            403, CODE_INSUFFICIENT_PERMISSION, f"permission '{rbac.PERM_CROSSCASE_READ}' required"
+        )
+    # Fail closed (404, no disclosure) unless every side of the candidate is
+    # readable right now - the payload spans several cases' identifiers.
+    await cross_case_svc.guard_cross_case_artifact(session, user, artifact)
+    outcome = await explanation_svc.explain_cross_case_artifact(
+        session, artifact=artifact, ai=ai, actor_id=user.id
+    )
+    if outcome.status != "recorded" or outcome.artifact is None:
+        raise _invalid_explanation(outcome)
+    structured = _structured_text(outcome.artifact)
+    text = str((structured or {}).get("summary", ""))
+    await audit_svc.record_audit(
+        session,
+        actor_id=user.id,
+        action="cross_case.explanation_generated",
+        resource_type="derived_artifact",
+        resource_id=str(outcome.artifact.id),
+        case_id=case_id,
+        metadata={"for_artifact_id": str(artifact.id)},
+    )
+    await session.commit()
+    return ExplainResponse(
+        explanation_artifact=_artifact_out(outcome.artifact),
+        text=text,
+        rule="",
+        explanation=structured,
+    )
+
+
+@router.post(
+    "/{case_id}/evidence-intelligence/artifacts/{artifact_id}/explain",
+    response_model=ExplainResponse,
+)
+async def explain_derived_artifact(
+    case_id: uuid.UUID,
+    artifact_id: uuid.UUID,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_EVIDENCE_READ)),
+    roles: list[str] = Depends(get_current_roles),
+    ai: AIService = Depends(_ai_service),
+) -> ExplainResponse:
+    """Explain one recorded finding from its authorized facts only.
+
+    Dispatches by artifact kind: custody/integrity findings (Phase 3), financial
+    flow findings and cross-case candidates (Phase 4). Every path forwards only
+    the finding's own recorded facts to the local model and stores the narration
+    as a separate ``recorded`` child artifact flagged ``ai_unverified``; the
+    parent deterministic artifact is never modified. A cross-case candidate
+    additionally requires the ``crosscase.read`` capability and a full-scope
+    visibility recheck (404 with no disclosure when any side is inaccessible).
+    A financial/cross-case reply that fails deterministic citation/number
+    validation is dropped and surfaced as a typed 422 - never asserted.
+    """
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
+    artifact = await artifacts_svc.get_artifact(session, case_id, artifact_id)
+    if artifact is None:
+        raise _rejection(CODE_ARTIFACT_NOT_FOUND, f"artifact {artifact_id} not found")
+
+    if artifact.kind == "custody_finding":
+        return await _explain_custody(
+            session, ai=ai, user=user, artifact=artifact, settings=settings, case_id=case_id
+        )
+    if artifact.kind == "financial_finding":
+        return await _explain_financial(
+            session, ai=ai, user=user, artifact=artifact, settings=settings, case_id=case_id
+        )
+    if artifact.kind == "cross_case_link":
+        return await _explain_cross_case(
+            session,
+            ai=ai,
+            user=user,
+            roles=roles,
+            artifact=artifact,
+            settings=settings,
+            case_id=case_id,
+        )
+    raise _rejection(
+        CODE_ARTIFACT_KIND_UNSUPPORTED,
+        "explanations apply only to custody, financial-flow and cross-case findings",
     )

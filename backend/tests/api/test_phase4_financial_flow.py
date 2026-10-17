@@ -27,6 +27,7 @@ from decimal import Decimal
 
 import httpx
 from app.core.codes import (
+    CODE_AI_EXPLANATION_INVALID,
     CODE_CASE_ACCESS_DENIED,
     CODE_FLOW_ACTIVE,
     CODE_INSUFFICIENT_PERMISSION,
@@ -1094,3 +1095,89 @@ async def test_trace_is_read_only_and_permission_scoped(
         ).scalars()
         assert list(jobs) == []
     assert await _artifacts(database, _owned_case, kind="financial_finding") == []
+
+
+# -- on-demand AI explanation (validated, flagged child artifact) ----------------
+
+
+async def test_financial_explain_stores_flagged_child_artifact(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+    api_user: ApiUser,
+    phase2_fake_ai,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="explain-fixture")
+    response = await _submit(http_client, _owned_case)
+    assert response.status_code == 202, response.text
+
+    findings = await _artifacts(database, _owned_case, kind="financial_finding")
+    assert len(findings) == 1
+    finding = findings[0]
+
+    explain = await http_client.post(
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{finding.id}/explain"
+    )
+    assert explain.status_code == 200, explain.text
+    body = explain.json()
+    assert body["explanation"] is not None
+    assert body["text"]
+
+    # Only the recorded deterministic facts were handed to the model.
+    assert phase2_fake_ai.flow_explain_calls
+    sent = phase2_fake_ai.flow_explain_calls[0]
+    assert set(sent) <= {"case_id", "facts", "patterns", "aggregates", "limitations"}
+
+    # The child is flagged ai_unverified, origin llm, parented to the finding;
+    # the parent deterministic artifact is untouched.
+    rows = await _artifacts(database, _owned_case, kind="financial_finding")
+    child = next(a for a in rows if str(a.parent_artifact_id) == str(finding.id))
+    assert child.origin == "llm"
+    assert child.validation_status == "flagged"
+    assert child.status == "recorded"
+    assert (child.payload or {}).get("type") == "ai_explanation"
+    assert "ai_unverified" in [e["code"] for e in child.validation_errors or []]
+
+    factory = database.session_factory()
+    async with factory() as session:
+        parent = await session.get(DerivedArtifact, finding.id)
+        assert parent is not None
+        assert parent.status == "pending_review"
+        assert parent.origin == "deterministic"
+
+
+async def test_financial_explain_drops_a_fabricated_number(
+    http_client: AsyncClient,
+    database: Database,
+    _owned_case: uuid.UUID,
+    api_user: ApiUser,
+    phase2_fake_ai,
+) -> None:
+    await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="fabricated-fixture")
+    response = await _submit(http_client, _owned_case)
+    assert response.status_code == 202, response.text
+
+    findings = await _artifacts(database, _owned_case, kind="financial_finding")
+    finding = findings[0]
+    before = len(await _artifacts(database, _owned_case, kind="financial_finding"))
+
+    # The model quotes an amount that never appears in the deterministic result.
+    phase2_fake_ai.flow_explain_replies = [
+        json.dumps(
+            {
+                "summary": "the total moved was 999999999",
+                "why_patterns_fired": ["fake: invented total"],
+                "cited_transaction_ids": [],
+                "alternative_explanations": ["a legitimate transfer"],
+                "missing_information": ["currency"],
+                "verification_steps": ["verify"],
+            }
+        )
+    ]
+    explain = await http_client.post(
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{finding.id}/explain"
+    )
+    assert explain.status_code == 422, explain.text
+    assert explain.json()["error"]["code"] == CODE_AI_EXPLANATION_INVALID
+    # Dropped, not stored: no child artifact was recorded.
+    assert len(await _artifacts(database, _owned_case, kind="financial_finding")) == before

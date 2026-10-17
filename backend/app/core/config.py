@@ -198,6 +198,8 @@ class Settings(BaseSettings):
     AI_FEATURE_INTEGRITY_EXPLAIN: bool = True  # custody AI explanations (feature 9)
     AI_FEATURE_RESOLUTION: bool = True  # ambiguous entity-pair comparison (phase 3 A)
     AI_FEATURE_CONTRADICTION: bool = True  # semantic statement comparison (phase 3 C)
+    AI_FEATURE_FLOW_EXPLAIN: bool = True  # financial-flow AI explanations (phase 4 A)
+    AI_FEATURE_CROSSCASE_EXPLAIN: bool = True  # cross-case AI explanations (phase 4 B)
     AI_LOG_PROMPTS: bool = False  # prompt/answer content is never logged by default
 
     # Security

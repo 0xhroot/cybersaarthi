@@ -71,6 +71,10 @@ class FakeAI:
         self.statement_replies: list[str] = []
         self.pair_calls: list[dict[str, Any]] = []
         self.statement_calls: list[dict[str, Any]] = []
+        self.flow_explain_replies: list[str] = []
+        self.crosscase_explain_replies: list[str] = []
+        self.flow_explain_calls: list[dict[str, Any]] = []
+        self.crosscase_explain_calls: list[dict[str, Any]] = []
 
     async def extract_page(self, *, label: str, text: str) -> CompletionResult:
         self.extract_calls.append({"label": label, "text": text})
@@ -120,3 +124,57 @@ class FakeAI:
             )
         )
         return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+    async def explain_financial_flow(self, *, summary: dict[str, Any]) -> CompletionResult:
+        """Scripted phase-4 A explanation; the default cites a real fact."""
+        self.flow_explain_calls.append(dict(summary))
+        reply = (
+            self.flow_explain_replies.pop(0)
+            if self.flow_explain_replies
+            else json.dumps(self._default_flow_explanation(summary))
+        )
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+    async def explain_cross_case_candidate(
+        self, *, candidate_facts: dict[str, Any]
+    ) -> CompletionResult:
+        """Scripted phase-4 B explanation; the default cites a real value."""
+        self.crosscase_explain_calls.append(dict(candidate_facts))
+        reply = (
+            self.crosscase_explain_replies.pop(0)
+            if self.crosscase_explain_replies
+            else json.dumps(self._default_crosscase_explanation(candidate_facts))
+        )
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+    @staticmethod
+    def _default_flow_explanation(summary: dict[str, Any]) -> dict[str, Any]:
+        facts = summary.get("facts") or []
+        first = facts[0] if facts else {}
+        cited = [str(first["record_no"])] if first.get("record_no") is not None else []
+        amount = str(first["amount"]) if first.get("amount") is not None else ""
+        return {
+            "summary": f"observed flow of amount {amount}" if amount else "observed flow",
+            "why_patterns_fired": ["deterministic fake: pattern fired on the listed facts"],
+            "cited_transaction_ids": cited,
+            "alternative_explanations": ["a legitimate business transfer"],
+            "missing_information": ["currency"],
+            "verification_steps": ["confirm the account holder"],
+        }
+
+    @staticmethod
+    def _default_crosscase_explanation(candidate_facts: dict[str, Any]) -> dict[str, Any]:
+        first_original = ""
+        for side in candidate_facts.get("sides") or []:
+            originals = side.get("value_originals") or []
+            if originals:
+                first_original = str(originals[0])
+                break
+        return {
+            "summary": "these cases share an identifier",
+            "matching_signal": "a shared identifier, not proof",
+            "cited_identifiers": [first_original] if first_original else [],
+            "conflicts": [],
+            "not_established": ["that the cases are the same incident"],
+            "verification_steps": ["verify the account holder"],
+        }
