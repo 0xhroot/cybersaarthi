@@ -37,34 +37,61 @@ no accuracy claims beyond measured fixtures.
 inventory (migrations `e308a313166d`, `081a88d02574`, `a9b8c7d6e5f4`,
 `a4b9c7e16d20`, `c5e2b8f4d9a3`) contains no payments/ledger/transfer tables.
 
-Financial data enters the system **only** through ingested evidence:
+> **A1 verification note (corrects an earlier draft of this section).** This
+> section previously assumed `source_records` carried financial *columns*
+> (`transaction_id`, `transaction_amount`, `currency`, `occurred_at`,
+> `source_locator`). Inspecting `information_schema.columns` shows **none of
+> those columns exist**. The complete `source_records` schema is exactly:
+> `evidence_file_id, record_no, raw_data (JSONB), normalized_data (JSONB),
+> entity_mentions (JSONB), relationships_data (JSONB), status, error, id,
+> created_at, updated_at`. Every fact below was measured over **all 1000**
+> rows in the dev database (the `42` distinct `raw_data` keys were enumerated),
+> not assumed.
 
-| field | location | notes |
+**Verified inventory of financial facts:**
+
+| source | what actually exists | measured `n` (of 1000 records / 9 victims) |
 |---|---|---|
-| transaction id | `source_records.transaction_id` (String, nullable) | populated by extraction `IDENTIFIER` rules |
-| amount | `source_records.transaction_amount` (DECIMAL, nullable) **or** `source_records.amount` (Float — precision risk) **or** `raw_data["amount"]` | must prefer DECIMAL, never do float arithmetic |
-| currency | `source_records.currency` (String, nullable) or `raw_data` | no FX rates anywhere |
-| status | `raw_data` only (`status`, `txn_status`, …) | `source_records.status` is the **ingest** status, not the transaction's |
-| from/to account | `raw_data` only, via header-alias heuristics in `app/services/extraction.py` (`sender_account`, `from_account`, `beneficiary_account`, `receiver_account`, `upi_id`, `account_number`, …) | no enforced counterpart entity linkage |
-| timestamps | `source_records.occurred_at` / `uploaded_at` (tz-aware) or parseable `raw_data` values | Phase 3 parser rules reusable |
-| provenance | `source_records.source_locator`, evidence-file chain, custody events | complete |
+| `source_records.raw_data.amount` | JSON **string** amounts (`"4500.00"`, `"12000.00"`) — parseable to exact `Decimal` losslessly | 6 rows carrying amounts = **2 distinct amounts** (each repeated across files); 1 junk value (`"b"`) rejected |
+| `raw_data.transaction_id` | `TXN-SIH-001`, `TXN-SIH-002` | 2 |
+| `raw_data.beneficiary_name` / `beneficiary_phone` | **payee side only** | 4 |
+| `raw_data.merchant` | `PhonePe Merchant`, `Paytm Merchant` | 2 |
+| `raw_data.account` / `account_no` / `account_number` | free-form account refs (`ACC-SIH-001`, `1100220011`) | 207 |
+| `raw_data.bank_name` | `TechSecure`, `SecureMart`, … | 204 |
+| **payer / sender side** | — | **0** (no `payer`/`sender`/`from`/`debited` key exists anywhere) |
+| **transaction timestamps** | — | **0** (no `date`/`time`/`occurred_at` key exists anywhere) |
+| `victims` (case-scoped, `case_id` on all 9) | `reported_amount`, `amount_lost`, `recovery_amount` are `double precision` (**Float → precision warning**); `currency` = `INR`; `incident_date` timestamptz | `reported_amount` 6, `amount_lost` 1, `currency` 5, `incident_date` 5; `digital_accounts` / `wallet_addresses` **0 populated** |
+| `relationships` edge types | `works_for`, `located_at`, `owns`, `called`, `visited`, `associated_with` | **no transfer / payment / debit edge type exists** |
 
-Consequences, documented rather than fabricated:
+**Blockers (reported, not worked around):**
 
-1. A "transaction" in Phase 4 is a **derived, deterministic extraction** from an
-   authorized `SourceRecord` (raw payload + structured columns), exactly as
-   Phase 3 timeline events were derived extractions. Originals are never
-   rewritten.
-2. Account references are free-form strings (account numbers, UPI VPAs, card
-   numbers, wallet ids). Normalization is documented and lossless; there is no
-   account entity registry to validate against.
-3. Reversal/refund linkage between transactions does not exist in the schema;
-   a reversal is only visible as a *status word* or a referencing record id in
-   `raw_data` if the source provided one. Cross-record reversal graphs are out
-   of scope (blocked, reported).
-4. `source_records.amount` is Float; when the DECIMAL column is absent we parse
-   the raw value through `Decimal(str(value))` and record a precision-warning
+- **A3 multi-hop directional fund-flow paths are not derivable.** A flow path
+  needs two linked accounts and a direction. There are no transfer edges in
+  `relationships`, no payer side in any record, and at most one account per
+  record. Nothing in the schema asserts "X moved money to Y".
+- **A4 temporal movement patterns are not derivable.** No transaction carries
+  a timestamp, so structuring/rapid-layering/velocity rules have no time
+  dimension. (Victim `incident_date` gives one timestamp per victim, not per
+  movement.)
+- **Currency attribution for record-level amounts is absent.** Sums are
+  therefore grouped under an explicit `currency: null` bucket flagged
+  `currency_unknown`, never silently labelled INR.
+
+**Supported portions (implemented):**
+
+1. A "transaction fact" in Phase 4 is a **derived, deterministic extraction**
+   from an authorized `SourceRecord.raw_data`, exactly as Phase 3 timeline
+   events were derived extractions. Originals are never rewritten; missing
+   fields are marked `null` + counted, never invented.
+2. Account references are free-form strings. Normalization is documented and
+   lossless; there is no account entity registry to validate against.
+3. Victim loss totals (Float columns) are converted through
+   `Decimal(str(value))` and carry an explicit `precision: "float_source"`
    limitation on the fact.
+4. Structure analysis is an **association network** (account ↔ bank ↔ merchant
+   ↔ beneficiary ↔ vehicle/city co-occurrence, plus `owns` edges), explicitly
+   typed `association` vs `transfer`, with `confirmed_transfer_edges: 0`
+   reported honestly rather than implied.
 
 ### 2.3 Entity and relationship model
 
@@ -192,35 +219,37 @@ is demonstrated.
 Pure, versioned rules (`FLOW_RULES_VERSION = "flow-rules/1.0.0"`). For every
 `SourceRecord` in the authorized case scope:
 
-1. **Transaction id**: `transaction_id` column, else first alias hit in
-   `raw_data` (`transaction_id`, `txn_id`, `upi_txn_id`, `utr`, `reference_no`,
-   …). Preserved verbatim as `txn_ref_original`; a normalized form
+1. **Transaction id**: no `transaction_id` column exists — read the first
+   documented alias hit in `raw_data` (`transaction_id`, `txn_id`,
+   `upi_txn_id`, `utr`, `reference_no`, …; only `transaction_id` is observed in
+   current data). Preserved verbatim as `txn_ref_original`; a normalized form
    (trimmed, uppercased) is derived for grouping only.
-2. **Amount**: prefer `transaction_amount` (DECIMAL); else `raw_data` alias
+2. **Amount**: no `transaction_amount` column exists — read the `raw_data` alias
    (`amount`, `transaction_amount`, `txn_amount`, `value`) parsed via
-   `Decimal(str(v))` with a precision-warning limitation when the Float column
-   was the only source. Amounts are `Decimal` end-to-end; no float arithmetic;
-   no cross-currency arithmetic ever.
-3. **Currency**: `currency` column, else raw alias; normalized upper-case;
-   missing → `"unknown"` bucket counted separately. No conversion; a
-   mixed-currency aggregate is split per currency and a limitation records the
-   unconverted currencies.
-4. **Accounts**: from/to via ordered alias lists (documented in the module and
-   the design): sender side (`from_account`, `source_account`,
-   `sender_account`, `payer`, `debit_account`, `from_vpa`, …), receiver side
-   (`to_account`, `beneficiary_account`, `receiver_account`, `payee`,
-   `credit_account`, `to_vpa`, …). Documented normalization for comparison
-   only: trim, upper-case, strip separators; UPI VPAs case-folded. Originals
-   always preserved. A record with a parseable amount but no derivable
-   counterparty is still a fact (one-sided), marked `incomplete`.
-5. **Time**: `occurred_at` column, else Phase 3 parser rules over raw values
-   (ISO ±offset/Z, naive→UTC + `ambiguous_timezone`, date-only +
-   `time_granularity="date"`, dd/mm/yyyy day-first). Unparseable strong field →
-   the record is excluded from time-windowed rules and marked
-   `missing_timestamp` (mirrors Phase 3; never invents a time).
-6. **Status**: extracted from `raw_data` status-ish keys and classified into
-   `completed | pending | rejected | reversed | ambiguous | unknown` by
-   documented keyword sets (configurable constants, versioned). Facts with
+   `Decimal(str(v))` (JSON strings like `"4500.00"` parse exactly). Victim
+   amounts come from `double precision` columns and carry a
+   `precision: "float_source"` limitation. Amounts are `Decimal` end-to-end; no
+   float arithmetic; no cross-currency arithmetic ever. Non-numeric junk (e.g.
+   `"b"`) is rejected and counted, never coerced.
+3. **Currency**: no `currency` column on `source_records`; only `victims.currency`
+   (observed `INR`). Record-level amounts therefore land in an explicit
+   `currency: null` bucket flagged `currency_unknown`, counted separately.
+   No conversion; a mixed-currency aggregate is split per currency and a
+   limitation records the unconverted currencies.
+4. **Accounts**: receiver side exists (`beneficiary_name`, `beneficiary_phone`,
+   `account`, `account_no`, `account_number`); **no sender-side key
+   (`from_account`, `payer`, `debit_account`, …) occurs anywhere in current
+   data**, so facts are routinely one-sided. Documented normalization for
+   comparison only: trim, upper-case, strip separators. Originals always
+   preserved. A one-sided fact is retained and marked `incomplete` with
+   `missing: source` — the source is **never invented**.
+5. **Time**: no `occurred_at` column and no `date`/`time` key in `raw_data`
+   (measured: 0 of 1000), so record-level facts are marked
+   `missing_timestamp` and excluded from time-windowed rules (mirrors Phase 3;
+   never invents a time). `victims.incident_date` is the only populated
+   timestamp (5 of 9) and applies only to victim-level facts.
+6. **Status**: no status-ish key occurs in current `raw_data`, so facts default
+   to `unknown` unless a documented keyword set matches a real field. Facts with
    non-completed status are retained and clearly marked; aggregates separate
    them (a reversed transfer never counts as completed flow).
 7. **Provenance**: every fact carries `source_record_id` +
@@ -239,36 +268,50 @@ All bounded: `FLOW_MAX_RECORDS` (default 5 000 records), `FLOW_MAX_EDGES`
 (default 50), execution deadline checked between steps; cancel-requested jobs
 abort with the Phase 3 typed refusal.
 
-1. **Account graph**: nodes = normalized account references; edges = completed
-   one-way transfers with exact `Decimal` amount, currency, time, txn id,
-   `source_record_id`. One-sided facts become *dangling* edges marked
-   `missing: source|destination` — the destination is **never invented**.
-2. **Aggregates** per account and per (account, currency): inflow, outflow,
-   net (exact Decimal), counts split by status. Every aggregate carries the
-   exact supporting transaction id list (bounded; overflow marker when capped).
-3. **Path tracing** (`trace_flows`): bounded DFS from a selected account or
-   transaction over completed edges, honoring depth/path/deadline limits;
-   returns ordered hops (account → account with amount, currency, time, txn id,
-   source locator) and marks paths that end at a dangling edge as
-   `incomplete` — "the trail stops here in the ingested evidence", never a
-   guessed destination. Cycles detected and reported as such.
-4. **Pattern rules** (`FLOW_PATTERN_RULES_VERSION = "flow-patterns/1.0.0"`),
-   deterministic, documented thresholds as *investigation defaults* (constants,
-   not universality claims), each with minimum-evidence guards so trivial data
-   cannot fire:
-   - `rapid_succession`: ≥3 completed transfers from one source within a
-     rolling window (default 30 min), same currency.
-   - `repeated_pair`: ≥3 completed transfers for one ordered account pair.
-   - `circular_path`: a completed-edge cycle of length 3–5 (bounded enumeration
-     per strongly connected component).
-   - `amount_splitting`: ≥3 same-amount (exact Decimal) transfers from one
-     source to ≥3 distinct destinations within a window, same currency —
-     descriptive only; the payload explicitly says pattern ≠ intent.
-   - `concentration`: one account receives from (or sends to) ≥N (default 5)
-     distinct counterparties within the scoped data.
-   Each candidate pattern carries: rule id + version, input transaction ids,
-   numeric evidence, time range, currency scope, missing-data limitations,
-   source references, review status (`pending_review`).
+1. **Structure network (association, not transfer)**: nodes = normalized
+   account refs + banks + merchants + beneficiaries; edges are derived from
+   **co-occurrence within one source record** and from existing `owns`
+   relationships. Every edge carries an explicit `edge_kind`:
+   `"association"` (derived co-occurrence, always `suspected`) or
+   `"transfer"` (schema-asserted money movement). Measured today:
+   `confirmed_transfer_edges = 0`, because no record states a two-sided
+   movement — the payload reports that number rather than implying flows.
+2. **Aggregates** — exact `Decimal`, split per `currency` bucket (record-level
+   amounts fall under `currency: null` → flagged `currency_unknown`): total,
+   count, distinct count, min, max, and per account / bank / merchant groupings,
+   each carrying the exact supporting `source_record_id` list (bounded; overflow
+   marker when capped). **`inflow`/`outflow`/`net` are not computed** — they
+   require direction, which the ingest does not supply; the payload records
+   `net_flow: not_computable_no_direction` instead of a fabricated zero.
+3. **Path tracing** (`trace_flows`): bounded DFS (depth ≤ `FLOW_TRACE_MAX_DEPTH`,
+   paths ≤ `FLOW_TRACE_MAX_PATHS`, records ≤ `FLOW_MAX_RECORDS`, deadline
+   checked between steps) over **association** edges, so a trace answers "what
+   else is documented about this account", with every hop typed `association`.
+   A `transfer`-kind trace is accepted as an API capability but returns
+   `status: "insufficient_data"` with `reason: "no_transfer_edges_in_ingest"`
+   — the trail is reported as absent, never guessed. Cycles are detected and
+   reported as such.
+4. **Pattern rules** (`FLOW_PATTERN_RULES_VERSION = "flow-patterns/1.0.0"`).
+   Every rule is declared up front; each either **fires** with exact evidence or
+   is returned **`not_evaluable` with the specific missing input** — a rule is
+   never silently dropped, and never fires on absent data:
+   - `duplicate_amount` — same exact `Decimal` amount in ≥2 distinct source
+     records (evidence: the repeated `4500.00` / `12000.00` records).
+   - `amount_threshold` — amount ≥ configurable investigation default
+     (constant, not a universality claim).
+   - `missing_currency` — amount present without currency attribution.
+   - `missing_timestamp` — amount present without a time (excludes it from
+     any windowed rule).
+   - `victim_loss_unmatched` — a victim `reported_amount` exists while the
+     case has no transaction-level facts covering it (cross-source gap).
+   - `not_evaluable` (registered, reported, never fired): `rapid_succession`,
+     `repeated_pair`, `circular_path`, `amount_splitting`, `concentration` —
+     each carrying `reason` ∈ {`missing_timestamp`, `missing_direction`,
+     `no_transfer_edges`} so the limitation is visible in the API/UI.
+   Each candidate carries: rule id + version, input source-record ids,
+   numeric evidence as exact strings, currency scope, missing-data
+   limitations, source references, review status (`pending_review`). The
+   payload states `pattern ≠ intent` for every firing rule.
 5. **Result payload** (one `DerivedArtifact`, `kind="financial_flow"`,
    `origin="deterministic"`, `parser_version=FLOW_RULES_VERSION`): facts,
    aggregates, edges, patterns, limitations, and a `calculation_definitions`
@@ -524,9 +567,23 @@ investigated, never weakened.
 ## 9. Known limitations and blockers (pre-stated)
 
 - No transaction table: facts are derived extractions from ingested records;
-  coverage equals ingestion coverage (documented, not fabricated).
-- `source_records.amount` Float fallback carries a precision warning; DECIMAL
-  column and raw decimal strings are preferred when present.
+  coverage equals ingestion coverage (documented, not fabricated). Verified A1
+  measurement over all 1000 dev records: **2 distinct amount-bearing
+  transactions**, 207 account references, 0 transaction timestamps.
+- **Directional fund-flow paths (A3) and time-windowed movement patterns (A4
+  temporal half) are blocked**: `source_records` carries no financial columns,
+  no payer-side key exists anywhere, and `relationships` has no transfer edge
+  type — so nothing asserts "X moved money to Y" or "when". Implemented instead:
+  association-structure analysis, exact aggregates, and pattern rules that
+  report `not_evaluable{missing_direction|missing_timestamp|no_transfer_edges}`
+  rather than firing or disappearing.
+- Record-level amounts have **no currency attribution** (only
+  `victims.currency` exists); sums are bucketed under `currency: null` with
+  `currency_unknown` and are never labelled INR.
+- Victim amounts (`reported_amount`, `amount_lost`, `recovery_amount`) are
+  `double precision`; converted via `Decimal(str(value))` and flagged
+  `precision: "float_source"` — exact-Decimal guarantees apply only to
+  raw JSON string amounts.
 - No reversal/refund linkage exists in the schema; cross-record reversal graphs
   are blocked and reported.
 - No FX rates: multi-currency aggregates are always split; conversion refused.
