@@ -1142,6 +1142,154 @@ export interface EvidenceRestoreResponse {
   content_restored: boolean;
 }
 
+/* --------------------- Evidence intelligence (phase 2) --------------------- */
+
+/** Background analysis job (features: ingestion, custody, …). */
+export type AnalysisJobStatus = "pending" | "running" | "succeeded" | "partial" | "failed" | "canceled";
+
+export interface AnalysisJobOut {
+  id: string;
+  case_id: string;
+  feature: string;
+  status: AnalysisJobStatus;
+  idempotency_key: string;
+  progress: number;
+  total_records: number;
+  processed_records: number;
+  attempts: number;
+  timeout_seconds: number;
+  cancel_requested: boolean;
+  error: string | null;
+  result_summary: Record<string, unknown> | null;
+  evidence_file_id: string | null;
+  actor_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AnalysisJobList {
+  items: AnalysisJobOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** 202 body of every job-submitting endpoint (extraction, custody audit). */
+export interface JobSubmitResponse {
+  job: AnalysisJobOut;
+  duplicate: boolean;
+}
+
+/**
+ * One derived artifact: extraction output, deterministic integrity fact or
+ * custody finding (plus AI explanations, which are always `validation_status
+ * "flagged"`). Nothing here is auto-approved — review is human-only.
+ */
+export interface DerivedArtifactOut {
+  id: string;
+  case_id: string;
+  kind: string;
+  origin: string;
+  status: string;
+  validation_status: string;
+  evidence_file_id: string | null;
+  source_record_id: string | null;
+  source_locator: Record<string, unknown> | null;
+  payload: Record<string, unknown>;
+  content_hash: string;
+  parser_version: string;
+  prompt_version: string | null;
+  model_profile: string | null;
+  analysis_job_id: string | null;
+  validation_errors: Record<string, unknown>[] | null;
+  review_note: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  parent_artifact_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ArtifactList {
+  items: DerivedArtifactOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ArtifactReviewRequest {
+  decision: "approved" | "rejected";
+  note?: string | null;
+  /** Approved extraction edits: `{"fields": {...}}`, re-validated server-side. */
+  payload?: { fields?: Record<string, string[]> } | null;
+}
+
+/** Deterministic hash verification result. `missing_*` are results, not errors. */
+export interface IntegrityVerificationResponse {
+  evidence_id: string;
+  artifact_id: string;
+  status: "match" | "mismatch" | "missing_expected" | "missing_source" | "unsupported_algorithm";
+  algorithm: string | null;
+  expected_sha256: string | null;
+  calculated_sha256: string | null;
+  object_present: boolean;
+  file_size_bytes: number | null;
+  duration_ms: number;
+  verified_at: string;
+}
+
+/** One append-only custody event as stored (recorded_at = documentation time). */
+export interface CustodyEventOut {
+  id: string;
+  case_id: string;
+  evidence_file_id: string | null;
+  event_type: string;
+  occurred_at: string;
+  recorded_at: string;
+  actor_user_id: string | null;
+  collector: string | null;
+  transferor: string | null;
+  recipient: string | null;
+  location: string | null;
+  method: string | null;
+  notes: string | null;
+  recorded_sha256: string | null;
+}
+
+export interface CustodyEventCreateRequest {
+  event_type: string;
+  occurred_at: string;
+  collector?: string | null;
+  transferor?: string | null;
+  recipient?: string | null;
+  location?: string | null;
+  method?: string | null;
+  notes?: string | null;
+  recorded_sha256?: string | null;
+}
+
+export interface CustodyChronologyResponse {
+  evidence_id: string;
+  original_filename: string;
+  sha256: string;
+  algorithm: string;
+  format: string | null;
+  file_size: number;
+  created_at: string;
+  deleted_at: string | null;
+  events: CustodyEventOut[];
+  event_count: number;
+}
+
+/** Facts-only AI narration of one finding; the model certifies nothing. */
+export interface CustodyExplainResponse {
+  explanation_artifact: DerivedArtifactOut;
+  text: string;
+  rule: string;
+}
+
 /* ---------------------------- Pagination ---------------------------- */
 
 export interface PageParams {

@@ -15,6 +15,8 @@ import {
   useRestoreEvidence,
   useFieldDevices,
 } from "@/hooks/queries";
+import { ExtractionPanel } from "@/components/evidence/extraction-panel";
+import { IntegrityPanel } from "@/components/evidence/integrity-panel";
 import { useCan } from "@/lib/permissions";
 import { PageContainer } from "@/components/layout/page";
 import { InvestigationHeader } from "@/components/layout/investigation-header";
@@ -385,6 +387,14 @@ export default function EvidencePage() {
                     <Workflow className="size-4" /> Ingest record
                   </Button>
                 ) : null}
+
+                <div className="border-t border-border pt-4">
+                  <ExtractionPanel caseId={caseId} evidenceId={selectedDetail.id} />
+                </div>
+                <div className="border-t border-border pt-4">
+                  <IntegrityPanel caseId={caseId} evidenceId={selectedDetail.id} />
+                </div>
+
                 {canDelete ? (
                   <Button
                     variant="danger"
@@ -447,10 +457,10 @@ export default function EvidencePage() {
                 {picked ? (
                   <span className="font-medium text-foreground">{picked.name} · {formatBytes(picked.size)}</span>
                 ) : (
-                  <>Click to choose a .csv, .json or .txt file</>
+                  <>Click to choose a .csv, .json, .txt or .pdf file</>
                 )}
               </button>
-              <input ref={fileInput} type="file" accept=".csv,.json,.jsonl,.txt" className="hidden" onChange={onPick} />
+              <input ref={fileInput} type="file" accept=".csv,.json,.jsonl,.txt,.pdf" className="hidden" onChange={onPick} />
             </div>
           </div>
           <DialogFooter>

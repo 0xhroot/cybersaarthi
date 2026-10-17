@@ -17,6 +17,7 @@ import type {
   FindingListParams,
   InvestigationHypothesisListParams,
   LoginInput,
+  PageParams,
   RegisterInput,
   RegisteredUserOut,
   ReportListParams,
@@ -30,7 +31,11 @@ import { authSession } from "@/api/client/session";
 import { ApiError } from "@/types/api";
 import type {
   AdminUserOut,
+  AnalysisJobList,
+  AnalysisJobOut,
   AnalyticsRun,
+  ArtifactList,
+  ArtifactReviewRequest,
   AuditEvent,
   Case,
   CaseMember,
@@ -41,6 +46,11 @@ import type {
   Collection,
   CollectionList,
   CollectionUpdateRequest,
+  CustodyChronologyResponse,
+  CustodyEventCreateRequest,
+  CustodyEventOut,
+  CustodyExplainResponse,
+  DerivedArtifactOut,
   DeviceList,
   DeviceVerifyRequest,
   DeviceVerifyResponse,
@@ -67,8 +77,10 @@ import type {
   IngestAccepted,
   IngestionJob,
   IngestJobList,
+  IntegrityVerificationResponse,
   InvestigationHypothesis,
   InvestigationHypothesisList,
+  JobSubmitResponse,
   NetworkProfile,
   RelationshipStrength,
   Report,
@@ -310,6 +322,197 @@ const reportsState: Report[] = [...MAIN_REPORTS];
 const hypothesesState: InvestigationHypothesis[] = [...MAIN_REGISTERED_HYPOTHESES];
 const timelineState: TimelineEvent[] = [...MAIN_TIMELINE_EVENTS];
 const recycleState: Array<EvidenceListItem & { case_id: string }> = [];
+
+/* Phase 2: evidence-intelligence jobs, derived artifacts, custody events. */
+const intelJobsState: AnalysisJobOut[] = [];
+const artifactsState: DerivedArtifactOut[] = [];
+const custodyEventsState: CustodyEventOut[] = [];
+const extractionSourceTexts = new Map<string, string>();
+let intelSeq = 7000;
+
+const CUSTODY_EVENT_TYPES = [
+  "collected",
+  "transferred",
+  "received",
+  "sealed",
+  "unsealed",
+  "verified",
+  "accessed",
+  "exported",
+  "restored",
+  "disposed",
+];
+const CUSTODY_REQUIRED_FIELDS: Record<string, string[]> = {
+  collected: ["collector"],
+  transferred: ["transferor", "recipient"],
+  received: ["recipient"],
+};
+
+function nextIntelId(): string {
+  intelSeq += 1;
+  return uid(intelSeq);
+}
+
+function isoNow(): string {
+  return new Date().toISOString();
+}
+
+/**
+ * Deterministic custody seed: evidence[0] has a transfer with no receipt (the
+ * audit finds `custody.unacknowledged_transfer`); evidence[1] has a complete
+ * collected → transferred → received chain (the audit finds nothing).
+ */
+function seedCustodyState(): void {
+  const [first, second] = MAIN_EVIDENCE;
+  if (!first || !second) return;
+  // iso(daysAgo, hoursAgo): smaller n is *older*, so n=1,2,3 reads chronologically.
+  const day = (n: number) => iso(9 - n, 8 + n);
+  custodyEventsState.push(
+    {
+      id: nextIntelId(),
+      case_id: CASE_ID_MAIN,
+      evidence_file_id: first.id,
+      event_type: "collected",
+      occurred_at: day(1),
+      recorded_at: day(1),
+      actor_user_id: null,
+      collector: "Insp. Verma",
+      transferor: null,
+      recipient: null,
+      location: "Kalyan depot",
+      method: "sealed envelope",
+      notes: null,
+      recorded_sha256: first.sha256,
+    },
+    {
+      id: nextIntelId(),
+      case_id: CASE_ID_MAIN,
+      evidence_file_id: first.id,
+      event_type: "transferred",
+      occurred_at: day(2),
+      recorded_at: day(2),
+      actor_user_id: null,
+      collector: null,
+      transferor: "Insp. Verma",
+      recipient: "Forensics Lab",
+      location: "Kalyan depot",
+      method: "hand carry",
+      notes: "moved for analysis",
+      recorded_sha256: null,
+    },
+    {
+      id: nextIntelId(),
+      case_id: CASE_ID_MAIN,
+      evidence_file_id: second.id,
+      event_type: "collected",
+      occurred_at: day(1),
+      recorded_at: day(1),
+      actor_user_id: null,
+      collector: "Insp. Verma",
+      transferor: null,
+      recipient: null,
+      location: "Kalyan depot",
+      method: null,
+      notes: null,
+      recorded_sha256: second.sha256,
+    },
+    {
+      id: nextIntelId(),
+      case_id: CASE_ID_MAIN,
+      evidence_file_id: second.id,
+      event_type: "transferred",
+      occurred_at: day(2),
+      recorded_at: day(2),
+      actor_user_id: null,
+      collector: null,
+      transferor: "Insp. Verma",
+      recipient: "Forensics Lab",
+      location: null,
+      method: "hand carry",
+      notes: null,
+      recorded_sha256: null,
+    },
+    {
+      id: nextIntelId(),
+      case_id: CASE_ID_MAIN,
+      evidence_file_id: second.id,
+      event_type: "received",
+      occurred_at: day(3),
+      recorded_at: day(3),
+      actor_user_id: null,
+      collector: null,
+      transferor: null,
+      recipient: "Forensics Lab",
+      location: "Forensics Lab",
+      method: null,
+      notes: "chain acknowledged",
+      recorded_sha256: second.sha256,
+    },
+  );
+}
+seedCustodyState();
+
+/** Resolve evidence within a case, mirroring the backend's 404/409 split. */
+function mockEvidenceFor(caseId: string, evidenceId: string): EvidenceListItem {
+  const recycled = recycleState.find((e) => e.id === evidenceId && e.case_id === caseId);
+  if (recycled) {
+    throw new ApiError({ status: 409, code: "EVIDENCE_UNAVAILABLE", message: "evidence is deleted; restore it first" });
+  }
+  const item = evidenceState.find((e) => e.id === evidenceId);
+  if (!item || (caseId !== CASE_ID_MAIN && caseId !== CASE_ID_SECONDARY)) {
+    throw notFound(`evidence ${evidenceId} not found in this case`);
+  }
+  return item;
+}
+
+function mockExtractionArtifact(caseId: string, item: EvidenceListItem, jobId: string): DerivedArtifactOut {
+  return {
+    id: nextIntelId(),
+    case_id: caseId,
+    kind: "extraction",
+    origin: "llm",
+    status: "pending_review",
+    validation_status: "flagged",
+    evidence_file_id: item.id,
+    source_record_id: null,
+    source_locator: { unit_index: 0, page: 1 },
+    payload: {
+      fields: {
+        person_names: ["Rajesh Kumar"],
+        organization_names: ["Gokul Traders"],
+        phone_numbers: ["+919820011223"],
+        email_addresses: [],
+        account_references: [],
+        transaction_amounts: ["45,000.00 INR"],
+        transaction_dates: ["2026-01-15"],
+        urls: [],
+        domains: [],
+        device_identifiers: [],
+        statements: ["payment was made promptly"],
+        events: ["payment recorded"],
+      },
+    },
+    content_hash: `extraction-${jobId}-${item.id}`,
+    parser_version: "mock:1",
+    prompt_version: "1.0.0",
+    model_profile: "mock",
+    analysis_job_id: jobId,
+    validation_errors: [
+      {
+        field: "statements",
+        index: 0,
+        code: "value_not_in_source",
+        message: "value is not present in the source record",
+      },
+    ],
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+}
 
 /* ------------------------------ AI threads ------------------------------- */
 
@@ -627,6 +830,11 @@ export function resetMockState(): void {
   findingsState.push(...MAIN_FINDINGS);
   jobsState.length = 0;
   jobsState.push(...MAIN_JOBS);
+  intelJobsState.length = 0;
+  artifactsState.length = 0;
+  custodyEventsState.length = 0;
+  extractionSourceTexts.clear();
+  seedCustodyState();
   for (const k of Object.keys(membersState)) delete membersState[k];
   Object.assign(membersState, seedMembers());
   auditState.length = 0;
@@ -1375,6 +1583,456 @@ export const mockApi: Api = {
         nodes_synced: 14,
         edges_synced: 18,
         error: null,
+      };
+    },
+
+    /* ------------------ Evidence intelligence (phase 2) ------------------ */
+
+    async extract(caseId: string, evidenceFileId: string): Promise<JobSubmitResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("ingestion.run");
+      assertCaseAccess(caseId);
+      const item = mockEvidenceFor(caseId, evidenceFileId);
+      const active = intelJobsState.find(
+        (j) =>
+          j.case_id === caseId &&
+          j.feature === "ingestion" &&
+          j.evidence_file_id === evidenceFileId &&
+          (j.status === "pending" || j.status === "running"),
+      );
+      if (active) {
+        throw new ApiError({ status: 409, code: "EXTRACTION_ACTIVE", message: "an extraction is already active for this evidence" });
+      }
+      const attempts = intelJobsState.filter(
+        (j) => j.case_id === caseId && j.feature === "ingestion" && j.evidence_file_id === evidenceFileId,
+      ).length;
+      const job: AnalysisJobOut = {
+        id: nextIntelId(),
+        case_id: caseId,
+        feature: "ingestion",
+        status: "succeeded",
+        idempotency_key: `extraction:${evidenceFileId}:attempt:${attempts + 1}`,
+        progress: 100,
+        total_records: 1,
+        processed_records: 1,
+        attempts: attempts + 1,
+        timeout_seconds: 600,
+        cancel_requested: false,
+        error: null,
+        result_summary: {
+          units_total: 1,
+          artifacts_created: 1,
+          artifacts_reused: 0,
+          fields_total: 12,
+          fields_verified: 11,
+          error_code: null,
+        },
+        evidence_file_id: evidenceFileId,
+        actor_id: currentUser().record?.id ?? null,
+        started_at: isoNow(),
+        completed_at: isoNow(),
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      intelJobsState.unshift(job);
+      // Deterministic mock "extraction": verbatim claims from a source snapshot
+      // that contains every value, plus one paraphrase honestly flagged by the
+      // deterministic validator as `value_not_in_source`.
+      const source = `Invoice from ${item.original_filename} for record 1. Amount 45,000.00 INR on 2026-01-15.`;
+      const artifact = mockExtractionArtifact(caseId, item, job.id);
+      extractionSourceTexts.set(artifact.id, source);
+      artifactsState.unshift(artifact);
+      pushAudit("extraction.submitted", "analysis_job", caseId, { evidence_file_id: evidenceFileId });
+      pushAudit("extraction.completed", "analysis_job", caseId, { status: "succeeded", artifacts_created: 1 });
+      return { job, duplicate: false };
+    },
+
+    async evidenceJobs(caseId: string, params: PageParams & { feature?: string; status?: string } = {}): Promise<AnalysisJobList> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      let items = intelJobsState.filter((j) => j.case_id === caseId);
+      if (params.feature) items = items.filter((j) => j.feature === params.feature);
+      if (params.status) items = items.filter((j) => j.status === params.status);
+      const limit = params.limit ?? 100;
+      const offset = params.offset ?? 0;
+      return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+    },
+
+    async cancelJob(caseId: string, jobId: string): Promise<AnalysisJobOut> {
+      await delay(MOCK_LATENCY);
+      requirePermission("ingestion.run");
+      assertCaseAccess(caseId);
+      const job = intelJobsState.find((j) => j.id === jobId && j.case_id === caseId);
+      if (!job || (job.feature !== "ingestion" && job.feature !== "custody")) {
+        throw notFound(`job ${jobId} not found`);
+      }
+      if (job.status !== "pending" && job.status !== "running") {
+        throw new ApiError({ status: 409, code: "JOB_TERMINAL", message: "job already reached a terminal state" });
+      }
+      job.cancel_requested = true;
+      job.status = "canceled";
+      job.completed_at = isoNow();
+      job.updated_at = isoNow();
+      pushAudit("job.canceled", "analysis_job", caseId, { job_id: job.id, feature: job.feature });
+      return job;
+    },
+
+    async artifacts(caseId: string, params: PageParams & { kind?: string } = {}): Promise<ArtifactList> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      let items = artifactsState.filter((a) => a.case_id === caseId);
+      if (params.kind) items = items.filter((a) => a.kind === params.kind);
+      const limit = params.limit ?? 100;
+      const offset = params.offset ?? 0;
+      const sorted = [...items].sort((a, b) => b.created_at.localeCompare(a.created_at));
+      return { items: sorted.slice(offset, offset + limit), total: items.length, limit, offset };
+    },
+
+    async reviewArtifact(caseId: string, artifactId: string, input: ArtifactReviewRequest): Promise<DerivedArtifactOut> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("findings.review");
+      assertCaseAccess(caseId);
+      const artifact = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
+      if (!artifact) throw notFound("artifact not found");
+      if (artifact.kind !== "extraction") {
+        throw new ApiError({ status: 409, code: "ARTIFACT_KIND_UNSUPPORTED", message: "only extraction artifacts support review" });
+      }
+      if (artifact.status !== "pending_review") {
+        throw new ApiError({ status: 409, code: "ARTIFACT_NOT_REVIEWABLE", message: "artifact already left pending_review" });
+      }
+      if (input.note && input.note.length > 2000) {
+        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "note must be 2000 characters or fewer" });
+      }
+      if (input.decision === "approved" && input.payload?.fields) {
+        // Mirror the server rule: every edited value must appear in the
+        // artifact's own source snapshot, or the edit is refused (422).
+        const source = (extractionSourceTexts.get(artifact.id) ?? "").toLowerCase();
+        for (const [field, values] of Object.entries(input.payload.fields)) {
+          if (!field || field.length > 128) {
+            throw new ApiError({ status: 422, code: "INVALID_PAYLOAD", message: "extraction field names must be 1-128 characters" });
+          }
+          for (const value of values) {
+            if (!source.includes(value.toLowerCase())) {
+              throw new ApiError({ status: 422, code: "INVALID_PAYLOAD", message: `edited value for '${field}' is not present in the source record` });
+            }
+          }
+        }
+        artifact.status = "superseded";
+        const child: DerivedArtifactOut = {
+          ...artifact,
+          id: nextIntelId(),
+          status: "approved",
+          payload: { ...artifact.payload, fields: input.payload.fields },
+          content_hash: `edited-${artifact.id}`,
+          validation_errors: null,
+          review_note: input.note ?? null,
+          reviewed_by: currentUser().record?.id ?? null,
+          reviewed_at: isoNow(),
+          parent_artifact_id: artifact.id,
+          created_at: isoNow(),
+          updated_at: isoNow(),
+        };
+        extractionSourceTexts.set(child.id, extractionSourceTexts.get(artifact.id) ?? "");
+        artifactsState.unshift(child);
+        pushAudit("artifact.reviewed", "derived_artifact", caseId, { artifact_id: child.id, decision: "approved", edited: true });
+        return child;
+      }
+      artifact.status = input.decision === "approved" ? "approved" : "rejected";
+      artifact.review_note = input.note ?? null;
+      artifact.reviewed_by = currentUser().record?.id ?? null;
+      artifact.reviewed_at = isoNow();
+      artifact.updated_at = isoNow();
+      pushAudit("artifact.reviewed", "derived_artifact", caseId, { artifact_id: artifact.id, decision: input.decision });
+      return artifact;
+    },
+
+    async verifyIntegrity(caseId: string, evidenceFileId: string): Promise<IntegrityVerificationResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("ingestion.run");
+      assertCaseAccess(caseId);
+      const item = mockEvidenceFor(caseId, evidenceFileId);
+      // The mock's storage is self-consistent: re-hashing the "bytes" always
+      // reproduces the recorded digest, so the honest result here is `match`.
+      const artifact: DerivedArtifactOut = {
+        id: nextIntelId(),
+        case_id: caseId,
+        kind: "integrity_verification",
+        origin: "deterministic",
+        status: "recorded",
+        validation_status: "valid",
+        evidence_file_id: evidenceFileId,
+        source_record_id: null,
+        source_locator: null,
+        payload: {
+          type: "hash_verification",
+          status: "match",
+          algorithm: "sha256",
+          expected_sha256: item.sha256,
+          calculated_sha256: item.sha256,
+          object_present: true,
+        },
+        content_hash: `verify-${evidenceFileId}`,
+        parser_version: "deterministic:1",
+        prompt_version: null,
+        model_profile: null,
+        analysis_job_id: null,
+        validation_errors: null,
+        review_note: null,
+        reviewed_by: null,
+        reviewed_at: null,
+        parent_artifact_id: null,
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      artifactsState.unshift(artifact);
+      pushAudit("integrity.verified", "evidence_file", caseId, { evidence_file_id: evidenceFileId, status: "match" });
+      return {
+        evidence_id: evidenceFileId,
+        artifact_id: artifact.id,
+        status: "match",
+        algorithm: "sha256",
+        expected_sha256: item.sha256,
+        calculated_sha256: item.sha256,
+        object_present: true,
+        file_size_bytes: item.file_size,
+        duration_ms: 3,
+        verified_at: isoNow(),
+      };
+    },
+
+    async custodyAudit(caseId: string, evidenceFileId?: string | null): Promise<JobSubmitResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("ingestion.run");
+      assertCaseAccess(caseId);
+      const active = intelJobsState.find(
+        (j) => j.case_id === caseId && j.feature === "custody" && (j.status === "pending" || j.status === "running"),
+      );
+      if (active) {
+        throw new ApiError({ status: 409, code: "CUSTODY_AUDIT_ACTIVE", message: "a custody audit is already active for this case" });
+      }
+      // Deterministic rule engine (mirror of the backend's unacknowledged-transfer
+      // rule): a transfer with no later receipt produces one finding, deduped by
+      // (evidence, event, rule).
+      let findingsNew = 0;
+      let findingsExisting = 0;
+      const targets = custodyEventsState.filter(
+        (e) => e.case_id === caseId && (!evidenceFileId || e.evidence_file_id === evidenceFileId),
+      );
+      const byEvidence = new Map<string, CustodyEventOut[]>();
+      for (const event of targets) {
+        const key = event.evidence_file_id ?? "";
+        byEvidence.set(key, [...(byEvidence.get(key) ?? []), event]);
+      }
+      let evidenceChecked = 0;
+      for (const [eid, events] of byEvidence) {
+        if (!eid) continue;
+        evidenceChecked += 1;
+        const receipts = events.filter((e) => e.event_type === "received");
+        for (const transfer of events.filter((e) => e.event_type === "transferred")) {
+          const acknowledged = receipts.some((r) => r.occurred_at >= transfer.occurred_at);
+          if (acknowledged) continue;
+          const duplicate = artifactsState.find(
+            (a) =>
+              a.case_id === caseId &&
+              a.kind === "custody_finding" &&
+              (a.payload as { rule?: string; event_id?: string }).rule === "custody.unacknowledged_transfer" &&
+              (a.payload as { event_id?: string }).event_id === transfer.id,
+          );
+          if (duplicate) {
+            findingsExisting += 1;
+            continue;
+          }
+          artifactsState.unshift({
+            id: nextIntelId(),
+            case_id: caseId,
+            kind: "custody_finding",
+            origin: "deterministic",
+            status: "pending_review",
+            validation_status: "valid",
+            evidence_file_id: eid,
+            source_record_id: null,
+            source_locator: { custody_event_id: transfer.id },
+            payload: {
+              type: "custody_finding",
+              rule: "custody.unacknowledged_transfer",
+              severity: "warning",
+              message: `transfer ${transfer.id} has no received event after it`,
+              evidence_id: eid,
+              event_id: transfer.id,
+              transferor: transfer.transferor,
+              recipient: transfer.recipient,
+              occurred_at: transfer.occurred_at,
+            },
+            content_hash: `finding-${transfer.id}`,
+            parser_version: "deterministic:1",
+            prompt_version: null,
+            model_profile: null,
+            analysis_job_id: null,
+            validation_errors: null,
+            review_note: null,
+            reviewed_by: null,
+            reviewed_at: null,
+            parent_artifact_id: null,
+            created_at: isoNow(),
+            updated_at: isoNow(),
+          });
+          findingsNew += 1;
+        }
+      }
+      const job: AnalysisJobOut = {
+        id: nextIntelId(),
+        case_id: caseId,
+        feature: "custody",
+        status: "succeeded",
+        idempotency_key: `custody:${evidenceFileId ?? "case"}:${isoNow()}`,
+        progress: 100,
+        total_records: evidenceChecked,
+        processed_records: evidenceChecked,
+        attempts: 1,
+        timeout_seconds: 600,
+        cancel_requested: false,
+        error: null,
+        result_summary: {
+          evidence_checked: evidenceChecked,
+          custody_events: targets.length,
+          findings_new: findingsNew,
+          findings_existing: findingsExisting,
+          hash_match: evidenceChecked,
+          hash_mismatch: 0,
+          hash_unavailable: 0,
+          orphaned_events: 0,
+          error_code: null,
+        },
+        evidence_file_id: evidenceFileId ?? null,
+        actor_id: currentUser().record?.id ?? null,
+        started_at: isoNow(),
+        completed_at: isoNow(),
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      intelJobsState.unshift(job);
+      pushAudit("custody.audit_completed", "analysis_job", caseId, {
+        status: "succeeded",
+        findings_new: findingsNew,
+        findings_existing: findingsExisting,
+      });
+      return { job, duplicate: false };
+    },
+
+    async custodyChronology(caseId: string, evidenceId: string): Promise<CustodyChronologyResponse> {
+      await delay(MOCK_LATENCY);
+      assertCaseAccess(caseId);
+      const item = mockEvidenceFor(caseId, evidenceId);
+      const events = custodyEventsState
+        .filter((e) => e.evidence_file_id === evidenceId)
+        .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+      const recycled = recycleState.find((e) => e.id === evidenceId);
+      return {
+        evidence_id: evidenceId,
+        original_filename: item.original_filename,
+        sha256: item.sha256,
+        algorithm: "sha256",
+        format: item.format,
+        file_size: item.file_size,
+        created_at: item.created_at,
+        deleted_at: recycled ? isoNow() : null,
+        events,
+        event_count: events.length,
+      };
+    },
+
+    async recordCustodyEvent(caseId: string, evidenceId: string, input: CustodyEventCreateRequest): Promise<CustodyEventOut> {
+      await delay(MOCK_LATENCY);
+      requirePermission("evidence.upload");
+      assertCaseAccess(caseId);
+      const item = mockEvidenceFor(caseId, evidenceId);
+      if (!CUSTODY_EVENT_TYPES.includes(input.event_type)) {
+        throw new ApiError({ status: 422, code: "INVALID_PAYLOAD", message: `unknown custody event type '${input.event_type}'` });
+      }
+      if (!/[zZ]|[+-]\d\d:?\d\d$/.test(input.occurred_at) || Number.isNaN(Date.parse(input.occurred_at))) {
+        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "occurred_at must be an ISO-8601 timestamp with an explicit time zone" });
+      }
+      if (Date.parse(input.occurred_at) > Date.now() + 300_000) {
+        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "occurred_at cannot be more than 300 seconds in the future" });
+      }
+      const required = CUSTODY_REQUIRED_FIELDS[input.event_type] ?? [];
+      const missing = required.filter((f) => !String(input[f as keyof CustodyEventCreateRequest] ?? "").trim());
+      if (missing.length) {
+        throw new ApiError({ status: 422, code: "CUSTODY_FIELD_REQUIRED", message: `'${input.event_type}' custody event requires: ${missing.join(", ")}` });
+      }
+      if (input.recorded_sha256 && !/^[0-9a-f]{64}$/i.test(input.recorded_sha256)) {
+        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "recorded_sha256 must be a 64-character sha256 hex digest" });
+      }
+      void item;
+      const event: CustodyEventOut = {
+        id: nextIntelId(),
+        case_id: caseId,
+        evidence_file_id: evidenceId,
+        event_type: input.event_type,
+        occurred_at: input.occurred_at,
+        recorded_at: isoNow(),
+        actor_user_id: currentUser().record?.id ?? null,
+        collector: input.collector ?? null,
+        transferor: input.transferor ?? null,
+        recipient: input.recipient ?? null,
+        location: input.location ?? null,
+        method: input.method ?? null,
+        notes: input.notes ?? null,
+        recorded_sha256: input.recorded_sha256 ?? null,
+      };
+      custodyEventsState.push(event);
+      pushAudit("custody.event_recorded", "evidence_file", caseId, { evidence_file_id: evidenceId, event_type: input.event_type });
+      return event;
+    },
+
+    async explainFinding(caseId: string, artifactId: string): Promise<CustodyExplainResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("evidence.read");
+      assertCaseAccess(caseId);
+      const finding = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
+      if (!finding) throw notFound("artifact not found");
+      const payload = finding.payload as { type?: string; rule?: string };
+      if (finding.kind !== "custody_finding" || payload.type !== "custody_finding") {
+        throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "only custody findings can be explained; hash verifications are deterministic facts" });
+      }
+      const rule = payload.rule ?? "custody.finding";
+      const explanation: DerivedArtifactOut = {
+        id: nextIntelId(),
+        case_id: caseId,
+        kind: "custody_finding",
+        origin: "llm",
+        status: "recorded",
+        validation_status: "flagged",
+        evidence_file_id: finding.evidence_file_id,
+        source_record_id: null,
+        source_locator: finding.source_locator,
+        payload: {
+          type: "ai_explanation",
+          for_artifact_id: finding.id,
+          rule,
+          text: `Rule ${rule} was recorded from the custody events listed on the finding; the model verified no files and cannot certify the chain of custody.`,
+        },
+        content_hash: `explain-${finding.id}`,
+        parser_version: "deterministic:1",
+        prompt_version: "1.0.0",
+        model_profile: "explain",
+        analysis_job_id: null,
+        validation_errors: [
+          { field: "text", code: "ai_unverified", message: "AI-generated narration; unreviewed and unverified" },
+        ],
+        review_note: null,
+        reviewed_by: null,
+        reviewed_at: null,
+        parent_artifact_id: finding.id,
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      artifactsState.unshift(explanation);
+      pushAudit("custody.explanation_generated", "derived_artifact", caseId, { for_artifact_id: finding.id });
+      return {
+        explanation_artifact: explanation,
+        text: explanation.payload.text as string,
+        rule,
       };
     },
   },

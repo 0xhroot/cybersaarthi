@@ -47,9 +47,12 @@ import type {
 import type {
   AdminUserList,
   AdminUserOut,
+  AnalysisJobList,
+  AnalysisJobOut,
   AnalyticsRun,
   AnalyticsRunList,
   AnalyticsSummary,
+  ArtifactList,
   AuditList,
   Case,
   CaseList,
@@ -58,6 +61,10 @@ import type {
   Collection,
   CollectionList,
   Community,
+  CustodyChronologyResponse,
+  CustodyEventOut,
+  CustodyExplainResponse,
+  DerivedArtifactOut,
   DeviceList,
   DeviceVerifyResponse,
   EntityDetail,
@@ -82,6 +89,7 @@ import type {
   ImportAccepted,
   IngestAccepted,
   IngestJobList,
+  IntegrityVerificationResponse,
   InvestigationHypothesis,
   InvestigationHypothesisList,
   IoTDevice,
@@ -89,6 +97,7 @@ import type {
   IoTDeviceStats,
   IoTEvent,
   IoTEventList,
+  JobSubmitResponse,
   MeResponse,
   NetworkProfile,
   Pattern,
@@ -326,6 +335,73 @@ const evidenceService: ApiEvidenceService = {
       method: "POST",
       body: {},
     });
+  },
+
+  extract(caseId, evidenceFileId) {
+    return request<JobSubmitResponse>(
+      `/cases/${caseId}/evidence-intelligence/extract`,
+      { method: "POST", body: { evidence_file_id: evidenceFileId } },
+    );
+  },
+  evidenceJobs(caseId, params = {}) {
+    return request<AnalysisJobList>(
+      `/cases/${caseId}/evidence-intelligence/jobs${buildQuery({
+        limit: params.limit ?? 100,
+        offset: params.offset ?? 0,
+        ...(params.feature ? { feature: params.feature } : {}),
+        ...(params.status ? { status: params.status } : {}),
+      })}`,
+    );
+  },
+  cancelJob(caseId, jobId) {
+    return request<AnalysisJobOut>(
+      `/cases/${caseId}/evidence-intelligence/jobs/${jobId}/cancel`,
+      { method: "POST", body: {} },
+    );
+  },
+  artifacts(caseId, params = {}) {
+    return request<ArtifactList>(
+      `/cases/${caseId}/evidence-intelligence/artifacts${buildQuery({
+        limit: params.limit ?? 100,
+        offset: params.offset ?? 0,
+        ...(params.kind ? { kind: params.kind } : {}),
+      })}`,
+    );
+  },
+  reviewArtifact(caseId, artifactId, input) {
+    return request<DerivedArtifactOut>(
+      `/cases/${caseId}/evidence-intelligence/artifacts/${artifactId}/review`,
+      { method: "POST", body: input },
+    );
+  },
+  verifyIntegrity(caseId, evidenceFileId) {
+    return request<IntegrityVerificationResponse>(
+      `/cases/${caseId}/evidence-integrity/verify`,
+      { method: "POST", body: { evidence_file_id: evidenceFileId } },
+    );
+  },
+  custodyAudit(caseId, evidenceFileId) {
+    return request<JobSubmitResponse>(
+      `/cases/${caseId}/evidence-integrity/custody-audit`,
+      { method: "POST", body: evidenceFileId ? { evidence_file_id: evidenceFileId } : {} },
+    );
+  },
+  custodyChronology(caseId, evidenceId) {
+    return request<CustodyChronologyResponse>(
+      `/cases/${caseId}/evidence/${evidenceId}/custody`,
+    );
+  },
+  recordCustodyEvent(caseId, evidenceId, input) {
+    return request<CustodyEventOut>(
+      `/cases/${caseId}/evidence/${evidenceId}/custody-events`,
+      { method: "POST", body: input },
+    );
+  },
+  explainFinding(caseId, artifactId) {
+    return request<CustodyExplainResponse>(
+      `/cases/${caseId}/evidence-intelligence/artifacts/${artifactId}/explain`,
+      { method: "POST", body: {} },
+    );
   },
 };
 

@@ -10,9 +10,13 @@
 import type {
   AdminUserList,
   AdminUserOut,
+  AnalysisJobList,
+  AnalysisJobOut,
   AnalyticsRun,
   AnalyticsRunList,
   AnalyticsSummary,
+  ArtifactList,
+  ArtifactReviewRequest,
   AuditList,
   Case,
   CaseCreateRequest,
@@ -26,6 +30,11 @@ import type {
   CollectionList,
   CollectionUpdateRequest,
   Community,
+  CustodyChronologyResponse,
+  CustodyEventCreateRequest,
+  CustodyEventOut,
+  CustodyExplainResponse,
+  DerivedArtifactOut,
   DeviceList,
   DeviceRegisterRequest,
   DeviceVerifyRequest,
@@ -53,6 +62,7 @@ import type {
   ImportAccepted,
   IngestAccepted,
   IngestJobList,
+  IntegrityVerificationResponse,
   InvestigationHypothesis,
   InvestigationHypothesisCreateRequest,
   InvestigationHypothesisList,
@@ -64,6 +74,7 @@ import type {
   IoTEvent,
   IoTEventCreateRequest,
   IoTEventList,
+  JobSubmitResponse,
   MeResponse,
   NetworkProfile,
   Pattern,
@@ -197,6 +208,48 @@ export interface ApiEvidenceService {
   delete(caseId: string, evidenceId: string): Promise<void>;
   restore(caseId: string, evidenceId: string): Promise<EvidenceRestoreResponse>;
   retryGraphSync(caseId: string, jobId: string): Promise<GraphSyncResult>;
+
+  /* ------------------ Evidence intelligence (phase 2) ------------------ */
+
+  /**
+   * Submit an extraction run for one evidence file (202 + background job).
+   * One active job per evidence: a concurrent submit is refused with
+   * `EXTRACTION_ACTIVE`; a retry after a terminal run becomes a new attempt
+   * that reuses already-reviewed-eligible records instead of re-extracting.
+   */
+  extract(caseId: string, evidenceFileId: string): Promise<JobSubmitResponse>;
+  /** Analysis jobs (`feature`: ingestion | custody, …) for progress/lifecycle. */
+  evidenceJobs(
+    caseId: string,
+    params?: PageParams & { feature?: string; status?: string },
+  ): Promise<AnalysisJobList>;
+  /** Cooperative cancel: sets the flag; the job ends canceled, never succeeded. */
+  cancelJob(caseId: string, jobId: string): Promise<AnalysisJobOut>;
+  /** Derived artifacts (`kind`: extraction | custody_finding | …). */
+  artifacts(caseId: string, params?: PageParams & { kind?: string }): Promise<ArtifactList>;
+  /**
+   * Human review decision on one artifact. Approving an extraction with
+   * `payload.fields` re-validates the edited values against the artifact's own
+   * source record and stores a superseding child artifact.
+   */
+  reviewArtifact(caseId: string, artifactId: string, input: ArtifactReviewRequest): Promise<DerivedArtifactOut>;
+  /** Deterministic hash verification against the stored object bytes. */
+  verifyIntegrity(caseId: string, evidenceFileId: string): Promise<IntegrityVerificationResponse>;
+  /** Case-wide (or single-evidence) custody audit job. */
+  custodyAudit(caseId: string, evidenceFileId?: string | null): Promise<JobSubmitResponse>;
+  /** Append-only custody chronology for one evidence file. */
+  custodyChronology(caseId: string, evidenceId: string): Promise<CustodyChronologyResponse>;
+  /** Record one policy-validated custody event (append-only, audited). */
+  recordCustodyEvent(
+    caseId: string,
+    evidenceId: string,
+    input: CustodyEventCreateRequest,
+  ): Promise<CustodyEventOut>;
+  /**
+   * Facts-only AI narration of one custody finding. The stored explanation is
+   * always `validation_status "flagged"` (unverified AI text), never green.
+   */
+  explainFinding(caseId: string, artifactId: string): Promise<CustodyExplainResponse>;
 }
 
 export interface ApiGraphService {

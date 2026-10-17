@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
 import type { AdminUserListParams, CaseListParams, CaseMemberAddRequest, EntityListParams, FindingListParams, AuditParams, VictimListParams, IoTDeviceListParams, IoTEventListParams, InvestigationHypothesisListParams } from "@/api/contract";
-import type { CaseStatus, CollectionCreateRequest, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest, DeviceRegisterRequest, HypothesisLinkEvidenceRequest, ReportGenerateRequest, InvestigationHypothesisCreateRequest } from "@/types/domain";
+import type { ArtifactReviewRequest, CaseStatus, CollectionCreateRequest, CustodyEventCreateRequest, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest, DeviceRegisterRequest, HypothesisLinkEvidenceRequest, ReportGenerateRequest, InvestigationHypothesisCreateRequest } from "@/types/domain";
 
 const MINUTE = 60_000;
 
@@ -16,6 +16,10 @@ export const queryKeys = {
   evidenceDetail: (caseId: string, id: string) => ["evidence", caseId, id] as const,
   provenance: (caseId: string, id: string) => ["evidence", caseId, id, "provenance"] as const,
   jobs: (caseId: string) => ["jobs", caseId] as const,
+  /* Phase 2 keys nest under ["evidence", caseId] so evidence invalidations cover them. */
+  intelJobs: (caseId: string, feature?: string) => ["evidence", caseId, "intel-jobs", feature] as const,
+  artifacts: (caseId: string, kind?: string) => ["evidence", caseId, "artifacts", kind] as const,
+  custody: (caseId: string, evidenceId: string) => ["evidence", caseId, "custody", evidenceId] as const,
   graph: (caseId: string) => ["graph", caseId] as const,
   graphStats: (caseId: string) => ["graph", caseId, "stats"] as const,
   ego: (caseId: string, id: string) => ["graph", caseId, "ego", id] as const,
@@ -807,6 +811,114 @@ export function useRestoreEvidence(caseId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/* --------------------- Evidence intelligence (phase 2) --------------------- */
+
+export function useIntelJobs(caseId: string, feature?: string) {
+  return useQuery({
+    queryKey: queryKeys.intelJobs(caseId, feature),
+    queryFn: () => api.evidence.evidenceJobs(caseId, { feature }),
+    staleTime: 15 * 1000,
+    refetchInterval: 15 * 1000,
+  });
+}
+
+export function useExtractEvidence(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (evidenceFileId: string) => api.evidence.extract(caseId, evidenceFileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useCancelIntelJob(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => api.evidence.cancelJob(caseId, jobId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useArtifacts(caseId: string, kind?: string) {
+  return useQuery({
+    queryKey: queryKeys.artifacts(caseId, kind),
+    queryFn: () => api.evidence.artifacts(caseId, { kind }),
+    staleTime: 15 * 1000,
+  });
+}
+
+export function useReviewArtifact(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { artifactId: string; review: ArtifactReviewRequest }) =>
+      api.evidence.reviewArtifact(caseId, input.artifactId, input.review),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useVerifyIntegrity(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (evidenceFileId: string) => api.evidence.verifyIntegrity(caseId, evidenceFileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useCustodyAudit(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (evidenceFileId?: string | null) => api.evidence.custodyAudit(caseId, evidenceFileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+export function useCustodyChronology(caseId: string, evidenceId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.custody(caseId, evidenceId ?? ""),
+    queryFn: () => api.evidence.custodyChronology(caseId, evidenceId ?? ""),
+    enabled: Boolean(evidenceId),
+    staleTime: 15 * 1000,
+  });
+}
+
+export function useRecordCustodyEvent(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { evidenceId: string; event: CustodyEventCreateRequest }) =>
+      api.evidence.recordCustodyEvent(caseId, input.evidenceId, input.event),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+      void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
+    },
+  });
+}
+
+export function useExplainFinding(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (artifactId: string) => api.evidence.explainFinding(caseId, artifactId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
     },
   });

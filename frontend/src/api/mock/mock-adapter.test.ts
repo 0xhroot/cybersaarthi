@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { mockApi, resetMockState } from "@/api/mock";
+import { MAIN_EVIDENCE } from "@/api/mock/data";
 
 const MAIN_CASE_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -434,5 +435,126 @@ describe("mock adapter", () => {
     });
     expect(accepted.imported_evidence_count).toBe(1);
     expect(accepted.evidence_ids.length).toBe(1);
+  });
+
+  /* ------------------ Evidence intelligence (phase 2) ------------------ */
+
+  it("extracts fields, refuses a concurrent run, and keeps artifacts unreviewed until a human decides", async () => {
+    await signIn("admin", "admin-dev-password");
+    const list = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 5 });
+    const evidenceId = list.items[0].id;
+
+    const submitted = await mockApi.evidence.extract(MAIN_CASE_ID, evidenceId);
+    expect(submitted.job.status).toBe("succeeded");
+    expect(submitted.job.feature).toBe("ingestion");
+    expect(submitted.duplicate).toBe(false);
+
+    // A second submit after a terminal run is a new attempt, not a duplicate.
+    const second = await mockApi.evidence.extract(MAIN_CASE_ID, evidenceId);
+    expect(second.job.attempts).toBe(2);
+
+    const artifacts = await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "extraction" });
+    const forEvidence = artifacts.items.filter((a) => a.evidence_file_id === evidenceId);
+    expect(forEvidence.length).toBe(2);
+    // Nothing is auto-approved: every extraction artifact awaits review, and the
+    // flagged paraphrase stays flagged.
+    expect(forEvidence.every((a) => a.status === "pending_review")).toBe(true);
+    expect(forEvidence[0].validation_status).toBe("flagged");
+    expect(forEvidence[0].validation_errors?.length).toBe(1);
+
+    // Approval records a decision; it does not clear the validation flags.
+    const approved = await mockApi.evidence.reviewArtifact(MAIN_CASE_ID, forEvidence[0].id, { decision: "approved", note: "spot checked" });
+    expect(approved.status).toBe("approved");
+    expect(approved.review_note).toBe("spot checked");
+    // Re-reviewing a decided artifact is refused.
+    await expect(
+      mockApi.evidence.reviewArtifact(MAIN_CASE_ID, forEvidence[0].id, { decision: "rejected" }),
+    ).rejects.toMatchObject({ code: "ARTIFACT_NOT_REVIEWABLE" });
+  });
+
+  it("verifies integrity with a deterministic match and records the fact artifact", async () => {
+    await signIn("admin", "admin-dev-password");
+    const list = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 5 });
+    const evidenceId = list.items[0].id;
+
+    const result = await mockApi.evidence.verifyIntegrity(MAIN_CASE_ID, evidenceId);
+    expect(result.status).toBe("match");
+    expect(result.calculated_sha256).toBe(result.expected_sha256);
+    expect(result.object_present).toBe(true);
+
+    const recorded = await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "integrity_verification" });
+    expect(recorded.items[0]?.payload).toMatchObject({ type: "hash_verification", status: "match" });
+  });
+
+  it("audits custody: seeded gap produces exactly one rule finding, clean chain produces none", async () => {
+    await signIn("admin", "admin-dev-password");
+    // The custody seed attaches its chains to the first two seeded records
+    // (the list endpoint sorts newest-first, so pick them by id).
+    const [first, second] = MAIN_EVIDENCE;
+
+    const chronology = await mockApi.evidence.custodyChronology(MAIN_CASE_ID, first.id);
+    expect(chronology.event_count).toBe(2);
+    expect(chronology.sha256).toBe(first.sha256);
+
+    const audited = await mockApi.evidence.custodyAudit(MAIN_CASE_ID, first.id);
+    expect(audited.job.status).toBe("succeeded");
+    expect(audited.job.result_summary).toMatchObject({ findings_new: 1, findings_existing: 0 });
+
+    const clean = await mockApi.evidence.custodyAudit(MAIN_CASE_ID, second.id);
+    expect(clean.job.result_summary).toMatchObject({ findings_new: 0 });
+
+    // Re-running the audit dedupes: the same finding is counted as existing.
+    const again = await mockApi.evidence.custodyAudit(MAIN_CASE_ID, first.id);
+    expect(again.job.result_summary).toMatchObject({ findings_new: 0, findings_existing: 1 });
+
+    const findings = await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "custody_finding" });
+    expect(findings.items.length).toBe(1);
+    expect(findings.items[0].payload).toMatchObject({ rule: "custody.unacknowledged_transfer" });
+
+    // Explain returns facts-only narration stored as flagged, never green.
+    const explained = await mockApi.evidence.explainFinding(MAIN_CASE_ID, findings.items[0].id);
+    expect(explained.explanation_artifact.validation_status).toBe("flagged");
+    expect(explained.explanation_artifact.parent_artifact_id).toBe(findings.items[0].id);
+    // Hash facts cannot be "explained" into custody claims.
+    const verify = await mockApi.evidence.verifyIntegrity(MAIN_CASE_ID, first.id);
+    await expect(mockApi.evidence.explainFinding(MAIN_CASE_ID, verify.artifact_id)).rejects.toMatchObject({
+      code: "ARTIFACT_KIND_UNSUPPORTED",
+    });
+  });
+
+  it("records custody events with policy validation (required fields, zone, digest)", async () => {
+    await signIn("admin", "admin-dev-password");
+    const evidenceId = MAIN_EVIDENCE[0].id;
+
+    await expect(
+      mockApi.evidence.recordCustodyEvent(MAIN_CASE_ID, evidenceId, { event_type: "transferred", occurred_at: "2026-01-15T10:00:00Z" }),
+    ).rejects.toMatchObject({ code: "CUSTODY_FIELD_REQUIRED" });
+
+    await expect(
+      mockApi.evidence.recordCustodyEvent(MAIN_CASE_ID, evidenceId, {
+        event_type: "collected",
+        occurred_at: "2026-01-15T10:00:00",
+        collector: "Insp. Verma",
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    const event = await mockApi.evidence.recordCustodyEvent(MAIN_CASE_ID, evidenceId, {
+      event_type: "received",
+      occurred_at: new Date().toISOString(),
+      recipient: "Forensics Lab",
+    });
+    expect(event.recorded_at).toBeTruthy();
+    expect(event.evidence_file_id).toBe(evidenceId);
+
+    // The appended receipt closes the seeded transfer gap.
+    const audited = await mockApi.evidence.custodyAudit(MAIN_CASE_ID, evidenceId);
+    expect(audited.job.result_summary).toMatchObject({ evidence_checked: 1, findings_new: 0 });
+  });
+
+  it("denies extraction to users without ingestion.run", async () => {
+    await signIn("viewer", "viewer-demo-password");
+    const list = await mockApi.evidence.list(MAIN_CASE_ID, { limit: 5 }).catch(() => ({ items: [] as never[] }));
+    if (list.items.length === 0) return; // viewer may lack case access entirely
+    await expect(mockApi.evidence.extract(MAIN_CASE_ID, list.items[0].id)).rejects.toMatchObject({ status: 403 });
   });
 });
