@@ -1,0 +1,114 @@
+{
+  "description": "Phase 3 feature C golden comparisons: contradiction detection. classify_cases pin the deterministic field classifier; pair_cases pin the anchored comparison matrix - most importantly that an entity anchor (shared account/phone) never carries amount/date/txn-status comparisons, so two different transactions of one account never produce a false contradiction. Runner: tests/unit/test_phase3_contradiction_fixtures.py.",
+  "classify_cases": [
+    {"field": "amount", "value": "1500", "expect": "amount"},
+    {"field": "paid_amount", "value": "₹1,200", "expect": "amount"},
+    {"field": "balance", "value": 2500.5, "expect": "amount"},
+    {"field": "currency", "value": "INR", "expect": "currency"},
+    {"field": "ccy", "value": "USD", "expect": "currency"},
+    {"field": "txn_date", "value": "2026-03-15", "expect": "date"},
+    {"field": "incident_date", "value": "15/03/2026", "expect": "date"},
+    {"field": "status", "value": "SUCCESS", "expect": "status"},
+    {"field": "txn_status", "value": "failed", "expect": "status"},
+    {"field": "txn_id", "value": "TXN-1001", "expect": "identifier"},
+    {"field": "account_no", "value": "ACC123", "expect": "identifier"},
+    {"field": "phone", "value": "9876543210", "expect": "identifier"},
+    {"field": "reference_no", "value": "UTR98765", "expect": "identifier"},
+    {"field": "status", "value": "1500", "expect": null},
+    {"field": "name", "value": "Rajesh Kumar", "expect": null},
+    {"field": "age", "value": "34", "expect": null},
+    {"field": "city", "value": "Mumbai", "expect": null},
+    {"field": "active", "value": true, "expect": null},
+    {"field": "notes", "value": "", "expect": null}
+  ],
+  "pair_cases": [
+    {
+      "id": "same-transaction-amount-conflict",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"txn_id": "TXN-1001", "txn_amount": "1500", "currency": "INR", "txn_date": "2026-03-15"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"txn_id": "TXN-1001", "txn_amount": "2500", "currency": "INR", "txn_date": "2026-03-15"}}
+      ],
+      "expect": {"categories": ["amount"], "priority_of": {"amount": "high"}}
+    },
+    {
+      "id": "same-transaction-currency-conflict",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"txn_id": "TXN-1002", "txn_amount": "1500", "currency": "INR"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"txn_id": "TXN-1002", "txn_amount": "1500", "currency": "USD"}}
+      ],
+      "expect": {"categories": ["currency"]}
+    },
+    {
+      "id": "same-transaction-amount-and-status",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"txn_id": "TXN-1003", "txn_amount": "1500", "txn_status": "SUCCESS"}},
+        {"id": "r2", "evidence_file_id": "ev2", "record_no": 1, "raw_data": {"txn_id": "TXN-1003", "txn_amount": "1500", "txn_status": "FAILED"}}
+      ],
+      "expect": {"categories": ["status"]}
+    },
+    {
+      "id": "no-anchor-nothing-compared",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"name": "Rajesh Kumar", "amount": "1500"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"name": "Rajesh Kumar", "amount": "2500"}}
+      ],
+      "expect": {"categories": []}
+    },
+    {
+      "id": "entity-anchor-never-carries-amount-conflicts",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"account_no": "ACC1", "txn_id": "TXN-201", "txn_amount": "100"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"account_no": "ACC1", "txn_id": "TXN-202", "txn_amount": "200"}}
+      ],
+      "expect": {"categories": []}
+    },
+    {
+      "id": "entity-anchor-skips-txn-scoped-status",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"account_no": "ACC1", "txn_id": "TXN-301", "txn_status": "SUCCESS"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"account_no": "ACC1", "txn_id": "TXN-302", "txn_status": "FAILED"}}
+      ],
+      "expect": {"categories": []}
+    },
+    {
+      "id": "entity-anchor-identifier-conflict",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"account_no": "ACC1", "phone": "9876543210"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"account_no": "ACC1", "phone": "9988776655"}}
+      ],
+      "expect": {"categories": ["identifier"], "priority_of": {"identifier": "medium"}}
+    },
+    {
+      "id": "entity-anchor-entity-scoped-status-conflict",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"account_no": "ACC1", "status": "active"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"account_no": "ACC1", "status": "closed"}}
+      ],
+      "expect": {"categories": ["status"], "alternative_any": "reporting_window"}
+    },
+    {
+      "id": "same-transaction-date-conflict-zoneless",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"txn_id": "TXN-401", "txn_date": "15/03/2026 14:30"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"txn_id": "TXN-401", "txn_date": "15/03/2026 16:00"}}
+      ],
+      "expect": {"categories": ["date"], "missing_any": "explicit time zone", "alternative_any": "timezone_difference"}
+    },
+    {
+      "id": "equal-values-never-conflict",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"txn_id": "TXN-501", "txn_amount": "1500.00", "txn_status": "SUCCESS"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"txn_id": "TXN-501", "txn_amount": "1500", "txn_status": "success"}}
+      ],
+      "expect": {"categories": []}
+    },
+    {
+      "id": "dedupe-across-multiple-anchors",
+      "records": [
+        {"id": "r1", "evidence_file_id": "ev1", "record_no": 1, "raw_data": {"txn_id": "TXN-601", "account_no": "ACC7", "txn_amount": "100"}},
+        {"id": "r2", "evidence_file_id": "ev1", "record_no": 2, "raw_data": {"txn_id": "TXN-601", "account_no": "ACC7", "txn_amount": "200"}}
+      ],
+      "expect": {"categories": ["amount"], "conflict_count": 1}
+    }
+  ]
+}

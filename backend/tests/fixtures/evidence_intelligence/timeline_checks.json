@@ -1,0 +1,45 @@
+{
+  "description": "Phase 3 feature B golden timestamps and record drafts: timeline reconstruction. parse_cases pin the deterministic parser (originals preserved, one documented naive->UTC assumption flagged, unparseable values never invented); record_cases pin which date-like fields become proposals, which become flagged missing-timestamp proposals, and that records without date fields yield nothing. Runner: tests/unit/test_phase3_timeline_fixtures.py.",
+  "parse_cases": [
+    {"id": "iso-with-offset", "value": "2026-03-15T14:30:00+05:30", "expect": {"parseable": true, "utc": "2026-03-15T09:00:00+00:00", "tz": "+05:30", "granularity": "datetime", "tz_assumed": false}},
+    {"id": "iso-zulu", "value": "2026-03-15T14:30:00Z", "expect": {"parseable": true, "utc": "2026-03-15T14:30:00+00:00", "tz": "UTC", "granularity": "datetime", "tz_assumed": false}},
+    {"id": "space-separated-offset", "value": "2026-03-15 14:30 +0530", "expect": {"parseable": true, "utc": "2026-03-15T09:00:00+00:00", "tz": "+05:30", "granularity": "datetime", "tz_assumed": false}},
+    {"id": "naive-datetime-flags-assumption", "value": "2026-03-15 14:30", "expect": {"parseable": true, "utc": "2026-03-15T14:30:00+00:00", "tz": null, "granularity": "datetime", "tz_assumed": true}},
+    {"id": "dmy-with-time-naive", "value": "15/03/2026 14:30", "expect": {"parseable": true, "utc": "2026-03-15T14:30:00+00:00", "tz": null, "granularity": "datetime", "tz_assumed": true}},
+    {"id": "date-only-iso", "value": "2026-03-15", "expect": {"parseable": true, "utc": "2026-03-15T00:00:00+00:00", "tz": null, "granularity": "date", "tz_assumed": false}},
+    {"id": "date-only-dmy", "value": "15/03/2026", "expect": {"parseable": true, "utc": "2026-03-15T00:00:00+00:00", "tz": null, "granularity": "date", "tz_assumed": false}},
+    {"id": "mdy-slash-not-day-first", "value": "03/15/2026", "expect": {"parseable": false}},
+    {"id": "unparseable-text", "value": "TBD", "expect": {"parseable": false}},
+    {"id": "vague-month-text", "value": "sometime in March", "expect": {"parseable": false}},
+    {"id": "empty-string", "value": "   ", "expect": {"parseable": false}},
+    {"id": "boolean-is-not-a-time", "value": true, "expect": {"parseable": false}},
+    {"id": "number-is-not-a-time", "value": 42, "expect": {"parseable": false}}
+  ],
+  "record_cases": [
+    {
+      "id": "record-with-two-clean-times",
+      "raw_data": {"txn_date": "2026-03-15", "updated_at": "2026-03-16T10:00:00Z"},
+      "expect": {"drafts": 2, "missing": 0, "ambiguous": 0}
+    },
+    {
+      "id": "record-with-missing-strong-field",
+      "raw_data": {"txn_date": "TBD", "city": "Mumbai", "name": "Rajesh Kumar"},
+      "expect": {"drafts": 1, "missing": 1, "ambiguous": 0}
+    },
+    {
+      "id": "record-with-naive-local-time",
+      "raw_data": {"incident_date": "15/03/2026 14:30"},
+      "expect": {"drafts": 1, "missing": 0, "ambiguous": 1}
+    },
+    {
+      "id": "record-without-any-date-fields",
+      "raw_data": {"name": "Rajesh Kumar", "phone": "9876543210", "city": "Mumbai"},
+      "expect": {"drafts": 0, "missing": 0, "ambiguous": 0}
+    },
+    {
+      "id": "record-weak-field-garbage-is-skipped",
+      "raw_data": {"holiday_day": "whenever", "amount": "1500"},
+      "expect": {"drafts": 0, "missing": 0, "ambiguous": 0}
+    }
+  ]
+}

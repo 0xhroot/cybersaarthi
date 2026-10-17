@@ -1,0 +1,295 @@
+{
+  "description": "Phase 3 feature A golden pairs: entity-pair resolution. Each case supplies a small case entity set (ids are opaque), the pair under test, and the exact proposal decision the matcher must make. Person pairs share a blocking bucket (surname-prefix-3 + first-initial) so fuzzy candidates are actually generated; vehicle pairs demonstrate that different registrations never pair at all. Negative cases pin the zero-false-merge design: name-only pairs with disjoint identifier signals are rejected, and co-mention alone never carries a pair. Runner: tests/unit/test_phase3_entity_fixtures.py.",
+  "thresholds": {
+    "auto": 92.0,
+    "review": 78.0
+  },
+  "cases": [
+    {
+      "id": "alias-exact-same-person",
+      "category": "positive",
+      "entities": [
+        {
+          "id": "e1",
+          "entity_type": "person",
+          "canonical_value": "arjun mehta",
+          "display_value": "Arjun Mehta",
+          "signals": [
+            "9876543210"
+          ]
+        },
+        {
+          "id": "e2",
+          "entity_type": "person",
+          "canonical_value": "a. mehta",
+          "display_value": "A. Mehta",
+          "signals": [
+            "9876543210"
+          ]
+        }
+      ],
+      "aliases": {
+        "e2": [
+          "Arjun Mehta"
+        ]
+      },
+      "pair": [
+        "e1",
+        "e2"
+      ],
+      "expect": {
+        "proposed": true,
+        "method": "exact_alias",
+        "score": 100.0,
+        "score_band": "strong",
+        "validation_codes": [],
+        "llm_eligible": false
+      }
+    },
+    {
+      "id": "name-only-ambiguous-band",
+      "category": "ambiguous",
+      "entities": [
+        {
+          "id": "e1",
+          "entity_type": "person",
+          "canonical_value": "amit mehta",
+          "display_value": "Amit Mehta",
+          "signals": []
+        },
+        {
+          "id": "e2",
+          "entity_type": "person",
+          "canonical_value": "anil mehta",
+          "display_value": "Anil Mehta",
+          "signals": []
+        }
+      ],
+      "aliases": {},
+      "pair": [
+        "e1",
+        "e2"
+      ],
+      "expect": {
+        "proposed": true,
+        "method": "name_similarity",
+        "score_band": "ambiguous",
+        "validation_codes": [
+          "no_identifier_evidence"
+        ],
+        "llm_eligible": true
+      }
+    },
+    {
+      "id": "name-only-strong-band",
+      "category": "ambiguous",
+      "entities": [
+        {
+          "id": "e1",
+          "entity_type": "person",
+          "canonical_value": "priya sharma",
+          "display_value": "Priya Sharma",
+          "signals": []
+        },
+        {
+          "id": "e2",
+          "entity_type": "person",
+          "canonical_value": "priya sharmaa",
+          "display_value": "Priya Sharmaa",
+          "signals": []
+        }
+      ],
+      "aliases": {},
+      "pair": [
+        "e1",
+        "e2"
+      ],
+      "expect": {
+        "proposed": true,
+        "method": "name_similarity",
+        "score_band": "strong",
+        "validation_codes": [
+          "no_identifier_evidence"
+        ],
+        "llm_eligible": false
+      }
+    },
+    {
+      "id": "shared-identifier-co-mention-upgrades-method",
+      "category": "positive",
+      "entities": [
+        {
+          "id": "e1",
+          "entity_type": "person",
+          "canonical_value": "arjun mehta",
+          "display_value": "Arjun Mehta",
+          "signals": [
+            "9876543210"
+          ]
+        },
+        {
+          "id": "e2",
+          "entity_type": "person",
+          "canonical_value": "arjun mehra",
+          "display_value": "Arjun Mehra",
+          "signals": [
+            "9876543210"
+          ]
+        },
+        {
+          "id": "p1",
+          "entity_type": "phone",
+          "canonical_value": "9876543210",
+          "display_value": "9876543210",
+          "signals": []
+        }
+      ],
+      "aliases": {},
+      "pair": [
+        "e1",
+        "e2"
+      ],
+      "expect": {
+        "proposed": true,
+        "method": "exact_identifier",
+        "score_band": "ambiguous",
+        "validation_codes": [],
+        "llm_eligible": false
+      }
+    },
+    {
+      "id": "similar-names-disjoint-phones-rejected",
+      "category": "negative",
+      "entities": [
+        {
+          "id": "e1",
+          "entity_type": "person",
+          "canonical_value": "arjun mehta",
+          "display_value": "Arjun Mehta",
+          "signals": [
+            "9876543210"
+          ]
+        },
+        {
+          "id": "e2",
+          "entity_type": "person",
+          "canonical_value": "arjun mehtra",
+          "display_value": "Arjun Mehtra",
+          "signals": [
+            "9988776655"
+          ]
+        },
+        {
+          "id": "p1",
+          "entity_type": "phone",
+          "canonical_value": "9876543210",
+          "display_value": "9876543210",
+          "signals": []
+        },
+        {
+          "id": "p2",
+          "entity_type": "phone",
+          "canonical_value": "9988776655",
+          "display_value": "9988776655",
+          "signals": []
+        }
+      ],
+      "aliases": {},
+      "pair": [
+        "e1",
+        "e2"
+      ],
+      "expect": {
+        "proposed": false,
+        "reject_reason": "conflicting_identifiers"
+      }
+    },
+    {
+      "id": "different-people-same-bucket-below-threshold",
+      "category": "negative",
+      "entities": [
+        {
+          "id": "e1",
+          "entity_type": "person",
+          "canonical_value": "arjun mehta",
+          "display_value": "Arjun Mehta",
+          "signals": []
+        },
+        {
+          "id": "e2",
+          "entity_type": "person",
+          "canonical_value": "ajay mehta",
+          "display_value": "Ajay Mehta",
+          "signals": []
+        }
+      ],
+      "aliases": {},
+      "pair": [
+        "e1",
+        "e2"
+      ],
+      "expect": {
+        "proposed": false,
+        "reject_reason": "weak_similarity"
+      }
+    },
+    {
+      "id": "different-vehicle-registrations-never-paired",
+      "category": "negative",
+      "entities": [
+        {
+          "id": "v1",
+          "entity_type": "vehicle",
+          "canonical_value": "mh12ab1234",
+          "display_value": "MH12AB1234",
+          "signals": []
+        },
+        {
+          "id": "v2",
+          "entity_type": "vehicle",
+          "canonical_value": "mh12ab5678",
+          "display_value": "MH12AB5678",
+          "signals": []
+        }
+      ],
+      "aliases": {},
+      "pair": [
+        "v1",
+        "v2"
+      ],
+      "expect": {
+        "proposed": false,
+        "reject_reason": "not_generated"
+      }
+    },
+    {
+      "id": "cross-type-never-compared",
+      "category": "negative",
+      "entities": [
+        {
+          "id": "e1",
+          "entity_type": "person",
+          "canonical_value": "arjun mehta",
+          "display_value": "Arjun Mehta",
+          "signals": []
+        },
+        {
+          "id": "o1",
+          "entity_type": "organization",
+          "canonical_value": "arjun mehta",
+          "display_value": "Arjun Mehta",
+          "signals": []
+        }
+      ],
+      "aliases": {},
+      "pair": [
+        "e1",
+        "o1"
+      ],
+      "expect": {
+        "proposed": false,
+        "reject_reason": "not_generated"
+      }
+    }
+  ]
+}
