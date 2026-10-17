@@ -1,0 +1,34 @@
+{
+  "description": "Phase 3 live end-to-end checks (features A, B, C). Each evidence file is a JSON array of structured records that the ingestion pipeline parses deterministically: ``person_name`` becomes a person entity via the field-alias table, while ``txn_*``/``incident_at`` fields stay in ``raw_data`` for timeline reconstruction and contradiction detection to read directly. Because entity mentions, timestamps and anchored comparisons are all deterministic, the live assertions below are exact rather than LLM-dependent. Runner: scripts/eval_phase3.py (live section).",
+  "evidence": [
+    {
+      "id": "resolution-and-conflict-ledger",
+      "filename": "ledger.json",
+      "records": [
+        {
+          "person_name": "Priya Sharma",
+          "txn_id": "TXN-9001",
+          "txn_amount": "1500",
+          "txn_date": "2026-03-15",
+          "notes": "counter deposit recorded by the branch on the stated business day"
+        },
+        {
+          "person_name": "Priya Sharmaa",
+          "txn_id": "TXN-9001",
+          "txn_amount": "2500",
+          "txn_date": "15/03/2026 14:30",
+          "notes": "the same deposit was later disputed as never being made in person"
+        }
+      ],
+      "expect": {
+        "entity_type": "person",
+        "resolution_score_band": "strong",
+        "resolution_aliases_on_approval": 2,
+        "timeline_granularities": ["date", "datetime"],
+        "timeline_ambiguous_tz_min": 1,
+        "contradiction_categories": ["amount"],
+        "contradiction_priority": "high"
+      }
+    }
+  ]
+}
