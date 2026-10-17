@@ -566,7 +566,12 @@ class Phase3EvalRunner:
         latency_ms = int((time.monotonic() - started) * 1000)
         artifacts = await self._artifacts(kind)
         return (
-            {"status": job["status"], "latency_ms": latency_ms, "kind": kind},
+            {
+                "status": job["status"],
+                "latency_ms": latency_ms,
+                "kind": kind,
+                "summary": job.get("result_summary"),
+            },
             artifacts,
         )
 
@@ -622,7 +627,8 @@ class Phase3EvalRunner:
         )
         approve.raise_for_status()
 
-        alias_count = 0
+        resolution_alias_count = 0
+        pre_existing_alias_count = 0
         still_active = True
         still_unmerged = True
         async with factory() as session:
@@ -633,7 +639,13 @@ class Phase3EvalRunner:
                     EntityAlias.entity_id.in_([str(e) for e in entity_ids if e])
                 )
             )
-            alias_count = len(rows.all())
+            for alias_row in rows.all():
+                # Only alias_type="resolution" cross-aliases are added by approval;
+                # ingest may already have recorded self-aliases of type "value".
+                if alias_row.alias_type == "resolution":
+                    resolution_alias_count += 1
+                else:
+                    pre_existing_alias_count += 1
             for eid in entity_ids:
                 if not eid:
                     continue
@@ -653,7 +665,8 @@ class Phase3EvalRunner:
             "validation_status": candidate.get("validation_status"),
             "pre_approval_entities_active": all(s == "active" for s in statuses),
             "pre_approval_entities_unmerged": not any(merged_flags),
-            "aliases_added": alias_count,
+            "aliases_added": resolution_alias_count,
+            "pre_existing_aliases": pre_existing_alias_count,
             "expected_aliases": expect.get("resolution_aliases_on_approval"),
             "entities_still_active_after_approval": still_active,
             "entities_unmerged_after_approval": still_unmerged,
@@ -765,9 +778,21 @@ class Phase3EvalRunner:
         ]
         if not candidates:
             return {"candidates": 0, "note": "no contradiction candidate generated"}
-        candidate = candidates[0]
+        # The semantic category depends on a model verdict and may or may not
+        # appear; anchor every exact assertion on a deterministic category so
+        # the advisory extra never skews priority/anchor checks.
+        expected_categories = sorted(expect.get("contradiction_categories", []))
+        candidate = next(
+            (
+                c
+                for c in candidates
+                if (c.get("payload") or {}).get("category") in expected_categories
+            ),
+            candidates[0],
+        )
         payload = candidate["payload"]
-        categories = sorted({c["category"] for c in candidates})
+        category_values = {(c.get("payload") or {}).get("category") for c in candidates}
+        categories = sorted(c for c in category_values if c is not None)
 
         # Resolve via the real route and confirm a child artifact is appended
         # while the candidate itself is never rewritten.
@@ -800,7 +825,8 @@ class Phase3EvalRunner:
             "candidates": len(candidates),
             "categories": categories,
             "expected_categories": expect.get("contradiction_categories"),
-            "categories_match": categories == sorted(expect.get("contradiction_categories", [])),
+            "categories_match": all(c in categories for c in expected_categories),
+            "categories_exact": categories == expected_categories,
             "priority": payload.get("priority"),
             "expected_priority": expect.get("contradiction_priority"),
             "priority_matches": payload.get("priority") == expect.get("contradiction_priority"),
@@ -826,7 +852,10 @@ class Phase3EvalRunner:
             evidence_id = await self._upload_json(item["filename"], item["records"])
             ingest = await self._ingest(evidence_id)
             section["evidence"].append(
-                {"id": item["id"], "ingest_status": ingest.get("status")}
+                {
+                    "id": item["id"],
+                    "ingest_status": (ingest.get("job") or {}).get("status"),
+                }
             )
             resolution_expect = item["expect"]
             reconstruction_expect = item["expect"]

@@ -1,5 +1,5 @@
 {
-  "description": "Phase 3 live end-to-end checks (features A, B, C). Each evidence file is a JSON array of structured records that the ingestion pipeline parses deterministically: ``person_name`` becomes a person entity via the field-alias table, while ``txn_*``/``incident_at`` fields stay in ``raw_data`` for timeline reconstruction and contradiction detection to read directly. Because entity mentions, timestamps and anchored comparisons are all deterministic, the live assertions below are exact rather than LLM-dependent. Runner: scripts/eval_phase3.py (live section).",
+  "description": "Phase 3 live end-to-end checks (features A, B, C). Two JSON records describe the same disputed counter deposit, deliberately crafted so every live assertion is exact rather than LLM-dependent. (1) The person spelling variant 'Pryia Sharma' has rapidfuzz-style ratio 91.67: phase 1 ingest-time resolution scores 0.85*fuzzy + 0.15*context_overlap, so with zero shared context signals between the records the variant scores 77.92 (below the 78 review threshold) and survives as its own entity, while phase 3's matcher bands it as ambiguous (>=78, <92) and proposes it. An earlier 'Sharmaa' variant scored 96 and was auto-absorbed at ingest, leaving phase 3 nothing to resolve. (2) The non-aliased record text is space-joined, so digit groups in adjacent fields merge into phone/document-sized runs; day-first slash dates and a lowercase txn id keep every digit span short and prevent those heuristic mentions (an ISO date would also make both records share an ORG mention, whose context overlap pushes phase 1 back over the auto-merge threshold). (3) txn_id is identical in both records as the contradiction anchor while txn_amount differs; the second record's naive '15/03/2026 14:30' carries no zone, so reconstruction must flag the documented UTC assumption. person_name becomes a person entity via the field-alias table; txn_* fields stay in raw_data for timeline reconstruction and contradiction detection to read directly. Runner: scripts/eval_phase3.py (live section).",
   "evidence": [
     {
       "id": "resolution-and-conflict-ledger",
@@ -7,22 +7,22 @@
       "records": [
         {
           "person_name": "Priya Sharma",
-          "txn_id": "TXN-9001",
+          "txn_date": "15/03/2026",
+          "txn_id": "txn-a7",
           "txn_amount": "1500",
-          "txn_date": "2026-03-15",
           "notes": "counter deposit recorded by the branch on the stated business day"
         },
         {
-          "person_name": "Priya Sharmaa",
-          "txn_id": "TXN-9001",
-          "txn_amount": "2500",
+          "person_name": "Pryia Sharma",
           "txn_date": "15/03/2026 14:30",
+          "txn_id": "txn-a7",
+          "txn_amount": "2500",
           "notes": "the same deposit was later disputed as never being made in person"
         }
       ],
       "expect": {
         "entity_type": "person",
-        "resolution_score_band": "strong",
+        "resolution_score_band": "ambiguous",
         "resolution_aliases_on_approval": 2,
         "timeline_granularities": ["date", "datetime"],
         "timeline_ambiguous_tz_min": 1,
