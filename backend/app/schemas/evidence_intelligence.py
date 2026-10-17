@@ -75,7 +75,20 @@ class ArtifactReviewRequest(BaseModel):
 
     Consequential actions are human-only: the API never auto-approves derived
     output, and the route re-checks the reviewer's permission.
+
+    ``payload`` optionally carries an *edited* version of an extraction
+    artifact (``{"fields": {...}}``) when approving. Edits are re-validated
+    against the strict schema and the artifact's source record first, and are
+    stored as a new lineage-linked artifact - the original model output stays
+    immutable (``superseded``), never rewritten.
     """
 
     decision: Literal["approved", "rejected"]
     note: str | None = Field(default=None, max_length=2000)
+    payload: dict[str, Any] | None = None
+
+
+class ExtractionSubmitRequest(BaseModel):
+    """Queue one extraction run for an authorized evidence file."""
+
+    evidence_file_id: UUID

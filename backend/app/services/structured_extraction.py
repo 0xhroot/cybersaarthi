@@ -44,7 +44,7 @@ class FieldIssue:
     code: str
     message: str
 
-    def as_dict(self) -> dict[str, str]:
+    def as_dict(self) -> dict[str, object]:
         return {"field": self.field, "code": self.code, "message": self.message}
 
 

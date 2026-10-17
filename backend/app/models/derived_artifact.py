@@ -37,8 +37,17 @@ DERIVED_ARTIFACT_KINDS = (
 DERIVED_ARTIFACT_ORIGINS = ("llm", "deterministic")
 
 # pending_review -> approved | rejected (human review); failed = pipeline error;
-# superseded = a later derivation replaced it.
-DERIVED_ARTIFACT_STATUSES = ("pending_review", "approved", "rejected", "failed", "superseded")
+# superseded = a later derivation replaced it; recorded = deterministic fact or
+# informational output (verification results, AI explanations) that is never
+# queued for approval - it does not claim a decision was made.
+DERIVED_ARTIFACT_STATUSES = (
+    "pending_review",
+    "approved",
+    "rejected",
+    "failed",
+    "superseded",
+    "recorded",
+)
 
 # Deterministic schema/source validation outcome, independent of review.
 DERIVED_ARTIFACT_VALIDATION = ("valid", "flagged", "invalid")
@@ -58,7 +67,8 @@ class DerivedArtifact(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="derived_artifact_origin_valid",
         ),
         CheckConstraint(
-            "status IN ('pending_review', 'approved', 'rejected', 'failed', 'superseded')",
+            "status IN ('pending_review', 'approved', 'rejected', 'failed', "
+            "'superseded', 'recorded')",
             name="derived_artifact_status_valid",
         ),
         CheckConstraint(

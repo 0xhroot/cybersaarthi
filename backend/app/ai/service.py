@@ -37,11 +37,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import (
     AIClient,
+    CompletionResult,
     InferenceProtocolError,
     InferenceUnavailableError,
 )
 from app.ai.drafts import mark_unverified_ids, parse_hypothesis_drafts
-from app.ai.prompts import PROMPT_VERSION, build_system_prompt
+from app.ai.prompts import (
+    CUSTODY_EXPLAIN_SYSTEM_PROMPT,
+    EXTRACTION_SYSTEM_PROMPT,
+    PROMPT_VERSION,
+    build_system_prompt,
+    fence_data,
+)
 from app.ai.retrieval import build_case_context, known_uuids, validate_cited_claims
 from app.ai.runtime import InferenceRuntime
 from app.ai.schemas import ChatOutcome, SourceRef, ToolCallProposal
@@ -167,6 +174,8 @@ class AIService:
             "graph": self.settings.AI_FEATURE_GRAPH,
             "copilot": self.settings.AI_FEATURE_COPILOT,
             "report_draft": self.settings.AI_FEATURE_REPORT_DRAFT,
+            "extraction": self.settings.AI_FEATURE_EXTRACTION,
+            "integrity_explain": self.settings.AI_FEATURE_INTEGRITY_EXPLAIN,
             "knowledge": self.settings.AI_KNOWLEDGE_ENABLED,
         }
         return snapshot
@@ -179,6 +188,64 @@ class AIService:
         self.ensure_enabled()
         if not await self.runtime.ensure_ready():
             raise _unavailable_error()
+
+    # -- bounded background completions (evidence intelligence) ---------------
+
+    async def extract_page(self, *, label: str, text: str) -> CompletionResult:
+        """One structured-extraction completion for a single evidence record.
+
+        Used by the smart ingestion copilot: the system prompt is server-owned
+        (a caller can never inject instructions), the evidence text is fenced
+        as untrusted DATA, context is length-bounded, and the call shares the
+        process-wide generation semaphore so background jobs cannot out-run
+        interactive traffic. Returns the raw ``CompletionResult`` - schema and
+        source validation happen deterministically in the service layer.
+        """
+        if not self.settings.AI_FEATURE_EXTRACTION:
+            raise _disabled_error()
+        await self.ensure_ready()
+        # Labels include user-controlled filenames: strip newlines so a crafted
+        # filename can never smuggle a second instruction into the user turn.
+        safe_label = re.sub(r"[\r\n\t]+", " ", label).strip()[:120]
+        bounded = text[: self.settings.EXTRACTION_CONTEXT_MAX_CHARS]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("EVIDENCE", bounded)},
+            {
+                "role": "user",
+                "content": (
+                    "Extract the structured fields from this evidence excerpt: " + safe_label
+                ),
+            },
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.EXTRACTION_MAX_OUTPUT_TOKENS
+            )
+
+    async def explain_integrity_finding(self, *, finding: dict[str, Any]) -> str:
+        """Explain one custody/integrity finding from its recorded facts only.
+
+        Deterministic rules decide pass/fail; this completion only narrates the
+        facts the rule engine recorded (rule, observed values, missing data,
+        ids, timestamp). It cannot certify custody, cannot claim to have
+        verified files, and cannot invent events - enforced by feeding it
+        nothing but the finding payload.
+        """
+        if not self.settings.AI_FEATURE_INTEGRITY_EXPLAIN:
+            raise _disabled_error()
+        await self.ensure_ready()
+        facts = json.dumps(finding, sort_keys=True, ensure_ascii=False, default=str)
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": CUSTODY_EXPLAIN_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("FINDING FACTS", facts)},
+            {"role": "user", "content": "Explain this finding for the investigator."},
+        ]
+        async with self._generation_semaphore:
+            result = await self.client.chat(
+                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
+            )
+        return result.text.strip()
 
     # -- rate limiting ---------------------------------------------------
 

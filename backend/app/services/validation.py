@@ -50,11 +50,18 @@ def _detect_format_from_name(filename: str) -> EvidenceFormat | None:
         return EvidenceFormat.JSON
     if extension == "txt":
         return EvidenceFormat.TXT
+    if extension == "pdf":
+        return EvidenceFormat.PDF
     return None
 
 
 def sniff_format(data: bytes) -> EvidenceFormat:
     """Content-based fallback format detection."""
+
+    # Binary magic check first: decoding PDF bytes as text would mangle the
+    # header and a scanned PDF could otherwise look like an empty text file.
+    if data[:1024].lstrip().startswith(b"%PDF-"):
+        return EvidenceFormat.PDF
 
     sample = data[:4096].decode("utf-8", errors="replace").lstrip()
     if not sample:
@@ -74,7 +81,7 @@ def sniff_format(data: bytes) -> EvidenceFormat:
             return EvidenceFormat.CSV
 
     raise UploadValidationError(
-        "unrecognised evidence format; supported formats are CSV, JSON and TXT"
+        "unrecognised evidence format; supported formats are CSV, JSON, TXT and PDF"
     )
 
 

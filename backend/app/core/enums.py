@@ -55,6 +55,7 @@ class EvidenceFormat(StrEnum):
     CSV = "csv"
     JSON = "json"
     TXT = "txt"
+    PDF = "pdf"
 
 
 class GraphSyncStatus(StrEnum):

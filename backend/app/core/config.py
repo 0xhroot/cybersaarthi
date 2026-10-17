@@ -75,7 +75,20 @@ class Settings(BaseSettings):
 
     # Evidence ingestion
     EVIDENCE_MAX_SIZE_BYTES: int = 5 * 1024 * 1024
+    EVIDENCE_PDF_MAX_PAGES: int = 200  # hard page cap; larger PDFs are rejected
+    EVIDENCE_PDF_PAGE_MAX_CHARS: int = 12000  # per-page text cap in stored records
     SPA_MODEL: str = "en_core_web_sm"
+
+    # Smart ingestion copilot (feature 1): bounded, page-aware LLM extraction.
+    EXTRACTION_MAX_PAGES: int = 25  # max records processed per extraction job
+    EXTRACTION_CONTEXT_MAX_CHARS: int = 4000  # bounded context window per model call
+    EXTRACTION_MAX_OUTPUT_TOKENS: int = 768  # room for a full JSON reply
+    EXTRACTION_TIMEOUT_SECONDS: int = 600  # AnalysisJob timeout for one extraction run
+
+    # Chain-of-custody auditor (feature 9): bounded, deterministic audit runs.
+    CUSTODY_AUDIT_MAX_EVIDENCE: int = 50  # evidence items per case-wide audit
+    CUSTODY_FUTURE_SKEW_SECONDS: int = 300  # tolerated clock skew for occurred_at
+    CUSTODY_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one audit run
 
     # Entity resolution thresholds (0-100)
     RESOLUTION_AUTO_THRESHOLD: float = 92.0
@@ -142,6 +155,8 @@ class Settings(BaseSettings):
     AI_FEATURE_GRAPH: bool = True
     AI_FEATURE_COPILOT: bool = True
     AI_FEATURE_REPORT_DRAFT: bool = True
+    AI_FEATURE_EXTRACTION: bool = True  # smart ingestion copilot (feature 1)
+    AI_FEATURE_INTEGRITY_EXPLAIN: bool = True  # custody AI explanations (feature 9)
     AI_LOG_PROMPTS: bool = False  # prompt/answer content is never logged by default
 
     # Security

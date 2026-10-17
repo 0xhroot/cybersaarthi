@@ -27,6 +27,7 @@ from app.models.entity import ENTITY_TYPES, Entity
 from app.models.entity_alias import EntityAlias
 from app.models.entity_candidate import EntityCandidate
 from app.models.entity_match import EntityMatch
+from app.models.evidence_custody_event import CUSTODY_EVENT_TYPES, EvidenceCustodyEvent
 from app.models.evidence_file import EvidenceFile
 from app.models.field_device import (
     FIELD_DEVICE_PLATFORMS,
@@ -80,6 +81,7 @@ __all__ = [
     "COLLECTION_STATUSES",
     "Collection",
     "CommunityResult",
+    "CUSTODY_EVENT_TYPES",
     "DataSource",
     "DERIVED_ARTIFACT_KINDS",
     "DERIVED_ARTIFACT_ORIGINS",
@@ -91,6 +93,7 @@ __all__ = [
     "EntityAlias",
     "EntityCandidate",
     "EntityMatch",
+    "EvidenceCustodyEvent",
     "EvidenceFile",
     "FIELD_DEVICE_PLATFORMS",
     "FIELD_DEVICE_STATUSES",

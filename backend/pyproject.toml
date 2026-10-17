@@ -23,6 +23,9 @@ dependencies = [
     "python-multipart==0.0.32",
     "cryptography==50.0.1",
     "fpdf2==2.8.8",
+    # PDF evidence ingestion: page-level text extraction for the smart
+    # ingestion copilot (runtime parser, promoted from dev-only in phase 2).
+    "pypdf==6.20.0",
     # AI gateway: async HTTP client for the local llama.cpp server.
     "httpx==0.28.1",
 ]
@@ -35,9 +38,6 @@ dev = [
     "ruff==0.16.5",
     "mypy==2.3.1",
     "types-python-dateutil",
-    # Parses generated report PDFs in tests (PDF validity is asserted with a
-    # real reader rather than by checking leading bytes).
-    "pypdf==6.20.0",
 ]
 
 [build-system]
