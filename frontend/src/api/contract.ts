@@ -31,6 +31,8 @@ import type {
   CollectionUpdateRequest,
   Community,
   ContradictionResolveRequest,
+  CrossCaseCandidateListResponse,
+  CrossCaseDiscoverInput,
   CustodyChronologyResponse,
   CustodyEventCreateRequest,
   CustodyEventOut,
@@ -316,6 +318,25 @@ export interface ApiEvidenceService {
    * associations. Effective bounds are echoed back with the result.
    */
   traceFinancialFlow(caseId: string, input: FlowTraceRequest): Promise<FlowTraceResponse>;
+
+  /* ------------------ Cross-case discovery (phase 4, feature B) ------------------ */
+
+  /**
+   * Queue one permission-scoped cross-case discovery run (202 + background
+   * job). The scope is explicit and bounded (anchor + up to 24 chosen cases,
+   * 2–25 total); discovery reads only those cases' authorized records and
+   * never the whole graph. One active job per (anchor, feature): a concurrent
+   * submit is refused with `CROSS_CASE_ACTIVE`, and a scope whose cases the
+   * caller can no longer fully read fails closed with `CROSS_CASE_SCOPE_DENIED`
+   * (404, never naming which case is inaccessible).
+   */
+  submitCrossCaseDiscover(input: CrossCaseDiscoverInput): Promise<JobSubmitResponse>;
+  /**
+   * Candidates for one anchor case, re-derived through the caller's current
+   * scope on every read. A candidate touching any case the caller cannot read
+   * right now is omitted entirely — never redacted, never counted.
+   */
+  crossCaseCandidates(anchorCaseId: string): Promise<CrossCaseCandidateListResponse>;
 }
 
 export interface ApiGraphService {

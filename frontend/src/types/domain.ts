@@ -1364,6 +1364,78 @@ export interface CustodyExplainResponse {
   explanation_artifact: DerivedArtifactOut;
   text: string;
   rule: string;
+  /** Structured narration for financial / cross-case findings (phase 4). */
+  explanation?: CrossCaseExplanation | FinancialExplanation | null;
+}
+
+/** Structured, citation-validated narration of a cross-case candidate. */
+export interface CrossCaseExplanation {
+  summary: string;
+  matching_signal: string;
+  cited_identifiers: string[];
+  conflicts: string[];
+  not_established: string[];
+  verification_steps: string[];
+}
+
+/** Structured, citation-validated narration of a financial finding. */
+export interface FinancialExplanation {
+  summary: string;
+  why_patterns_fired: string[];
+  cited_transaction_ids: string[];
+  alternative_explanations: string[];
+  missing_information: string[];
+  verification_steps: string[];
+}
+
+/* ------------------------ Cross-case discovery (phase 4 B) ----------------- */
+
+/** One bounded discovery scope: the anchor case plus the explicitly chosen cases. */
+export interface CrossCaseDiscoverInput {
+  anchor_case_id: string;
+  case_ids: string[];
+}
+
+/** One case's side of a cross-case candidate (only the caller's visible sides). */
+export interface CrossCaseSide {
+  case_id: string;
+  value_originals: string[];
+  originals_capped?: boolean;
+  entity_ids?: string[];
+  source_record_ids?: string[];
+  evidence_file_ids?: string[];
+  supporting_ids_capped?: boolean;
+  reviewed_alias?: boolean;
+  contributing_kinds?: string[];
+}
+
+/** Deterministic candidate payload: classification, score band and limitations. */
+export interface CrossCaseCandidatePayload {
+  crosscase_rules_version?: string;
+  scope?: { case_ids?: string[]; scope_hash?: string; cases_in_group?: string[] };
+  group?: { indicator_kind?: string; value_normalized?: string };
+  classification?: string;
+  classification_semantics?: Record<string, string>;
+  /** 0–100 additive score band, explicitly NOT a probability. */
+  score?: number;
+  score_semantics?: string;
+  signal_kinds?: string[];
+  additional_shared_kinds?: string[];
+  conflicting_attributes?: { flagged?: boolean; evidence?: Array<Record<string, unknown>> };
+  sides?: CrossCaseSide[];
+  reviewable?: boolean;
+  review_disabled_reason?: string | null;
+  limitations?: string[];
+  graph_freshness_note?: string;
+}
+
+/** Read-path response: candidates touching an inaccessible case are omitted. */
+export interface CrossCaseCandidateListResponse {
+  items: DerivedArtifactOut[];
+  total: number;
+  anchor_case_id: string;
+  crosscase_rules_version: string;
+  graph_freshness_note: string;
 }
 
 /* ---------------------------- Pagination ---------------------------- */

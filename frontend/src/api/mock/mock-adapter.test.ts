@@ -4,6 +4,8 @@ import { MAIN_EVIDENCE } from "@/api/mock/data";
 import type { ContradictionResolutionState } from "@/types/domain";
 
 const MAIN_CASE_ID = "a0000000-0000-4000-8000-000000000001";
+const SECOND_CASE_ID = "a0000000-0000-4000-8000-000000000002";
+const TERTIARY_CASE_ID = "a0000000-0000-4000-8000-000000000003";
 
 async function signIn(username: string, password: string) {
   await mockApi.auth.login({ username, password });
@@ -875,5 +877,177 @@ describe("financial flow (phase 4)", () => {
   it("denies financial-flow runs to users without ingestion.run", async () => {
     await signIn("viewer", "viewer-demo-password");
     await expect(mockApi.evidence.submitFinancialFlow(MAIN_CASE_ID)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("cross-case discovery (phase 4)", () => {
+  it("runs a bounded discovery: deterministic candidate, score semantics, rerun reuses by content hash", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    const submitted = await mockApi.evidence.submitCrossCaseDiscover({
+      anchor_case_id: MAIN_CASE_ID,
+      case_ids: [MAIN_CASE_ID, SECOND_CASE_ID],
+    });
+    expect(submitted.job.feature).toBe("cross_case");
+    expect(submitted.job.status).toBe("succeeded");
+    expect(submitted.job.result_summary).toMatchObject({
+      cases_scanned: 2,
+      candidates_found: 1,
+      candidates_pending_review: 1,
+      cases_inaccessible: 0,
+    });
+
+    const list = await mockApi.evidence.crossCaseCandidates(MAIN_CASE_ID);
+    expect(list.total).toBe(1);
+    expect(list.crosscase_rules_version).toBe("crosscase/1.0.0");
+    expect(list.graph_freshness_note).toContain("does not depend on the Neo4j projection");
+    const candidate = list.items[0];
+    expect(candidate.kind).toBe("cross_case_link");
+    expect(candidate.origin).toBe("deterministic");
+    expect(candidate.status).toBe("pending_review");
+    expect(candidate.prompt_version).toBeNull(); // no model ran in discovery
+    const payload = candidate.payload as {
+      group: { indicator_kind: string; value_normalized: string };
+      classification: string;
+      score: number;
+      score_semantics: string;
+      reviewable: boolean;
+      sides: Array<{ case_id: string; value_originals: string[] }>;
+      limitations: string[];
+    };
+    expect(payload.group).toMatchObject({ indicator_kind: "account_ref", value_normalized: "ACCSIH001" });
+    expect(payload.classification).toBe("normalized_identifier");
+    expect(payload.score).toBe(78);
+    // The score is always shipped with its non-probability semantics.
+    expect(payload.score_semantics).toContain("NOT a probability");
+    expect(payload.reviewable).toBe(true);
+    expect(payload.sides.map((s) => s.case_id)).toEqual([MAIN_CASE_ID, SECOND_CASE_ID]);
+    expect(payload.sides.every((s) => s.value_originals.includes("ACC-SIH-001"))).toBe(true);
+    expect(payload.limitations.join(" ")).toContain("not evidence of a shared incident");
+
+    // A rerun reuses the candidate by content hash and reports the reuse.
+    const rerun = await mockApi.evidence.submitCrossCaseDiscover({
+      anchor_case_id: MAIN_CASE_ID,
+      case_ids: [MAIN_CASE_ID, SECOND_CASE_ID],
+    });
+    expect(rerun.job.attempts).toBe(2);
+    expect(rerun.job.result_summary).toMatchObject({ candidates_created: 0, candidates_reused: 1 });
+    expect((await mockApi.evidence.crossCaseCandidates(MAIN_CASE_ID)).total).toBe(1);
+  });
+
+  it("rejects a scope that is too small or omits the anchor", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    await expect(
+      mockApi.evidence.submitCrossCaseDiscover({ anchor_case_id: MAIN_CASE_ID, case_ids: [MAIN_CASE_ID] }),
+    ).rejects.toMatchObject({ status: 422 });
+    await expect(
+      mockApi.evidence.submitCrossCaseDiscover({
+        anchor_case_id: MAIN_CASE_ID,
+        case_ids: [SECOND_CASE_ID, TERTIARY_CASE_ID],
+      }),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("fails closed with no disclosure when the scope touches an inaccessible case", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    // TERTIARY is admin-owned; the investigator is not a member.
+    const failure = await mockApi.evidence
+      .submitCrossCaseDiscover({ anchor_case_id: MAIN_CASE_ID, case_ids: [MAIN_CASE_ID, TERTIARY_CASE_ID] })
+      .catch((err: { status: number; code: string; message: string }) => err);
+    expect(failure).toMatchObject({ status: 404, code: "CROSS_CASE_SCOPE_DENIED" });
+    // The error never names the inaccessible case.
+    expect((failure as { message: string }).message).not.toContain(TERTIARY_CASE_ID);
+    expect((failure as { message: string }).message).not.toContain("TERTIARY");
+    expect((await mockApi.evidence.crossCaseCandidates(MAIN_CASE_ID)).total).toBe(0);
+  });
+
+  it("denies discovery to users without crosscase.read", async () => {
+    await signIn("viewer", "viewer-demo-password");
+    await expect(
+      mockApi.evidence.submitCrossCaseDiscover({ anchor_case_id: MAIN_CASE_ID, case_ids: [MAIN_CASE_ID, SECOND_CASE_ID] }),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("omits candidates whose scope is no longer authorized — on every read and on explain", async () => {
+    // An admin discovers over a scope that includes a case the investigator cannot read.
+    await signIn("admin", "admin-dev-password");
+    await mockApi.evidence.submitCrossCaseDiscover({
+      anchor_case_id: MAIN_CASE_ID,
+      case_ids: [MAIN_CASE_ID, TERTIARY_CASE_ID],
+    });
+    const adminList = await mockApi.evidence.crossCaseCandidates(MAIN_CASE_ID);
+    expect(adminList.total).toBe(1);
+    const artifactId = adminList.items[0].id;
+
+    // The investigator re-reads the same anchor: the candidate is omitted
+    // entirely — not redacted, not counted, not leaked by id.
+    await signIn("investigator", "investigator-dev-password");
+    const investigatorList = await mockApi.evidence.crossCaseCandidates(MAIN_CASE_ID);
+    expect(investigatorList.total).toBe(0);
+    expect(investigatorList.items).toEqual([]);
+
+    // Explain fails closed the same way (404, no existence disclosure).
+    await expect(mockApi.evidence.explainFinding(MAIN_CASE_ID, artifactId)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("approval records a reviewed relationship artifact and its audit trail — never a merge", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    await mockApi.evidence.submitCrossCaseDiscover({
+      anchor_case_id: MAIN_CASE_ID,
+      case_ids: [MAIN_CASE_ID, SECOND_CASE_ID],
+    });
+    const candidate = (await mockApi.evidence.crossCaseCandidates(MAIN_CASE_ID)).items[0];
+
+    const reviewed = await mockApi.evidence.reviewArtifact(MAIN_CASE_ID, candidate.id, { decision: "approved" });
+    expect(reviewed.status).toBe("approved");
+
+    // A deterministic child records the reviewed relationship (both cases).
+    const children = (await mockApi.evidence.artifacts(MAIN_CASE_ID, { kind: "cross_case_link" })).items;
+    const reviewedChild = children.find((a) => a.id !== candidate.id);
+    expect(reviewedChild).toBeTruthy();
+    expect(reviewedChild!.origin).toBe("deterministic");
+    expect(reviewedChild!.status).toBe("recorded");
+    expect(reviewedChild!.payload).toMatchObject({
+      type: "reviewed_cross_case_link",
+      decision: "approved",
+      indicator_kind: "account_ref",
+      value_normalized: "ACCSIH001",
+      classification: "normalized_identifier",
+      cases: [MAIN_CASE_ID, SECOND_CASE_ID],
+      for_artifact_id: candidate.id,
+    });
+
+    const audit = await mockApi.audit.list({ case_id: MAIN_CASE_ID, limit: 50 });
+    const approval = audit.items.find((e) => e.action === "derived_artifact.approved");
+    expect(approval).toBeTruthy();
+    expect(approval!.metadata_).toMatchObject({
+      kind: "cross_case_link",
+      reviewed_child_artifact_id: reviewedChild!.id,
+      reviewed_cases: [MAIN_CASE_ID, SECOND_CASE_ID],
+    });
+  });
+
+  it("explains a candidate with a citations-checked narration flagged ai_unverified", async () => {
+    await signIn("investigator", "investigator-dev-password");
+    await mockApi.evidence.submitCrossCaseDiscover({
+      anchor_case_id: MAIN_CASE_ID,
+      case_ids: [MAIN_CASE_ID, SECOND_CASE_ID],
+    });
+    const candidate = (await mockApi.evidence.crossCaseCandidates(MAIN_CASE_ID)).items[0];
+
+    const explained = await mockApi.evidence.explainFinding(MAIN_CASE_ID, candidate.id);
+    expect(explained.explanation_artifact.origin).toBe("llm");
+    expect(explained.explanation_artifact.status).toBe("recorded");
+    expect(explained.explanation_artifact.validation_status).toBe("flagged");
+    expect(explained.explanation_artifact.parent_artifact_id).toBe(candidate.id);
+    expect(explained.explanation_artifact.validation_errors?.[0]?.code).toBe("ai_unverified");
+    // The narration cites only the real shared value from the candidate.
+    const explanation = explained.explanation as { summary: string; not_established: string[] };
+    expect(explanation.summary).toContain("ACC-SIH-001");
+    expect(explanation.summary).toContain("not proof of a shared incident");
+    expect(explanation.not_established.join(" ")).toContain("that the cases are the same incident");
+    expect(explained.text).toBe(explanation.summary);
+
+    const audit = await mockApi.audit.list({ case_id: MAIN_CASE_ID, limit: 50 });
+    expect(audit.items.some((e) => e.action === "cross_case.explanation_generated")).toBe(true);
   });
 });

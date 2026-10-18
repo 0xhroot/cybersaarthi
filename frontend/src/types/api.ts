@@ -52,6 +52,10 @@ export type ApiErrorCode =
   | "REVIEW_NOTE_REQUIRED"
   /* Financial flow (phase 4, feature A). */
   | "FLOW_ACTIVE"
+  /* Cross-case discovery (phase 4, feature B). */
+  | "CROSS_CASE_ACTIVE"
+  | "CROSS_CASE_SCOPE_DENIED"
+  | "AI_EXPLANATION_INVALID"
   | "UNKNOWN";
 
 export interface ApiErrorBody {

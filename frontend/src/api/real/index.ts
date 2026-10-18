@@ -61,6 +61,7 @@ import type {
   Collection,
   CollectionList,
   Community,
+  CrossCaseCandidateListResponse,
   CustodyChronologyResponse,
   CustodyEventOut,
   CustodyExplainResponse,
@@ -451,6 +452,20 @@ const evidenceService: ApiEvidenceService = {
     return request<FlowTraceResponse>(
       `/cases/${caseId}/evidence-intelligence/financial-flow/trace`,
       { method: "POST", body: input },
+    );
+  },
+
+  /* ------------------ Cross-case discovery (phase 4, feature B) ------------------ */
+
+  submitCrossCaseDiscover(input) {
+    return request<JobSubmitResponse>(`/cross-case/discover`, {
+      method: "POST",
+      body: input,
+    });
+  },
+  crossCaseCandidates(anchorCaseId) {
+    return request<CrossCaseCandidateListResponse>(
+      `/cross-case/candidates${buildQuery({ anchor_case_id: anchorCaseId })}`,
     );
   },
 };

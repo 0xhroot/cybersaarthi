@@ -17,7 +17,8 @@ export type Permission =
   | "findings.dismiss"
   | "entity.merge"
   | "users.manage"
-  | "audit.read";
+  | "audit.read"
+  | "crosscase.read";
 
 export const ALL_PERMISSIONS: Permission[] = [
   "case.read",
@@ -37,6 +38,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   "entity.merge",
   "users.manage",
   "audit.read",
+  "crosscase.read",
 ];
 
 export const ROLE_PERMISSIONS: Record<string, Permission[]> = {

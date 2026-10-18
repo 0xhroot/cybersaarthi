@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 
-import type { AnalysisJobOut, DerivedArtifactOut, FlowTraceResponse } from "@/types/domain";
+import type { AnalysisJobOut, CustodyExplainResponse, DerivedArtifactOut, FlowTraceResponse } from "@/types/domain";
 
 const queries = vi.hoisted(() => ({
   useIntelJobs: vi.fn(),
@@ -12,13 +12,21 @@ const queries = vi.hoisted(() => ({
   useReviewArtifact: vi.fn(),
   useCancelIntelJob: vi.fn(),
   useTraceFinancialFlow: vi.fn(),
+  useCases: vi.fn(),
+  useCrossCaseCandidates: vi.fn(),
+  useSubmitCrossCase: vi.fn(),
+  useExplainFinding: vi.fn(),
 }));
 
-const permissions = vi.hoisted(() => ({ allowed: true }));
+const permissions = vi.hoisted(() => ({ allowed: true, reviewAllowed: true }));
 
 vi.mock("@/hooks/queries", () => queries);
-vi.mock("@/lib/permissions", () => ({ useCan: () => permissions.allowed }));
+vi.mock("@/lib/permissions", () => ({
+  useCan: (perm: string) =>
+    permissions.allowed && (perm === "findings.review" ? permissions.reviewAllowed : true),
+}));
 
+import { CrossCasePanel } from "@/components/evidence/cross-case-panel";
 import { FinancialFlowPanel } from "@/components/evidence/financial-flow-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -290,6 +298,7 @@ function associationTrace(): FlowTraceResponse {
 
 afterEach(() => {
   permissions.allowed = true;
+  permissions.reviewAllowed = true;
   vi.clearAllMocks();
 });
 
@@ -482,5 +491,307 @@ describe("phase 4 financial flow panel", () => {
     expect(screen.queryByText("No financial finding recorded")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(refetch).toHaveBeenCalled();
+  });
+});
+
+/* --------------------------- cross-case panel (feature B) --------------------------- */
+
+const CASE_TWO = "case-2";
+
+function crossCasePayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    crosscase_rules_version: "crosscase/1.0.0",
+    scope: { case_ids: [CASE, CASE_TWO], scope_hash: "scope-abc", cases_in_group: [CASE, CASE_TWO] },
+    group: { indicator_kind: "account_ref", value_normalized: "ACCSIH001" },
+    classification: "normalized_identifier",
+    classification_semantics: {
+      normalized_identifier: "a shared identifier after deterministic normalization; stronger than a name-only match",
+    },
+    score: 78,
+    score_semantics:
+      "0–100 additive signal band, NOT a probability; only a review decision can become an authoritative link",
+    signal_kinds: ["account_ref"],
+    additional_shared_kinds: ["email_domain"],
+    conflicting_attributes: {
+      flagged: true,
+      evidence: [{ kind: "city", per_case_values: { [CASE]: ["Pune"], [CASE_TWO]: ["Mumbai"] } }],
+    },
+    sides: [
+      {
+        case_id: CASE,
+        value_originals: ["ACC-SIH-001"],
+        entity_ids: ["ent-1"],
+        source_record_ids: ["rec-1", "rec-2"],
+        evidence_file_ids: ["ev-1"],
+        contributing_kinds: ["account_ref"],
+        reviewed_alias: false,
+      },
+      {
+        case_id: CASE_TWO,
+        value_originals: ["ACCSIH001"],
+        entity_ids: ["ent-2"],
+        source_record_ids: ["rec-9"],
+        contributing_kinds: ["account_ref"],
+        reviewed_alias: true,
+      },
+    ],
+    reviewable: true,
+    review_disabled_reason: null,
+    limitations: ["a candidate is a discovery signal, not evidence of a shared incident"],
+    graph_freshness_note: "Discovery reads only authorized records; it does not depend on the Neo4j projection.",
+    ...overrides,
+  };
+}
+
+function crossCaseArtifact(overrides: Record<string, unknown> = {}, artifactOverrides: Partial<DerivedArtifactOut> = {}) {
+  return artifact(crossCasePayload(overrides), {
+    id: "art-cc-1",
+    kind: "cross_case_link",
+    content_hash: "cross-case-case-1",
+    parser_version: "crosscase/1.0.0",
+    ...artifactOverrides,
+  });
+}
+
+function scopeCases() {
+  return queryResult({
+    items: [
+      { id: CASE, case_number: "CS-1", title: "Paper Citadel", description: null, status: "open", owner_id: "u-1", created_at: "2026-03-15T10:00:00Z", updated_at: "2026-03-15T10:00:00Z" },
+      { id: CASE_TWO, case_number: "CS-2", title: "Skyline Imports", description: null, status: "open", owner_id: "u-1", created_at: "2026-03-15T10:00:00Z", updated_at: "2026-03-15T10:00:00Z" },
+    ],
+    total: 2,
+    limit: 100,
+    offset: 0,
+  });
+}
+
+function crossCaseList(payloadArtifact: DerivedArtifactOut) {
+  return queryResult({
+    items: [payloadArtifact],
+    total: 1,
+    anchor_case_id: CASE,
+    crosscase_rules_version: "crosscase/1.0.0",
+    graph_freshness_note: "Discovery reads only authorized records; it does not depend on the Neo4j projection.",
+  });
+}
+
+function explainMutation(response?: CustodyExplainResponse) {
+  return {
+    isPending: false,
+    error: null,
+    mutate: vi.fn((_id: string, opts?: { onSuccess?: (r: CustodyExplainResponse) => void }) => {
+      if (response && opts?.onSuccess) opts.onSuccess(response);
+    }),
+    reset: vi.fn(),
+  };
+}
+
+function stubCrossCase(overrides: {
+  artifactPayload?: Record<string, unknown>;
+  artifact?: DerivedArtifactOut;
+  explain?: ReturnType<typeof explainMutation>;
+  job?: AnalysisJobOut;
+} = {}) {
+  const submit = mutation({ job: job({ feature: "cross_case" }), duplicate: false });
+  const review = mutation();
+  const cancel = mutation();
+  const candidate = overrides.artifact ?? crossCaseArtifact(overrides.artifactPayload ?? {});
+  queries.useIntelJobs.mockReturnValue(
+    queryResult({ items: overrides.job ? [overrides.job] : [], total: overrides.job ? 1 : 0, limit: 100, offset: 0 }),
+  );
+  queries.useCases.mockReturnValue(scopeCases());
+  queries.useCrossCaseCandidates.mockReturnValue(crossCaseList(candidate));
+  queries.useSubmitCrossCase.mockReturnValue(submit);
+  queries.useReviewArtifact.mockReturnValue(review);
+  queries.useCancelIntelJob.mockReturnValue(cancel);
+  queries.useExplainFinding.mockReturnValue(overrides.explain ?? explainMutation());
+  return { submit, review, cancel, candidate };
+}
+
+describe("phase 4 cross-case panel", () => {
+  it("empty state explains the discovery contract: candidates, not automatic links", () => {
+    stubCrossCase();
+    queries.useCrossCaseCandidates.mockReturnValue(
+      queryResult({ items: [], total: 0, anchor_case_id: CASE, crosscase_rules_version: "crosscase/1.0.0", graph_freshness_note: "note" }),
+    );
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    expect(screen.getByText("No cross-case candidates")).toBeTruthy();
+    expect(screen.getByTestId("cross-case-scope")).toBeTruthy();
+  });
+
+  it("renders the candidate with its score semantics, sides and conflict flags — never a probability", () => {
+    stubCrossCase();
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+
+    const candidate = screen.getByTestId("cross-case-candidate");
+    expect(candidate.textContent).toContain("account_ref");
+    expect(candidate.textContent).toContain("ACCSIH001");
+    expect(candidate.textContent).toContain("normalized identifier");
+    expect(candidate.textContent).toContain("score 78 / 100");
+    // The score band ships with its explicit non-probability semantics.
+    expect(candidate.textContent).toContain("NOT a probability");
+
+    // Both permitted sides render with original values and record links.
+    const sides = screen.getAllByTestId("cross-case-side");
+    expect(sides).toHaveLength(2);
+    expect(sides[0].textContent).toContain("ACC-SIH-001");
+    expect(sides[0].textContent).toContain("rec-1, rec-2");
+    expect(sides[0].querySelector("a")?.getAttribute("href")).toBe(`/app/cases/${CASE}/evidence`);
+    expect(sides[1].textContent).toContain("reviewed alias");
+
+    // Conflict flags are surfaced, with per-case values.
+    const conflict = screen.getByTestId("cross-case-conflict");
+    expect(conflict.textContent).toContain("city");
+    expect(conflict.textContent).toContain("Pune");
+    expect(conflict.textContent).toContain("Mumbai");
+
+    // Graph freshness note states discovery does not depend on the projection.
+    const note = screen.getByTestId("cross-case-graph-note");
+    expect(note.textContent).toContain("does not depend on the Neo4j projection");
+  });
+
+  it("discovery stays disabled below the scope minimum and submits the explicit scope", async () => {
+    const { submit } = stubCrossCase();
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    const run = screen.getByRole("button", { name: /run cross-case discovery/i });
+    expect(run.hasAttribute("disabled")).toBe(true); // anchor alone is not a scope
+
+    fireEvent.click(screen.getByLabelText("Include case CS-2"));
+    expect(run.hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      fireEvent.click(run);
+    });
+    await vi.waitFor(() => expect(submit.mutateAsync).toHaveBeenCalledWith([CASE, CASE_TWO]));
+  });
+
+  it("approval records a reviewed relationship — the copy never promises a merge", async () => {
+    const { review } = stubCrossCase();
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    fireEvent.click(screen.getByRole("button", { name: /approve cross-case link/i }));
+    await vi.waitFor(() =>
+      expect(review.mutateAsync).toHaveBeenCalledWith({
+        artifactId: "art-cc-1",
+        review: { decision: "approved" },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /reject cross-case link/i }));
+    await vi.waitFor(() =>
+      expect(review.mutateAsync).toHaveBeenCalledWith({
+        artifactId: "art-cc-1",
+        review: { decision: "rejected" },
+      }),
+    );
+    // The candidate framing is visible on every card.
+    expect(screen.getAllByText(/recorded, never merged/).length).toBeGreaterThan(0);
+  });
+
+  it("a reviewed candidate shows its status and loses the review actions", () => {
+    stubCrossCase({
+      artifact: crossCaseArtifact({}, {
+        status: "approved",
+        reviewed_at: "2026-03-15T11:00:00Z",
+        review_note: "verified against bank records",
+      }),
+    });
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    expect(screen.getByText("reviewed link")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /approve cross-case link/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reject cross-case link/i })).toBeNull();
+  });
+
+  it("a name-only candidate is informational: no review actions, the reason is shown", () => {
+    stubCrossCase({
+      artifactPayload: {
+        classification: "similarity_name_only",
+        reviewable: false,
+        review_disabled_reason: "name-only match: review requires a stronger signal",
+      },
+    });
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    expect(screen.getByText("informational only")).toBeTruthy();
+    expect(screen.getByText(/name-only match/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /approve cross-case link/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reject cross-case link/i })).toBeNull();
+    // Explaining is still available: narration does not turn it into a link.
+    expect(screen.getByRole("button", { name: /explain cross-case candidate/i })).toBeTruthy();
+  });
+
+  it("explain renders the structured narration flagged as unverified AI output", async () => {
+    const explain = explainMutation({
+      explanation_artifact: crossCaseArtifact({ type: "ai_explanation" }, { id: "art-cc-child", origin: "llm" }),
+      text: "Both cases carry the shared account_ref ACC-SIH-001; this is a candidate link, not proof of a shared incident.",
+      rule: "",
+      explanation: {
+        summary: "Both cases carry the shared account_ref ACC-SIH-001; this is a candidate link, not proof of a shared incident.",
+        matching_signal: "identifier account_ref, classification normalized_identifier",
+        cited_identifiers: ["ACC-SIH-001"],
+        conflicts: [],
+        not_established: ["that the cases are the same incident", "that any transfer occurred between them"],
+        verification_steps: ["Confirm the account holder on both sides"],
+      },
+    });
+    stubCrossCase({ explain });
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    fireEvent.click(screen.getByRole("button", { name: /explain cross-case candidate/i }));
+    await vi.waitFor(() => expect(explain.mutate).toHaveBeenCalledWith("art-cc-1", expect.anything()));
+
+    const block = await screen.findByTestId("cross-case-explanation");
+    expect(block.textContent).toContain("AI narration · unverified");
+    expect(block.textContent).toContain("ACC-SIH-001");
+    expect(block.textContent).toContain("does not establish: that the cases are the same incident");
+    expect(block.textContent).toContain("next check: Confirm the account holder on both sides");
+  });
+
+  it("job summary shows the bounded scope outcome and an active run can be canceled", () => {
+    stubCrossCase({
+      job: job({
+        feature: "cross_case",
+        status: "running",
+        result_summary: {
+          cases_scanned: 2,
+          candidates_found: 1,
+          candidates_pending_review: 1,
+          cases_inaccessible: 1,
+        },
+      }),
+    });
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    const summary = screen.getByTestId("cross-case-summary");
+    expect(summary.textContent).toContain("2 cases");
+    expect(summary.textContent).toContain("1 candidates");
+    expect(summary.textContent).toContain("1 inaccessible (scope enforced)");
+    expect(screen.getByRole("button", { name: /cancel discovery/i })).toBeTruthy();
+    // One run per anchor: the submit control shows progress and stays disabled.
+    const run = screen.getByRole("button", { name: /run cross-case discovery/i });
+    expect(run.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("without crosscase.read the panel does not render at all", () => {
+    permissions.allowed = false;
+    stubCrossCase();
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    expect(screen.queryByTestId("cross-case-panel")).toBeNull();
+    expect(screen.queryByTestId("cross-case-candidate")).toBeNull();
+    expect(screen.queryByTestId("cross-case-scope")).toBeNull();
+  });
+
+  it("without findings.review the candidate stays readable but not reviewable", () => {
+    permissions.reviewAllowed = false;
+    stubCrossCase();
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    expect(screen.getByTestId("cross-case-candidate")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /approve cross-case link/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /reject cross-case link/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /explain cross-case candidate/i })).toBeTruthy();
   });
 });

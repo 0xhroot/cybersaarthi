@@ -19,6 +19,7 @@ export const queryKeys = {
   /* Phase 2 keys nest under ["evidence", caseId] so evidence invalidations cover them. */
   intelJobs: (caseId: string, feature?: string) => ["evidence", caseId, "intel-jobs", feature] as const,
   artifacts: (caseId: string, kind?: string) => ["evidence", caseId, "artifacts", kind] as const,
+  crossCaseCandidates: (anchorCaseId: string) => ["evidence", anchorCaseId, "cross-case-candidates"] as const,
   custody: (caseId: string, evidenceId: string) => ["evidence", caseId, "custody", evidenceId] as const,
   graph: (caseId: string) => ["graph", caseId] as const,
   graphStats: (caseId: string) => ["graph", caseId, "stats"] as const,
@@ -1009,6 +1010,35 @@ export function useExplainFinding(caseId: string) {
     mutationFn: (artifactId: string) => api.evidence.explainFinding(caseId, artifactId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/* --------------------- Cross-case discovery (phase 4, feature B) -------------------- */
+
+/** Scope-rechecked on every read; candidates touching an inaccessible case are omitted. */
+export function useCrossCaseCandidates(anchorCaseId: string) {
+  return useQuery({
+    queryKey: queryKeys.crossCaseCandidates(anchorCaseId),
+    queryFn: () => api.evidence.crossCaseCandidates(anchorCaseId),
+    staleTime: 15 * 1000,
+    refetchInterval: 15 * 1000,
+  });
+}
+
+/**
+ * Queue one bounded cross-case discovery run over an explicit scope. The
+ * mutation surfaces `CROSS_CASE_ACTIVE` (one run per anchor) and
+ * `CROSS_CASE_SCOPE_DENIED` (404, never naming the inaccessible case).
+ */
+export function useSubmitCrossCase(anchorCaseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (caseIds: string[]) =>
+      api.evidence.submitCrossCaseDiscover({ anchor_case_id: anchorCaseId, case_ids: caseIds }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", anchorCaseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
     },
   });

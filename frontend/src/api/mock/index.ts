@@ -47,6 +47,9 @@ import type {
   CollectionList,
   CollectionUpdateRequest,
   ContradictionResolveRequest,
+  CrossCaseCandidateListResponse,
+  CrossCaseCandidatePayload,
+  CrossCaseDiscoverInput,
   CustodyChronologyResponse,
   CustodyEventCreateRequest,
   CustodyEventOut,
@@ -757,11 +760,13 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     "case.read", "case.create", "case.update", "case.archive", "evidence.read",
     "evidence.upload", "evidence.delete", "evidence.restore", "ingestion.run", "analytics.run", "findings.read",
     "findings.review", "findings.confirm", "findings.dismiss", "entity.merge", "users.manage", "audit.read",
+    "crosscase.read",
   ],
   INVESTIGATOR: [
     "case.read", "case.create", "case.update", "case.archive", "evidence.read",
     "evidence.upload", "evidence.delete", "evidence.restore", "ingestion.run", "analytics.run", "findings.read",
     "findings.review", "findings.confirm", "findings.dismiss", "entity.merge", "audit.read",
+    "crosscase.read",
   ],
   ANALYST: [
     "case.read", "evidence.read", "analytics.run", "findings.read", "findings.review",
@@ -807,6 +812,17 @@ function requireOwnerOrAdmin(caseId: string): void {
   if (!isAdmin && caze.owner_id !== record?.id) {
     throw new ApiError({ status: 403, code: "FORBIDDEN", message: "Only the case owner or an admin can manage members" });
   }
+}
+
+/** Non-throwing access check used by cross-case scope rechecks (fail closed). */
+function canAccessCase(caseId: string): boolean {
+  const caze = casesState.find((c) => c.id === caseId);
+  if (!caze) return false;
+  const { record, roles } = currentUser();
+  if (!record) return false;
+  if (roles.includes("ADMIN")) return true;
+  if (caze.owner_id === record.id) return true;
+  return (membersState[caseId] ?? []).some((m) => m.user_id === record.id);
 }
 
 function pushAudit(action: string, resourceType: string, caseId: string | null, meta: Record<string, unknown> | null): void {
@@ -1781,6 +1797,10 @@ export const mockApi: Api = {
       // the entities stay separate rows (merging needs entity.merge).
       const resolutionMeta: Record<string, unknown> =
         input.decision === "approved" && artifact.kind === "entity_resolution" ? mockResolutionApprove(artifact) : {};
+      // Approving a cross-case candidate records a reviewed-relationship
+      // artifact — never a merge and never a graph write.
+      const crossCaseMeta: Record<string, unknown> =
+        input.decision === "approved" && artifact.kind === "cross_case_link" ? mockCrossCaseApprove(artifact) : {};
       artifact.status = input.decision === "approved" ? "approved" : "rejected";
       artifact.review_note = input.note ?? null;
       artifact.reviewed_by = currentUser().record?.id ?? null;
@@ -1791,6 +1811,7 @@ export const mockApi: Api = {
         kind: artifact.kind,
         content_hash: artifact.content_hash,
         ...resolutionMeta,
+        ...crossCaseMeta,
       });
       return artifact;
     },
@@ -2040,6 +2061,9 @@ export const mockApi: Api = {
       assertCaseAccess(caseId);
       const finding = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
       if (!finding) throw notFound("artifact not found");
+      // Phase 4 dispatch: same kind-based routing as the real explain route.
+      if (finding.kind === "financial_finding") return mockExplainFinancial(finding);
+      if (finding.kind === "cross_case_link") return mockExplainCrossCase(finding);
       const payload = finding.payload as { type?: string; rule?: string };
       if (finding.kind !== "custody_finding" || payload.type !== "custody_finding") {
         throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "only custody findings can be explained; hash verifications are deterministic facts" });
@@ -2108,6 +2132,100 @@ export const mockApi: Api = {
       requirePermission("evidence.read");
       assertCaseAccess(caseId);
       return traceMockFlow(caseId, input);
+    },
+
+    /* ------------------ Cross-case discovery (phase 4, feature B) ------------------ */
+
+    async submitCrossCaseDiscover(input: CrossCaseDiscoverInput): Promise<JobSubmitResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("crosscase.read");
+      const anchor = input.anchor_case_id;
+      assertCaseAccess(anchor);
+      const ids = input.case_ids;
+      if (ids.length < 2 || ids.length > 25 || !ids.includes(anchor)) {
+        throw new ApiError({
+          status: 422,
+          code: "INVALID_PAYLOAD",
+          message: "scope must be 2–25 cases and include the anchor case",
+        });
+      }
+      // Fail closed with no disclosure: never name which scope case is missing.
+      if (ids.some((id) => !canAccessCase(id))) {
+        throw new ApiError({
+          status: 404,
+          code: "CROSS_CASE_SCOPE_DENIED",
+          message: "cross-case scope is not fully authorized for this caller",
+        });
+      }
+      const active = intelJobsState.find(
+        (j) => j.case_id === anchor && j.feature === "cross_case" && (j.status === "pending" || j.status === "running"),
+      );
+      if (active) {
+        throw new ApiError({ status: 409, code: "CROSS_CASE_ACTIVE", message: "a cross-case run is already active for this case" });
+      }
+      const attempts = intelJobsState.filter((j) => j.case_id === anchor && j.feature === "cross_case").length + 1;
+      const job: AnalysisJobOut = {
+        id: nextIntelId(),
+        case_id: anchor,
+        feature: "cross_case",
+        status: "succeeded",
+        idempotency_key: `cross_case:${anchor}:a${attempts}`,
+        progress: 100,
+        total_records: ids.length,
+        processed_records: ids.length,
+        attempts,
+        timeout_seconds: 300,
+        cancel_requested: false,
+        error: null,
+        result_summary: {},
+        evidence_file_id: null,
+        actor_id: currentUser().record?.id ?? null,
+        started_at: isoNow(),
+        completed_at: isoNow(),
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      const candidate = mockCrossCaseCandidate(anchor, ids, job.id);
+      const reuse = artifactsState.some(
+        (a) => a.case_id === anchor && a.content_hash === candidate.content_hash,
+      );
+      if (!reuse) artifactsState.unshift(candidate);
+      job.result_summary = {
+        cases_scanned: ids.length,
+        scope_case_ids: ids,
+        scope_hash: `scope-${ids.length}`,
+        records_scanned: 0,
+        records_bounded: false,
+        candidates_found: 1,
+        candidates_created: reuse ? 0 : 1,
+        candidates_reused: reuse ? 1 : 0,
+        candidates_pending_review: 1,
+        cases_inaccessible: 0,
+      };
+      intelJobsState.unshift(job);
+      pushAudit("cross_case.search_submitted", "analysis_job", anchor, { feature: "cross_case", attempt: attempts });
+      pushAudit("cross_case.analysis_completed", "analysis_job", anchor, { ...(job.result_summary as Record<string, unknown>) });
+      return { job, duplicate: false };
+    },
+
+    async crossCaseCandidates(anchorCaseId: string): Promise<CrossCaseCandidateListResponse> {
+      await delay(MOCK_LATENCY);
+      requirePermission("crosscase.read");
+      assertCaseAccess(anchorCaseId);
+      const all = artifactsState.filter((a) => a.case_id === anchorCaseId && a.kind === "cross_case_link");
+      // Read-time recheck: a candidate touching an inaccessible case is omitted
+      // entirely — not redacted, not counted.
+      const visible = all.filter((artifact) => {
+        const payload = artifact.payload as CrossCaseCandidatePayload;
+        return (payload.sides ?? []).every((side) => canAccessCase(side.case_id));
+      });
+      return {
+        items: visible,
+        total: visible.length,
+        anchor_case_id: anchorCaseId,
+        crosscase_rules_version: MOCK_CROSSCASE_RULES_VERSION,
+        graph_freshness_note: MOCK_CROSSCASE_GRAPH_NOTE,
+      };
     },
 
     async commitTimelineProposal(caseId: string, artifactId: string): Promise<TimelineCommitResponse> {
@@ -3441,7 +3559,7 @@ function entitiesFor(caseId: string): Entity[] {
 
 /* ------------------ Case intelligence (phase 3) ------------------ */
 
-type AnalysisFeature = "entity_resolution" | "timeline" | "contradiction" | "financial_flow";
+type AnalysisFeature = "entity_resolution" | "timeline" | "contradiction" | "financial_flow" | "cross_case";
 
 /** Mirrors the backend submit route: refusal code, audit prefix, success action. */
 const ANALYSIS_FEATURES: Record<AnalysisFeature, { audit: string; activeCode: ApiErrorCode; successAction: string }> = {
@@ -3464,6 +3582,11 @@ const ANALYSIS_FEATURES: Record<AnalysisFeature, { audit: string; activeCode: Ap
     audit: "flow",
     activeCode: "FLOW_ACTIVE",
     successAction: "flow.analysis_completed",
+  },
+  cross_case: {
+    audit: "cross_case",
+    activeCode: "CROSS_CASE_ACTIVE",
+    successAction: "cross_case.analysis_completed",
   },
 };
 
@@ -3782,6 +3905,42 @@ function recordResolutionAlias(entityId: string, aliasValue: string): number {
   if (existing.some((a) => a.alias_value === aliasValue)) return 0;
   resolutionAliasState[entityId] = [...existing, { id: nextIntelId(), alias_value: aliasValue, alias_type: "resolution" }];
   return 1;
+}
+
+/**
+ * Approving a cross-case candidate records a *reviewed relationship* artifact
+ * (deterministic, parented by audit metadata) — mirroring the backend's B5
+ * branch. No entity is merged and no graph is ever written.
+ */
+function mockCrossCaseApprove(artifact: DerivedArtifactOut): Record<string, unknown> {
+  const payload = artifact.payload as CrossCaseCandidatePayload;
+  const cases = [...new Set((payload.sides ?? []).map((side) => side.case_id))].sort();
+  const child: DerivedArtifactOut = {
+    ...artifact,
+    id: nextIntelId(),
+    status: "recorded",
+    validation_status: "valid",
+    payload: {
+      type: "reviewed_cross_case_link",
+      decision: "approved",
+      indicator_kind: payload.group?.indicator_kind ?? "unknown",
+      value_normalized: payload.group?.value_normalized ?? "",
+      classification: payload.classification ?? "unknown",
+      cases,
+      for_artifact_id: artifact.id,
+      reviewer_id: currentUser().record?.id ?? null,
+    },
+    content_hash: `reviewed-cross-case-${artifact.id}`,
+    validation_errors: null,
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+  artifactsState.unshift(child);
+  return { reviewed_child_artifact_id: child.id, reviewed_cases: cases };
 }
 
 /** Is this proposal already committed to the authoritative timeline? */
@@ -4310,6 +4469,153 @@ function mockFinancialFindingArtifact(caseId: string, jobId: string): DerivedArt
     created_at: isoNow(),
     updated_at: isoNow(),
   };
+}
+
+/* -------------------- Cross-case discovery (phase 4, feature B) -------------------- */
+
+const MOCK_CROSSCASE_RULES_VERSION = "crosscase/1.0.0";
+const MOCK_CROSSCASE_GRAPH_NOTE =
+  "Discovery reads only the cases' authorized records; it does not depend on the Neo4j projection.";
+
+/** One deterministic mock candidate: a shared account reference across two cases. */
+function mockCrossCaseCandidate(anchorCaseId: string, caseIds: string[], jobId: string): DerivedArtifactOut {
+  const sides = caseIds.slice(0, 2).map((caseId) => ({
+    case_id: caseId,
+    value_originals: ["ACC-SIH-001"],
+    originals_capped: false,
+    entity_ids: [`ent-${caseId}`],
+    source_record_ids: [`rec-${caseId}-1`],
+    evidence_file_ids: [],
+    supporting_ids_capped: false,
+    reviewed_alias: false,
+    contributing_kinds: ["account_ref"],
+  }));
+  return {
+    id: nextIntelId(),
+    case_id: anchorCaseId,
+    kind: "cross_case_link",
+    origin: "deterministic",
+    status: "pending_review",
+    validation_status: "valid",
+    evidence_file_id: null,
+    source_record_id: null,
+    source_locator: null,
+    payload: {
+      crosscase_rules_version: MOCK_CROSSCASE_RULES_VERSION,
+      scope: { case_ids: caseIds, scope_hash: `scope-${caseIds.length}`, cases_in_group: caseIds.slice(0, 2) },
+      group: { indicator_kind: "account_ref", value_normalized: "ACCSIH001" },
+      classification: "normalized_identifier",
+      classification_semantics: {
+        normalized_identifier:
+          "a shared identifier after deterministic normalization; stronger than a name-only match",
+      },
+      score: 78,
+      score_semantics:
+        "0–100 additive signal band, NOT a probability; only a review decision can become an authoritative link",
+      signal_kinds: ["account_ref"],
+      additional_shared_kinds: [],
+      conflicting_attributes: { flagged: false, evidence: [] },
+      sides,
+      reviewable: true,
+      review_disabled_reason: null,
+      limitations: [
+        "a candidate is a discovery signal, not evidence of a shared incident",
+        "approval records a reviewed relationship; it never merges entities or writes to the graph",
+      ],
+      graph_freshness_note: MOCK_CROSSCASE_GRAPH_NOTE,
+    },
+    // Content-derived: a rerun reuses the artifact instead of duplicating it.
+    content_hash: `cross-case-${anchorCaseId}-${caseIds.slice(0, 2).join("-")}`,
+    parser_version: MOCK_CROSSCASE_RULES_VERSION,
+    prompt_version: null,
+    model_profile: null,
+    analysis_job_id: jobId,
+    validation_errors: null,
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+}
+
+/** AI-narration child: flagged `ai_unverified`, parented, never approval-queued. */
+function structuredExplanationChild(
+  parent: DerivedArtifactOut,
+  kind: DerivedArtifactOut["kind"],
+  explanation: unknown,
+): DerivedArtifactOut {
+  return {
+    id: nextIntelId(),
+    case_id: parent.case_id,
+    kind,
+    origin: "llm",
+    status: "recorded",
+    validation_status: "flagged",
+    evidence_file_id: parent.evidence_file_id,
+    source_record_id: null,
+    source_locator: parent.source_locator,
+    payload: { type: "ai_explanation", for_artifact_id: parent.id, explanation },
+    content_hash: `explain-${parent.id}-${Math.random().toString(36).slice(2, 8)}`,
+    parser_version: "deterministic:1",
+    prompt_version: "1.0.0",
+    model_profile: "explain",
+    analysis_job_id: null,
+    validation_errors: [
+      { field: "explanation", code: "ai_unverified", message: "AI-generated narration; unreviewed and unverified" },
+    ],
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: parent.id,
+    created_at: isoNow(),
+    updated_at: isoNow(),
+  };
+}
+
+/** Facts-only narration of a financial finding: cites a real fact, quotes no invented number. */
+function mockExplainFinancial(parent: DerivedArtifactOut): CustodyExplainResponse {
+  const payload = parent.payload as { facts?: Array<{ record_no?: number; amount?: string | null }> };
+  const first = payload.facts?.[0] ?? {};
+  const cited = first.record_no != null ? [String(first.record_no)] : [];
+  const explanation = {
+    summary: first.amount
+      ? `Amount-bearing records were extracted; the first carries ${first.amount} with currency unrecorded.`
+      : "Amount-bearing records were extracted from the case records.",
+    why_patterns_fired: ["Each pattern fires only on the extracted facts recorded on this finding."],
+    cited_transaction_ids: cited,
+    alternative_explanations: ["A legitimate business transfer with the same recorded shape."],
+    missing_information: ["currency", "payer side", "timestamps"],
+    verification_steps: ["Confirm the account holder", "Locate the payer-side record if it exists"],
+  };
+  const child = structuredExplanationChild(parent, "financial_finding", explanation);
+  artifactsState.unshift(child);
+  pushAudit("flow.explanation_generated", "derived_artifact", parent.case_id, { for_artifact_id: parent.id });
+  return { explanation_artifact: child, text: explanation.summary, rule: "", explanation };
+}
+
+/** Facts-only narration of a cross-case candidate: scope-rechecked, never proof. */
+function mockExplainCrossCase(parent: DerivedArtifactOut): CustodyExplainResponse {
+  requirePermission("crosscase.read");
+  const payload = parent.payload as { group?: { indicator_kind?: string }; classification?: string; sides?: Array<{ case_id: string; value_originals?: string[] }> };
+  // Fail closed: a candidate touching an inaccessible case is shown as not-found.
+  if (!(payload.sides ?? []).every((side) => canAccessCase(side.case_id))) throw notFound("artifact not found");
+  const shared = payload.sides?.[0]?.value_originals?.[0] ?? "";
+  const explanation = {
+    summary: shared
+      ? `Both cases carry the shared ${payload.group?.indicator_kind ?? "identifier"} ${shared}; this is a candidate link, not proof of a shared incident.`
+      : "The cases share an identifier; this is a candidate link, not proof.",
+    matching_signal: `identifier ${payload.group?.indicator_kind ?? "unknown"}, classification ${payload.classification ?? "unknown"}`,
+    cited_identifiers: shared ? [shared] : [],
+    conflicts: [] as string[],
+    not_established: ["that the cases are the same incident", "that any transfer occurred between them"],
+    verification_steps: ["Confirm the account holder on both sides", "Check whether the shared value is a coincidence"],
+  };
+  const child = structuredExplanationChild(parent, "cross_case_link", explanation);
+  artifactsState.unshift(child);
+  pushAudit("cross_case.explanation_generated", "derived_artifact", parent.case_id, { for_artifact_id: parent.id });
+  return { explanation_artifact: child, text: explanation.summary, rule: "", explanation };
 }
 
 /**
