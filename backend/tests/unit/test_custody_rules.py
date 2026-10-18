@@ -230,9 +230,7 @@ def test_documented_before_it_happened_is_flagged() -> None:
         ),
     )
     issues = evaluate_custody(_snapshot(events=events))
-    assert [i.rule for i in issues] == [
-        "custody.chronology_recorded_before_occurred"
-    ]
+    assert [i.rule for i in issues] == ["custody.chronology_recorded_before_occurred"]
 
 
 def test_receipt_before_every_transfer_is_out_of_order() -> None:

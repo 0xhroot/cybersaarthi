@@ -671,9 +671,7 @@ def _classify(
     if shared_identifier_kinds:
         upgrade_kind = shared_identifier_kinds[0]
         reference = side_values_by_kind[upgrade_kind][cases[0]]
-        if all(
-            side_values_by_kind[upgrade_kind][case_id] == reference for case_id in cases[1:]
-        ):
+        if all(side_values_by_kind[upgrade_kind][case_id] == reference for case_id in cases[1:]):
             return "exact_identifier"
         return "normalized_identifier"
     return "similarity_name_only"
@@ -841,8 +839,7 @@ def build_candidates(
             groups.setdefault(key, {}).setdefault(case_id, []).append(indicator)
 
     indices_by_case = {
-        case_id: _build_case_index(indicators)
-        for case_id, indicators in indicators_by_case.items()
+        case_id: _build_case_index(indicators) for case_id, indicators in indicators_by_case.items()
     }
     shared_keys = sorted(key for key, members in groups.items() if len(members) >= 2)
     bounded = len(shared_keys) > max_candidates
@@ -910,9 +907,7 @@ async def visible_case_ids(session: AsyncSession, user: User, case_ids: list[str
     if await _user_is_admin(session, user):
         existing = await session.execute(select(Case.id).where(Case.id.in_(uuids)))
         return {str(row) for row in existing.scalars()}
-    case_rows = await session.execute(
-        select(Case.id, Case.owner_id).where(Case.id.in_(uuids))
-    )
+    case_rows = await session.execute(select(Case.id, Case.owner_id).where(Case.id.in_(uuids)))
     visible: set[str] = set()
     for case_id, owner_id in case_rows.all():
         if owner_id is not None and owner_id == user.id:
@@ -1238,9 +1233,7 @@ async def execute_cross_case(
             summary["records_bounded"] = bool(
                 summary["records_bounded"] or bounded["records_bounded"]
             )
-            summary["files_bounded"] = bool(
-                summary["files_bounded"] or bounded["files_bounded"]
-            )
+            summary["files_bounded"] = bool(summary["files_bounded"] or bounded["files_bounded"])
             summary["entities_bounded"] = bool(
                 summary["entities_bounded"] or bounded["entities_bounded"]
             )
@@ -1372,9 +1365,7 @@ async def visible_candidates(
             case_value = side.get("case_id")
             if case_value:
                 side_cases.add(str(case_value))
-    visible = (
-        await visible_case_ids(session, user, sorted(side_cases)) if side_cases else set()
-    )
+    visible = await visible_case_ids(session, user, sorted(side_cases)) if side_cases else set()
     # A candidate is kept only when it lists at least one side and every side
     # is visible right now; a malformed/sideless candidate is dropped, never
     # shown vacuously.

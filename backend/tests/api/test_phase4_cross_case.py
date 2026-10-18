@@ -81,6 +81,7 @@ async def _second_case(database: Database, api_user: ApiUser) -> uuid.UUID:
         await session.execute(delete(Case).where(Case.id == case_id))
         await session.commit()
 
+
 # -- seeded records -------------------------------------------------------------
 # Two cases sharing three identifiers (account identical -> exact; phone and
 # email differently formatted -> normalized) plus a shared person name with no
@@ -924,9 +925,7 @@ async def test_generic_artifact_list_excludes_cross_case_candidates(
     response = await _discover(http_client, _owned_case, [_owned_case, _second_case])
     assert response.status_code == 202, response.text
 
-    listing = await http_client.get(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts"
-    )
+    listing = await http_client.get(f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts")
     assert listing.status_code == 200, listing.text
     # The generic listing never returns cross-case candidates (payloads span
     # cases); they are read only through the scope-checked endpoint.
@@ -1022,6 +1021,7 @@ async def test_anonymous_discover_is_unauthorized(
         response = await _discover(client, _owned_case, [_owned_case, _second_case])
     assert response.status_code == 401, response.text
 
+
 # -- explanation resolvers (deterministic citation validation) ------------------
 
 
@@ -1067,8 +1067,7 @@ def test_crosscase_citation_validator_drops_unknown_identifiers() -> None:
         ],
     }
     assert (
-        explanation_svc._validate_crosscase({"cited_identifiers": ["ACC-SIH-001"]}, payload)
-        == []
+        explanation_svc._validate_crosscase({"cited_identifiers": ["ACC-SIH-001"]}, payload) == []
     )
     issues = explanation_svc._validate_crosscase({"cited_identifiers": ["GHOST-1"]}, payload)
     assert issues and issues[0]["code"] == "citation_not_in_provenance"
@@ -1218,9 +1217,7 @@ async def test_cross_case_approval_records_reviewed_child_artifact(
             )
         ).scalars()
         children = list(rows)
-    reviewed = [
-        c for c in children if (c.payload or {}).get("type") == "reviewed_cross_case_link"
-    ]
+    reviewed = [c for c in children if (c.payload or {}).get("type") == "reviewed_cross_case_link"]
     assert len(reviewed) == 1
     payload = reviewed[0].payload or {}
     assert payload["decision"] == "approved"

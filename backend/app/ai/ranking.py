@@ -43,9 +43,7 @@ class UnsupportedMetricError(ValueError):
     """Raised when a requested metric is not authoritatively computable."""
 
 
-async def _relationship_counts(
-    session: AsyncSession, case_id: str
-) -> dict[str, int]:
+async def _relationship_counts(session: AsyncSession, case_id: str) -> dict[str, int]:
     """Per-entity relationship count (source or target), active entities only.
 
     Uses the same join as ``retrieval.entities_digest`` so the two agree.
@@ -86,25 +84,21 @@ async def _pagerank_scores(session: AsyncSession, case_id: str) -> dict[str, flo
 
     rel_rows = (
         await session.execute(
-            select(
-                Relationship.source_entity_id, Relationship.target_entity_id
-            ).where(Relationship.case_id == case_id)
+            select(Relationship.source_entity_id, Relationship.target_entity_id).where(
+                Relationship.case_id == case_id
+            )
         )
     ).all()
     entity_ids = await _relationship_counts(session, case_id)
     nodes = set(entity_ids)
-    relationships = [
-        (str(src), str(dst), "related") for src, dst in rel_rows if src != dst
-    ]
+    relationships = [(str(src), str(dst), "related") for src, dst in rel_rows if src != dst]
     if not nodes:
         return {}
     graph = build_graph(nodes, relationships)
     return {node: float(score) for node, score in pagerank(graph).items()}
 
 
-async def _neighbor_counts(
-    session: AsyncSession, case_id: str
-) -> dict[str, int]:
+async def _neighbor_counts(session: AsyncSession, case_id: str) -> dict[str, int]:
     """Per-entity DISTINCT neighbour count (undirected, deduplicated).
 
     An A<->B association yields one neighbour for each, regardless of how many

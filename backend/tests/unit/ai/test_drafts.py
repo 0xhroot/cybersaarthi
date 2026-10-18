@@ -49,8 +49,7 @@ def test_valid_block_is_parsed() -> None:
 
 def test_multiple_blocks_keep_order() -> None:
     answers = [
-        _block({"title": f"T{i}", "statement": f"S{i}", "evidence_ids": []})
-        for i in range(3)
+        _block({"title": f"T{i}", "statement": f"S{i}", "evidence_ids": []}) for i in range(3)
     ]
     drafts, errors = parse_hypothesis_drafts("\n".join(answers))
     assert errors == 0
@@ -58,11 +57,7 @@ def test_multiple_blocks_keep_order() -> None:
 
 
 def test_pretty_printed_json_block_is_parsed() -> None:
-    block = (
-        "```hypothesis\n"
-        '{\n  "title": "T",\n  "statement": "S",\n  "evidence_ids": []\n}\n'
-        "```"
-    )
+    block = '```hypothesis\n{\n  "title": "T",\n  "statement": "S",\n  "evidence_ids": []\n}\n```'
     drafts, errors = parse_hypothesis_drafts(block)
     assert errors == 0
     assert drafts[0]["title"] == "T"
@@ -124,9 +119,7 @@ def test_title_and_statement_are_bounded() -> None:
 
 
 def test_draft_count_is_capped_and_excess_is_counted() -> None:
-    answer = "\n".join(
-        _block({"title": f"T{i}", "statement": "S"}) for i in range(MAX_DRAFTS + 2)
-    )
+    answer = "\n".join(_block({"title": f"T{i}", "statement": "S"}) for i in range(MAX_DRAFTS + 2))
     drafts, errors = parse_hypothesis_drafts(answer)
     assert len(drafts) == MAX_DRAFTS
     assert errors == 2

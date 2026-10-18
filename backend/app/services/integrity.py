@@ -79,9 +79,7 @@ def normalize_algorithm(algorithm: str) -> str | None:
     return _ALGORITHM_ALIASES.get(algorithm.strip().lower())
 
 
-def compare_hashes(
-    algorithm: str, expected: str | None, calculated: str | None
-) -> HashComparison:
+def compare_hashes(algorithm: str, expected: str | None, calculated: str | None) -> HashComparison:
     """Compare two digests with explicit, deterministic outcomes.
 
     - unknown/unsupported algorithm -> ``unsupported_algorithm`` (never guessed)

@@ -109,9 +109,7 @@ METRIC_QUOTE_RE = re.compile(
     rf"metric[=:]([a-z_]+)\s+entity_id=({_UUID_BODY})\s+(?:value|score)=({_NUM_BODY})",
     re.I,
 )
-METRIC_QUOTE_STRICT_RE = re.compile(
-    rf"metric:([a-z_]+)@({_UUID_BODY})\s*=\s*({_NUM_BODY})", re.I
-)
+METRIC_QUOTE_STRICT_RE = re.compile(rf"metric:([a-z_]+)@({_UUID_BODY})\s*=\s*({_NUM_BODY})", re.I)
 # Raw-value echo tolerance: DATA prints 4 decimals (0.00005 rounding), so a
 # 1e-5 relative band flags changed digits while accepting a faithful echo.
 METRIC_RAW_TOL = 0.005
@@ -122,9 +120,7 @@ METRIC_SCORE_TOL = 0.01
 # The prompt contract forbids numeric confidence, percentages and odds —
 # qualitative words (likely, possible) are the sanctioned way to express
 # uncertainty, so the gate forbids only what the prompt forbids.
-DRAFT_CONFIDENCE_RE = re.compile(
-    r"\d+\s*%|\b(?:confidence|probabilit\w*|odds)\b", re.I
-)
+DRAFT_CONFIDENCE_RE = re.compile(r"\d+\s*%|\b(?:confidence|probabilit\w*|odds)\b", re.I)
 
 
 @dataclass(slots=True)
@@ -184,7 +180,7 @@ def _load_golden(path: Path) -> list[dict[str, Any]]:
                 raise ValueError(f"{path}:{line_no}: {kind} entry needs case_number")
             if entry.get("mode") != kind:
                 raise ValueError(
-                    f"{path}:{line_no}: {kind} entry must set \"mode\": \"{kind}\" "
+                    f'{path}:{line_no}: {kind} entry must set "mode": "{kind}" '
                     "(the run and its scoring must agree)"
                 )
         entries.append(entry)
@@ -252,9 +248,7 @@ DRAFT_RECORD_TABLES = (
 )
 
 
-async def _record_belongs_to_case(
-    record_id: str, case_id: str, session: Any
-) -> bool:
+async def _record_belongs_to_case(record_id: str, case_id: str, session: Any) -> bool:
     """True only when the id resolves to a row of THIS case somewhere.
 
     Anything else — a foreign-case id, a hallucinated id, a non-UUID — is a
@@ -277,9 +271,7 @@ async def _record_belongs_to_case(
 class EvalRunner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.api = httpx.AsyncClient(
-            base_url=args.api_base, timeout=REQUEST_TIMEOUT_SECONDS
-        )
+        self.api = httpx.AsyncClient(base_url=args.api_base, timeout=REQUEST_TIMEOUT_SECONDS)
         self.token: str | None = None
         self._last_request_start = 0.0
         self.conversations: list[str] = []
@@ -298,9 +290,7 @@ class EvalRunner:
     async def _post_chat(self, payload: dict[str, Any]) -> httpx.Response:
         for attempt in (1, 2):
             await self._throttle()
-            response = await self.api.post(
-                "/ai/chat", json=payload, headers=self._headers()
-            )
+            response = await self.api.post("/ai/chat", json=payload, headers=self._headers())
             if response.status_code == 429 and attempt == 1:
                 print("    rate limited; waiting 60s", flush=True)
                 await asyncio.sleep(60)
@@ -324,13 +314,9 @@ class EvalRunner:
     # -- case resolution ----------------------------------------------------
 
     async def _own_case_ids(self) -> dict[str, str]:
-        response = await self.api.get(
-            "/cases", params={"limit": 200}, headers=self._headers()
-        )
+        response = await self.api.get("/cases", params={"limit": 200}, headers=self._headers())
         response.raise_for_status()
-        return {
-            item["case_number"]: item["id"] for item in response.json()["items"]
-        }
+        return {item["case_number"]: item["id"] for item in response.json()["items"]}
 
     async def _foreign_case_id(
         self, database: Database, preferred: str | None
@@ -340,20 +326,14 @@ class EvalRunner:
         async with factory() as session:
             if preferred:
                 row = (
-                    await session.execute(
-                        select(Case).where(Case.case_number == preferred)
-                    )
+                    await session.execute(select(Case).where(Case.case_number == preferred))
                 ).scalar_one_or_none()
-                if row is not None and await self._caller_cannot_access(
-                    session, row.id
-                ):
+                if row is not None and await self._caller_cannot_access(session, row.id):
                     return row.case_number, str(row.id)
             candidates = (
                 await session.execute(
                     select(Case)
-                    .where(
-                        or_(Case.owner_id.is_(None), Case.owner_id != self._caller_id)
-                    )
+                    .where(or_(Case.owner_id.is_(None), Case.owner_id != self._caller_id))
                     .order_by(Case.case_number)
                     .limit(50)
                 )
@@ -464,9 +444,7 @@ class EvalRunner:
                     claims_checked += 1
                     rows = (
                         await session.execute(
-                            select(
-                                MetricResult.raw_value, MetricResult.normalized_score
-                            ).where(
+                            select(MetricResult.raw_value, MetricResult.normalized_score).where(
                                 MetricResult.case_id == case_id,
                                 MetricResult.metric_name == name,
                                 MetricResult.entity_id == entity_id,
@@ -483,10 +461,8 @@ class EvalRunner:
                                     select(func.count(Relationship.id)).where(
                                         Relationship.case_id == case_id,
                                         or_(
-                                            Relationship.source_entity_id
-                                            == entity_id,
-                                            Relationship.target_entity_id
-                                            == entity_id,
+                                            Relationship.source_entity_id == entity_id,
+                                            Relationship.target_entity_id == entity_id,
                                         ),
                                     )
                                 )
@@ -494,8 +470,7 @@ class EvalRunner:
                             if abs(value - float(count)) <= 0.5:
                                 continue
                             claims_bad.append(
-                                f"metric {name}@{entity_id} = {value}: "
-                                f"data says {float(count):.4f}"
+                                f"metric {name}@{entity_id} = {value}: data says {float(count):.4f}"
                             )
                             continue
                         claims_bad.append(
@@ -570,27 +545,21 @@ class EvalRunner:
             if draft_errors:
                 issues.append(f"{draft_errors} fenced blocks rejected by the parser")
             for index, draft in enumerate(drafts):
-                if not str(draft.get("title", "")).strip() or not str(
-                    draft.get("statement", "")
-                ).strip():
+                if (
+                    not str(draft.get("title", "")).strip()
+                    or not str(draft.get("statement", "")).strip()
+                ):
                     issues.append(f"draft {index}: empty title or statement")
                 if DRAFT_CONFIDENCE_RE.search(json.dumps(draft)):
-                    issues.append(
-                        f"draft {index}: numeric confidence/percentage/odds wording"
-                    )
+                    issues.append(f"draft {index}: numeric confidence/percentage/odds wording")
                 for evidence_id in draft.get("evidence_ids") or []:
-                    if not await _record_belongs_to_case(
-                        str(evidence_id), case_id, session
-                    ):
+                    if not await _record_belongs_to_case(str(evidence_id), case_id, session):
                         issues.append(
-                            f"draft {index}: evidence id {evidence_id} "
-                            "is not a record of this case"
+                            f"draft {index}: evidence id {evidence_id} is not a record of this case"
                         )
                 flagged = draft.get("unverified_ids") or []
                 if flagged:
-                    issues.append(
-                        f"draft {index}: gateway flagged unverified ids {flagged}"
-                    )
+                    issues.append(f"draft {index}: gateway flagged unverified ids {flagged}")
 
         ungrounded = not sources
         ok = not invalid and not ungrounded and not issues
@@ -693,9 +662,7 @@ class EvalRunner:
                 if kind == "analysis":
                     result = await self._score_analysis(entry, body, case_id, database)
                 elif kind == "hypothesize":
-                    result = await self._score_hypothesize(
-                        entry, body, case_id, database
-                    )
+                    result = await self._score_hypothesize(entry, body, case_id, database)
                 else:
                     result = await self._score_grounded(entry, body, case_id, database)
                 if result.conversation_id:
@@ -747,11 +714,7 @@ class EvalRunner:
                 kind=kind,
                 ok=ok,
                 http_status=response.status_code,
-                error=(
-                    None
-                    if ok
-                    else f"expected HTTP {expected}, got {response.status_code}"
-                ),
+                error=(None if ok else f"expected HTTP {expected}, got {response.status_code}"),
             )
         except Exception as exc:  # noqa: BLE001 - recorded per entry
             return EntryResult(
@@ -804,8 +767,7 @@ class EvalRunner:
             # entry of the kind, and every such entry must pass its full
             # contract (structure/claims/drafts/groundedness).
             "analysis_all_pass": bool(analysis) and all(r.ok for r in analysis),
-            "hypothesis_all_pass": bool(hypothesize)
-            and all(r.ok for r in hypothesize),
+            "hypothesis_all_pass": bool(hypothesize) and all(r.ok for r in hypothesize),
         }
         passed = all(gates.values())
 
@@ -817,14 +779,10 @@ class EvalRunner:
             "passed": passed,
             "gates": gates,
             "metrics": {
-                "fact_recall": round(facts_matched / facts_total, 4)
-                if facts_total
-                else None,
+                "fact_recall": round(facts_matched / facts_total, 4) if facts_total else None,
                 "facts_matched": facts_matched,
                 "facts_total": facts_total,
-                "groundedness": round(sources_valid / sources_total, 4)
-                if sources_total
-                else None,
+                "groundedness": round(sources_valid / sources_total, 4) if sources_total else None,
                 "sources_valid": sources_valid,
                 "sources_total": sources_total,
                 "abstention_passed": abstention_passed,
@@ -840,9 +798,7 @@ class EvalRunner:
                 "hypothesis_drafts": drafts_total,
                 "hypothesis_draft_errors": draft_errors_total,
                 "hypothesis_draft_issues": draft_issues,
-                "latency_ms_avg": round(sum(latencies) / len(latencies))
-                if latencies
-                else None,
+                "latency_ms_avg": round(sum(latencies) / len(latencies)) if latencies else None,
                 "latency_ms_max": max(latencies) if latencies else None,
                 "elapsed_seconds": round(elapsed, 1),
             },

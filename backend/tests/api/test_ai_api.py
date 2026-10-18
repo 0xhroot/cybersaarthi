@@ -339,7 +339,7 @@ async def test_stream_without_tools_emits_token_sources_done(
         assert resp.headers["content-type"].startswith("text/event-stream")
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     types = [e["type"] for e in events]
     assert "token" in types
@@ -360,8 +360,7 @@ async def test_stream_tool_loop_forwards_tool_events(
     prefix = get_settings().API_V1_PREFIX
     case_id = str(_owned_case)
     tool_call = (
-        f'```tool_call\n{{"tool": "list_evidence", '
-        f'"arguments": {{"case_id": "{case_id}"}}}}\n```'
+        f'```tool_call\n{{"tool": "list_evidence", "arguments": {{"case_id": "{case_id}"}}}}\n```'
     )
 
     seen: list[list[dict[str, str]]] = []
@@ -386,7 +385,7 @@ async def test_stream_tool_loop_forwards_tool_events(
         assert resp.status_code == 200
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     types = [e["type"] for e in events]
     assert types.count("tool") == 2
@@ -405,10 +404,7 @@ async def test_stream_unknown_tool_event_reports_failure_immediately(
     not only in the final done.tool_events."""
     prefix = get_settings().API_V1_PREFIX
     case_id = str(_owned_case)
-    forged = (
-        f'```tool_call\n{{"tool": "wipe_case", '
-        f'"arguments": {{"case_id": "{case_id}"}}}}\n```'
-    )
+    forged = f'```tool_call\n{{"tool": "wipe_case", "arguments": {{"case_id": "{case_id}"}}}}\n```'
     queue = [forged, "I cannot do that."]
 
     async def fake_stream(messages, *, max_tokens, temperature=0.2, stop=None):
@@ -426,7 +422,7 @@ async def test_stream_unknown_tool_event_reports_failure_immediately(
         assert resp.status_code == 200
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     tool_events = [e for e in events if e["type"] == "tool"]
     assert len(tool_events) == 1
@@ -595,9 +591,7 @@ async def test_create_thread_unknown_case_is_404(http_client, ai_service) -> Non
     assert resp.status_code == 404
 
 
-async def test_created_thread_is_owner_scoped(
-    http_client, ai_service, user_factory
-) -> None:
+async def test_created_thread_is_owner_scoped(http_client, ai_service, user_factory) -> None:
     """A thread created via the endpoint is invisible to other accounts."""
     prefix = get_settings().API_V1_PREFIX
     created = await http_client.post(f"{prefix}/ai/conversations")
@@ -608,9 +602,7 @@ async def test_created_thread_is_owner_scoped(
     async with _client(stranger.token) as other:
         read = await other.get(f"{prefix}/ai/conversations/{conv_id}")
         assert read.status_code == 404
-        rename = await other.patch(
-            f"{prefix}/ai/conversations/{conv_id}", json={"title": "stolen"}
-        )
+        rename = await other.patch(f"{prefix}/ai/conversations/{conv_id}", json={"title": "stolen"})
         assert rename.status_code == 404
         deleted = await other.delete(f"{prefix}/ai/conversations/{conv_id}")
         assert deleted.status_code == 404
@@ -659,15 +651,15 @@ async def test_retention_purge_removes_only_expired_threads(
     # Messages of the purged thread are gone too (FK cascade), fresh ones stay.
     async with factory() as session:
         stale_msgs = (
-            await session.execute(
-                select(AIMessage).where(AIMessage.conversation_id == stale_id)
-            )
-        ).scalars().all()
+            (await session.execute(select(AIMessage).where(AIMessage.conversation_id == stale_id)))
+            .scalars()
+            .all()
+        )
         fresh_msgs = (
-            await session.execute(
-                select(AIMessage).where(AIMessage.conversation_id == fresh_id)
-            )
-        ).scalars().all()
+            (await session.execute(select(AIMessage).where(AIMessage.conversation_id == fresh_id)))
+            .scalars()
+            .all()
+        )
     assert list(stale_msgs) == [], "purged thread's messages must be cascade-deleted"
     assert len(fresh_msgs) >= 2, "fresh thread keeps its user+assistant messages"
 
@@ -681,9 +673,7 @@ async def test_report_draft_owner_ok_stranger_denied(
     prefix = get_settings().API_V1_PREFIX
     _stub_chat(ai_service, monkeypatch, ["# Draft section\n\nSummary of the case."])
 
-    resp = await http_client.post(
-        f"{prefix}/ai/report-draft", json={"case_id": str(_owned_case)}
-    )
+    resp = await http_client.post(f"{prefix}/ai/report-draft", json={"case_id": str(_owned_case)})
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert "Draft" in body["draft"]
@@ -692,9 +682,7 @@ async def test_report_draft_owner_ok_stranger_denied(
 
     stranger = await user_factory(role="INVESTIGATOR")
     async with _client(stranger.token) as client:
-        denied = await client.post(
-            f"{prefix}/ai/report-draft", json={"case_id": str(_owned_case)}
-        )
+        denied = await client.post(f"{prefix}/ai/report-draft", json={"case_id": str(_owned_case)})
         assert denied.status_code == 403
 
 
@@ -732,9 +720,7 @@ async def test_rename_conversation_is_owner_scoped(
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["title"] == "My renamed thread"
 
-    blank = await http_client.patch(
-        f"{prefix}/ai/conversations/{conv_id}", json={"title": "   "}
-    )
+    blank = await http_client.patch(f"{prefix}/ai/conversations/{conv_id}", json={"title": "   "})
     assert blank.status_code == 400
     assert blank.json()["error"]["code"] == "AI_MESSAGE_INVALID"
 
@@ -777,7 +763,7 @@ async def test_stream_model_failure_emits_error_event(http_client, ai_service, m
         assert resp.status_code == 200
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
     assert events, "stream must report the failure"
     assert events[-1]["type"] == "error"
     assert events[-1]["code"] == "AI_UNAVAILABLE"
@@ -853,8 +839,7 @@ async def test_unauthorized_evidence_tool_call_is_denied(
     prefix = get_settings().API_V1_PREFIX
     foreign = str(_stranger_case)
     tool_call = (
-        f'```tool_call\n{{"tool": "list_evidence", '
-        f'"arguments": {{"case_id": "{foreign}"}}}}\n```'
+        f'```tool_call\n{{"tool": "list_evidence", "arguments": {{"case_id": "{foreign}"}}}}\n```'
     )
     _stub_chat(ai_service, monkeypatch, [tool_call, "No evidence available."])
 
@@ -943,9 +928,7 @@ async def test_concurrent_requests_from_different_accounts_stay_isolated(
             assert resp.status_code == 200
             return [item["id"] for item in resp.json()["items"]]
 
-    owner_convs, other_convs = await asyncio.gather(
-        conv_ids(api_user.token), conv_ids(other.token)
-    )
+    owner_convs, other_convs = await asyncio.gather(conv_ids(api_user.token), conv_ids(other.token))
     assert case_result["conversation_id"] in owner_convs
     assert case_result["conversation_id"] not in other_convs
     assert other_convs  # the other account has its own conversation
@@ -959,11 +942,7 @@ async def test_case_access_is_rechecked_after_permission_change(
     prefix = get_settings().API_V1_PREFIX
     factory = database.session_factory()
     async with factory() as session:
-        session.add(
-            CaseMember(
-                case_id=_stranger_case, user_id=api_user.id, role="collaborator"
-            )
-        )
+        session.add(CaseMember(case_id=_stranger_case, user_id=api_user.id, role="collaborator"))
         await session.commit()
     try:
         _stub_chat(ai_service, monkeypatch, ["member answer", "should not happen"])
@@ -1052,28 +1031,20 @@ async def test_rate_limit_counters_are_scoped_per_user(
 # -- answer profiles (quick / standard / deep) -----------------------------
 
 
-async def test_chat_accepts_an_explicit_profile(
-    http_client, ai_service, monkeypatch
-) -> None:
+async def test_chat_accepts_an_explicit_profile(http_client, ai_service, monkeypatch) -> None:
     prefix = get_settings().API_V1_PREFIX
     _stub_chat(ai_service, monkeypatch, ["ok"])
-    resp = await http_client.post(
-        f"{prefix}/ai/chat", json={"question": "hi", "profile": "quick"}
-    )
+    resp = await http_client.post(f"{prefix}/ai/chat", json={"question": "hi", "profile": "quick"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["answer"] == "ok"
 
 
-async def test_chat_rejects_an_unknown_profile(
-    http_client, ai_service, monkeypatch
-) -> None:
+async def test_chat_rejects_an_unknown_profile(http_client, ai_service, monkeypatch) -> None:
     """An unrecognised profile is a 422, not a silent fallback — the caller
     asked for a trade-off we do not offer, so we surface it."""
     prefix = get_settings().API_V1_PREFIX
     _stub_chat(ai_service, monkeypatch, ["ok"])
-    resp = await http_client.post(
-        f"{prefix}/ai/chat", json={"question": "hi", "profile": "ultra"}
-    )
+    resp = await http_client.post(f"{prefix}/ai/chat", json={"question": "hi", "profile": "ultra"})
     assert resp.status_code == 422, resp.text
 
 
@@ -1084,9 +1055,7 @@ async def test_quick_profile_uses_a_smaller_generation_budget(
     settings = get_settings()
     _, seen_max_tokens = _stub_chat(ai_service, monkeypatch, ["ok"])
 
-    await http_client.post(
-        f"{prefix}/ai/chat", json={"question": "hi", "profile": "quick"}
-    )
+    await http_client.post(f"{prefix}/ai/chat", json={"question": "hi", "profile": "quick"})
     quick_tokens = seen_max_tokens[-1]
     await http_client.post(f"{prefix}/ai/chat", json={"question": "hi again"})
     default_tokens = seen_max_tokens[-1]
@@ -1105,9 +1074,7 @@ async def test_deep_profile_uses_a_larger_generation_budget(
 
     await http_client.post(f"{prefix}/ai/chat", json={"question": "hi"})
     default_tokens = seen_max_tokens[-1]
-    await http_client.post(
-        f"{prefix}/ai/chat", json={"question": "hi", "profile": "deep"}
-    )
+    await http_client.post(f"{prefix}/ai/chat", json={"question": "hi", "profile": "deep"})
     deep_tokens = seen_max_tokens[-1]
 
     assert deep_tokens == settings.AI_PROFILE_DEEP_MAX_TOKENS
@@ -1117,22 +1084,16 @@ async def test_deep_profile_uses_a_larger_generation_budget(
 # -- think mode (Phase 1) --------------------------------------------------
 
 
-async def test_chat_accepts_the_think_profile(
-    http_client, ai_service, monkeypatch
-) -> None:
+async def test_chat_accepts_the_think_profile(http_client, ai_service, monkeypatch) -> None:
     """`think` is a first-class profile value (alias for the deep budget)."""
     prefix = get_settings().API_V1_PREFIX
     _stub_chat(ai_service, monkeypatch, ["ok"])
-    resp = await http_client.post(
-        f"{prefix}/ai/chat", json={"question": "hi", "profile": "think"}
-    )
+    resp = await http_client.post(f"{prefix}/ai/chat", json={"question": "hi", "profile": "think"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["answer"] == "ok"
 
 
-async def test_think_spends_the_deep_budget(
-    http_client, ai_service, monkeypatch
-) -> None:
+async def test_think_spends_the_deep_budget(http_client, ai_service, monkeypatch) -> None:
     """Think reuses the deep generation budget rather than inventing its own."""
     prefix = get_settings().API_V1_PREFIX
     settings = get_settings()
@@ -1176,7 +1137,7 @@ async def test_stream_emits_progress_states(http_client, ai_service, monkeypatch
         assert resp.status_code == 200
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     progress = [e for e in events if e["type"] == "progress"]
     assert progress, "expected at least one progress event"
@@ -1201,15 +1162,13 @@ async def test_stream_progress_carries_the_requested_profile(
     ) as resp:
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     progress = [e for e in events if e["type"] == "progress"]
     assert progress and all(p["profile"] == "think" for p in progress)
 
 
-async def test_progress_never_reorders_before_done(
-    http_client, ai_service, monkeypatch
-) -> None:
+async def test_progress_never_reorders_before_done(http_client, ai_service, monkeypatch) -> None:
     """`done` must remain the terminal event for existing clients."""
     prefix = get_settings().API_V1_PREFIX
     _stub_chat(ai_service, monkeypatch, ["final"])
@@ -1220,7 +1179,7 @@ async def test_progress_never_reorders_before_done(
     ) as resp:
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     assert events[-1]["type"] == "done"
 
@@ -1313,7 +1272,7 @@ async def test_stream_never_uses_a_tool_fence_as_done_answer(
         assert resp.status_code == 200
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     done = events[-1]
     assert done["type"] == "done"

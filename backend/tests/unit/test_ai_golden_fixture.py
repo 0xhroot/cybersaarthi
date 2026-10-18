@@ -92,11 +92,7 @@ def test_new_mode_entries_run_and_score_the_same_mode(golden: list[dict]) -> Non
 def test_security_abstentions_cover_the_new_modes(golden: list[dict]) -> None:
     """Cross-case denial must be exercised for analysis and hypothesize too —
     not only for the older modes (fail closed across the whole surface)."""
-    covered = {
-        e["mode"]
-        for e in golden
-        if e["kind"] in {"abstention", "abstention_unknown"}
-    }
+    covered = {e["mode"] for e in golden if e["kind"] in {"abstention", "abstention_unknown"}}
     assert {"analysis", "hypothesize"} <= covered
 
 

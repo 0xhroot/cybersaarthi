@@ -168,9 +168,7 @@ def _nos(ids: Any) -> list[int]:
 class Phase4EvalRunner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.api = httpx.AsyncClient(
-            base_url=args.api_base, timeout=REQUEST_TIMEOUT_SECONDS
-        )
+        self.api = httpx.AsyncClient(base_url=args.api_base, timeout=REQUEST_TIMEOUT_SECONDS)
         self.token: str | None = None
         self.admin_token: str | None = None
         self.settings = get_settings()
@@ -230,9 +228,7 @@ class Phase4EvalRunner:
         """
         problems: list[str] = []
         if got.get("counts") != expect["counts"]:
-            problems.append(
-                f"counts mismatch: got {got.get('counts')} want {expect['counts']}"
-            )
+            problems.append(f"counts mismatch: got {got.get('counts')} want {expect['counts']}")
 
         buckets = {b["currency"]: b for b in got.get("currency_buckets", [])}
         want_keys = sorted(
@@ -268,9 +264,7 @@ class Phase4EvalRunner:
                     )
             if len(bucket.get("conflicting_groups") or []) != want["conflicting_groups"]:
                 problems.append(f"bucket {want['currency']!r} conflicting_groups mismatch")
-            if check_ids and _nos(bucket.get("supporting_source_record_ids")) != want[
-                "record_nos"
-            ]:
+            if check_ids and _nos(bucket.get("supporting_source_record_ids")) != want["record_nos"]:
                 problems.append(
                     f"bucket {want['currency']!r} supporting ids "
                     f"{_nos(bucket.get('supporting_source_record_ids'))} != {want['record_nos']}"
@@ -284,8 +278,7 @@ class Phase4EvalRunner:
             want_rows = expect[label]
             if sorted(by_key) != sorted(w[fixture_key] for w in want_rows):
                 problems.append(
-                    f"{label} keys {sorted(by_key)} != "
-                    f"{sorted(w[fixture_key] for w in want_rows)}"
+                    f"{label} keys {sorted(by_key)} != {sorted(w[fixture_key] for w in want_rows)}"
                 )
                 return
             for want in want_rows:
@@ -297,15 +290,14 @@ class Phase4EvalRunner:
                         f"{label} {want[fixture_key]} total_records "
                         f"{row['total_records']!r} != {want['total_records']!r}"
                     )
-                if check_ids and _nos(row.get("supporting_source_record_ids")) != want[
-                    "record_nos"
-                ]:
+                if (
+                    check_ids
+                    and _nos(row.get("supporting_source_record_ids")) != want["record_nos"]
+                ):
                     problems.append(f"{label} {want[fixture_key]} supporting ids mismatch")
 
         _check_grouped("by_status", got.get("by_status", []), "status")
-        _check_grouped(
-            "by_account", got.get("by_account", []), "account_normalized", "account"
-        )
+        _check_grouped("by_account", got.get("by_account", []), "account_normalized", "account")
         _check_grouped("by_bank", got.get("by_bank", []), "bank")
         if got.get("by_merchant") != expect["by_merchant"]:
             problems.append(f"by_merchant {got.get('by_merchant')!r} != []")
@@ -313,9 +305,7 @@ class Phase4EvalRunner:
         not_computable = got.get("not_computable", {})
         for key, want in expect["not_computable"].items():
             if not_computable.get(key) != want:
-                problems.append(
-                    f"not_computable.{key}: {not_computable.get(key)!r} != {want!r}"
-                )
+                problems.append(f"not_computable.{key}: {not_computable.get(key)!r} != {want!r}")
         return problems
 
     @staticmethod
@@ -335,8 +325,7 @@ class Phase4EvalRunner:
                     actual = len(evidence.get("transaction_amounts_in_case") or [])
                     if actual != value:
                         problems.append(
-                            f"{row['rule']} transaction_amounts_in_case "
-                            f"{actual} != {value}"
+                            f"{row['rule']} transaction_amounts_in_case {actual} != {value}"
                         )
                     continue
                 if str(evidence.get(key)) != str(value):
@@ -368,12 +357,8 @@ class Phase4EvalRunner:
         node_ids = sorted(node["id"] for node in got.get("nodes", []))
         if node_ids != sorted(expect["node_ids"]):
             problems.append(f"node ids {node_ids} != {sorted(expect['node_ids'])}")
-        edges = {
-            (edge["source"], edge["target"]): edge for edge in got.get("edges", [])
-        }
-        want_assoc = {
-            (e["source"], e["target"]): e for e in expect["association_edges"]
-        }
+        edges = {(edge["source"], edge["target"]): edge for edge in got.get("edges", [])}
+        want_assoc = {(e["source"], e["target"]): e for e in expect["association_edges"]}
         want_rel = {(e["source"], e["target"]): e for e in expect["relationship_edges"]}
         if set(edges) != set(want_assoc) | set(want_rel):
             problems.append(
@@ -420,8 +405,7 @@ class Phase4EvalRunner:
         if truncated != expect["truncated"]:
             problems.append(f"trace truncated {truncated} != {expect['truncated']}")
         got_shapes = [
-            {"nodes": p["nodes"], "depth": p["depth"], "end_state": p["end_state"]}
-            for p in paths
+            {"nodes": p["nodes"], "depth": p["depth"], "end_state": p["end_state"]} for p in paths
         ]
         if got_shapes != expect["paths"]:
             problems.append(f"trace paths {got_shapes} != {expect['paths']}")
@@ -544,9 +528,7 @@ class Phase4EvalRunner:
         )
         direction_key = expect["no_direction_fact"]["every_transaction_missing_includes"]
         direction_ok = all(
-            direction_key in f.missing
-            for f in facts
-            if f.fact_class == "transaction"
+            direction_key in f.missing for f in facts if f.fact_class == "transaction"
         )
         status_definition_present = bool(
             (payload.get("calculation_definitions") or {}).get("status_separation")
@@ -559,9 +541,7 @@ class Phase4EvalRunner:
         capped_agg = aggregate_facts(
             facts, max_supporting_ids=expect["limits"]["max_supporting_ids"]
         )
-        inr_bucket = next(
-            b for b in capped_agg["currency_buckets"] if b["currency"] == "INR"
-        )
+        inr_bucket = next(b for b in capped_agg["currency_buckets"] if b["currency"] == "INR")
         capped_net = build_structure_network(
             facts, owns_edges, max_edges=expect["limits"]["max_edges"]
         )
@@ -632,9 +612,7 @@ class Phase4EvalRunner:
             "grand_total_keys_found": forbidden_total_keys,
             "firing_count": len(patterns["firing"]),
             "not_fired": patterns["not_fired"],
-            "not_evaluable_rules": sorted(
-                entry["rule"] for entry in patterns["not_evaluable"]
-            ),
+            "not_evaluable_rules": sorted(entry["rule"] for entry in patterns["not_evaluable"]),
             "currency_buckets": [
                 {
                     "currency": b["currency"],
@@ -812,9 +790,7 @@ class Phase4EvalRunner:
             got = per_case_counters[case["label"]]
             for field, want in case["expect"].items():
                 if got[field] != want:
-                    counter_problems.append(
-                        f"{case['label']}.{field}: {got[field]} != {want}"
-                    )
+                    counter_problems.append(f"{case['label']}.{field}: {got[field]} != {want}")
 
         candidates, stats = build_candidates(
             indicators_by_case,
@@ -823,17 +799,12 @@ class Phase4EvalRunner:
             max_candidates=100,
             max_supporting_ids=50,
         )
-        candidate_problems = self._check_candidates(
-            candidates, expect["candidates"], label_to_case
-        )
+        candidate_problems = self._check_candidates(candidates, expect["candidates"], label_to_case)
 
         # Precision / recall over candidate keys.
-        want_keys = {
-            (c["indicator_kind"], c["value_normalized"]) for c in expect["candidates"]
-        }
+        want_keys = {(c["indicator_kind"], c["value_normalized"]) for c in expect["candidates"]}
         got_keys = {
-            (c["group"]["indicator_kind"], c["group"]["value_normalized"])
-            for c in candidates
+            (c["group"]["indicator_kind"], c["group"]["value_normalized"]) for c in candidates
         }
         true_positives = len(want_keys & got_keys)
         false_positives = len(got_keys - want_keys)
@@ -914,24 +885,15 @@ class Phase4EvalRunner:
             max_supporting_ids=50,
         )
         determinism_ok = (
-            _jsonable(replay_candidates) == _jsonable(candidates)
-            and replay_stats == stats
+            _jsonable(replay_candidates) == _jsonable(candidates) and replay_stats == stats
         )
 
         name_only = next(
-            (
-                c
-                for c in candidates
-                if c["classification"] == "similarity_name_only"
-            ),
+            (c for c in candidates if c["classification"] == "similarity_name_only"),
             None,
         )
         hash_candidate = next(
-            (
-                c
-                for c in candidates
-                if c["group"]["indicator_kind"] == "evidence_hash"
-            ),
+            (c for c in candidates if c["group"]["indicator_kind"] == "evidence_hash"),
             None,
         )
 
@@ -1086,9 +1048,7 @@ class Phase4EvalRunner:
                 select(SourceRecord)
                 .join(EvidenceFile, SourceRecord.evidence_file_id == EvidenceFile.id)
                 .where(EvidenceFile.case_id == str(case_id))
-                .order_by(
-                    EvidenceFile.created_at, EvidenceFile.id, SourceRecord.record_no
-                )
+                .order_by(EvidenceFile.created_at, EvidenceFile.id, SourceRecord.record_no)
             )
             return list(result.scalars())
 
@@ -1104,9 +1064,7 @@ class Phase4EvalRunner:
         self.case_ids["flow"] = case_id
         print(f"  live: flow case {case_id}", flush=True)
 
-        evidence_id = await self._upload_json(
-            case_id, "phase4-flow.json", flow_fixture["records"]
-        )
+        evidence_id = await self._upload_json(case_id, "phase4-flow.json", flow_fixture["records"])
         ingest = await self._ingest(case_id, evidence_id)
 
         # Cancellation probe on the first submission (branch-recorded: the
@@ -1139,9 +1097,7 @@ class Phase4EvalRunner:
             started = time.monotonic()
             rerun = await self._submit_feature(case_id, "financial-flow")
             section["cancel"]["rerun_job_id"] = rerun["job"]["id"]
-            rerun_job = await self._poll_job(
-                case_id, rerun["job"]["id"], feature="financial_flow"
-            )
+            rerun_job = await self._poll_job(case_id, rerun["job"]["id"], feature="financial_flow")
             section["latency_ms"] = int((time.monotonic() - started) * 1000)
             section["cancel"]["rerun_status"] = rerun_job["status"]
             job = rerun_job
@@ -1181,10 +1137,9 @@ class Phase4EvalRunner:
             db_facts, max_supporting_ids=self.settings.FLOW_MAX_SUPPORTING_IDS
         )
         section["db_records"] = len(db_rows)
-        section["db_recompute_exact"] = (
-            _jsonable(db_aggregates) == payload.get("aggregates")
-            and _jsonable(db_warnings) == payload.get("extraction_warnings")
-        )
+        section["db_recompute_exact"] = _jsonable(db_aggregates) == payload.get(
+            "aggregates"
+        ) and _jsonable(db_warnings) == payload.get("extraction_warnings")
         db_ids = {str(row.id) for row in db_rows}
         locator_problems = [
             fact.get("source_record_id")
@@ -1202,9 +1157,7 @@ class Phase4EvalRunner:
         got_firing = patterns.get("firing", [])
         pattern_problems: list[str] = []
         if len(got_firing) != len(want_firing):
-            pattern_problems.append(
-                f"firing count {len(got_firing)} != {len(want_firing)}"
-            )
+            pattern_problems.append(f"firing count {len(got_firing)} != {len(want_firing)}")
         for want, got in zip(want_firing, got_firing, strict=False):
             if got["rule"] != want["rule"]:
                 pattern_problems.append(f"firing rule {got['rule']} != {want['rule']}")
@@ -1222,9 +1175,7 @@ class Phase4EvalRunner:
         section["not_fired_match"] = (
             patterns.get("not_fired") == expect_live["patterns"]["not_fired"]
         )
-        section["not_evaluable_match"] = (
-            not_evaluable == expect_live["patterns"]["not_evaluable"]
-        )
+        section["not_evaluable_match"] = not_evaluable == expect_live["patterns"]["not_evaluable"]
         section["rule_count_match"] = (
             patterns.get("rule_count") == expect_live["patterns"]["rule_count"]
         )
@@ -1311,9 +1262,7 @@ class Phase4EvalRunner:
         }
         return section
 
-    async def _live_crosscase(
-        self, live_fixture: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _live_crosscase(self, live_fixture: dict[str, Any]) -> dict[str, Any]:
         spec = live_fixture["cross_case"]
         section: dict[str, Any] = {}
 
@@ -1362,9 +1311,7 @@ class Phase4EvalRunner:
             headers=self._headers(),
         )
         discover.raise_for_status()
-        job = await self._poll_job(
-            case_x, discover.json()["job"]["id"], feature="cross_case"
-        )
+        job = await self._poll_job(case_x, discover.json()["job"]["id"], feature="cross_case")
         section["latency_ms"] = int((time.monotonic() - started) * 1000)
         section["job_status"] = job["status"]
 
@@ -1391,14 +1338,9 @@ class Phase4EvalRunner:
         got_keys = sorted(
             (c["indicator_kind"], c["value_normalized"]) for c in section["candidates_xy"]
         )
-        want_keys = sorted(
-            (c["indicator_kind"], c["value_normalized"]) for c in want_candidates
-        )
+        want_keys = sorted((c["indicator_kind"], c["value_normalized"]) for c in want_candidates)
         section["candidate_keys_match"] = got_keys == want_keys
-        by_key = {
-            (c["indicator_kind"], c["value_normalized"]): c
-            for c in section["candidates_xy"]
-        }
+        by_key = {(c["indicator_kind"], c["value_normalized"]): c for c in section["candidates_xy"]}
         per_want: list[bool] = []
         for want in want_candidates:
             got = by_key.get((want["indicator_kind"], want["value_normalized"]))
@@ -1421,19 +1363,11 @@ class Phase4EvalRunner:
         # Approval: records an audited child artifact; never merges, never
         # rewrites the parent, never adds aliases.
         target = next(
-            (
-                item
-                for item in items
-                if item["payload"]["group"]["indicator_kind"] == "account_ref"
-            ),
+            (item for item in items if item["payload"]["group"]["indicator_kind"] == "account_ref"),
             items[0] if items else None,
         )
         name_target = next(
-            (
-                item
-                for item in items
-                if item["payload"]["group"]["indicator_kind"] == "name"
-            ),
+            (item for item in items if item["payload"]["group"]["indicator_kind"] == "name"),
             None,
         )
         if target is not None:
@@ -1519,17 +1453,12 @@ class Phase4EvalRunner:
 
         # Explain on the Z-scope artifact as the investigator: fail closed 404.
         z_scope_artifact = next(
-            (
-                entry
-                for entry in section["admin_candidates_xz"]
-                if case_z in entry["sides"]
-            ),
+            (entry for entry in section["admin_candidates_xz"] if case_z in entry["sides"]),
             None,
         )
         if z_scope_artifact is not None:
             hidden = await self.api.post(
-                f"/cases/{case_x}/evidence-intelligence/artifacts/"
-                f"{z_scope_artifact['id']}/explain",
+                f"/cases/{case_x}/evidence-intelligence/artifacts/{z_scope_artifact['id']}/explain",
                 headers=self._headers(),
             )
             section["hidden_artifact_explain"] = {
@@ -1569,8 +1498,7 @@ class Phase4EvalRunner:
         name_refusal: dict[str, Any] = {"attempted": False}
         if name_target is not None:
             refuse = await self.api.post(
-                f"/cases/{case_x}/evidence-intelligence/artifacts/"
-                f"{name_target['id']}/review",
+                f"/cases/{case_x}/evidence-intelligence/artifacts/{name_target['id']}/review",
                 json={"decision": "approved", "note": "eval harness (must refuse)"},
                 headers=self._headers(),
             )
@@ -1597,11 +1525,7 @@ class Phase4EvalRunner:
         )
         parent_after.raise_for_status()
         parent_row = next(
-            (
-                item
-                for item in parent_after.json()["items"]
-                if item["id"] == artifact_id
-            ),
+            (item for item in parent_after.json()["items"] if item["id"] == artifact_id),
             None,
         )
         # The generic artifact listing deliberately excludes cross_case_link
@@ -1625,8 +1549,7 @@ class Phase4EvalRunner:
                     await session.execute(
                         select(DerivedArtifact).where(
                             DerivedArtifact.case_id == uuid.UUID(case_x),
-                            DerivedArtifact.parent_artifact_id
-                            == uuid.UUID(artifact_id),
+                            DerivedArtifact.parent_artifact_id == uuid.UUID(artifact_id),
                             DerivedArtifact.kind == "cross_case_link",
                         )
                     )
@@ -1667,17 +1590,14 @@ class Phase4EvalRunner:
                 == target["payload"]["group"]["indicator_kind"]
                 and child_payload.get("value_normalized")
                 == target["payload"]["group"]["value_normalized"]
-                and child_payload.get("cases")
-                == sorted([case_x, case_y])
+                and child_payload.get("cases") == sorted([case_x, case_y])
                 and child_payload.get("for_artifact_id") == artifact_id
             ),
             "parent_unrewritten": (
                 parent_row is not None and parent_row.get("content_hash") == before_hash
             ),
             "no_aliases_added": alias_count_before == alias_count_after,
-            "audit_row_recorded": (
-                child is not None and str(child.id) in audit_child_ids
-            ),
+            "audit_row_recorded": (child is not None and str(child.id) in audit_child_ids),
         }
 
     async def _viewer_probe(self, case_x: str, inaccessible_case: str) -> dict[str, Any]:
@@ -1724,8 +1644,7 @@ class Phase4EvalRunner:
             headers=self._headers(viewer_token),
         )
         explain = await self.api.post(
-            f"/cases/{case_x}/evidence-intelligence/artifacts/"
-            f"{uuid.uuid4()}/explain",
+            f"/cases/{case_x}/evidence-intelligence/artifacts/{uuid.uuid4()}/explain",
             headers=self._headers(viewer_token),
         )
         artifacts = await self.api.get(
@@ -1785,9 +1704,7 @@ class Phase4EvalRunner:
         if not self.args.skip_live:
             try:
                 await self.login(self.args.username, self.args.password)
-                await self.login(
-                    self.args.admin_username, self.args.admin_password, admin=True
-                )
+                await self.login(self.args.admin_username, self.args.admin_password, admin=True)
             except Exception as exc:  # noqa: BLE001 - setup failure
                 print(f"login failure: {exc}", file=sys.stderr)
                 return 2
@@ -1830,18 +1747,13 @@ class Phase4EvalRunner:
             and not flow["aggregate_problems"]
             and not flow["victim_problems"],
             "flow_currency_segregation": flow["no_unkeyed_grand_total"]
-            and sorted(
-                bucket["currency"] or "\x00" for bucket in flow["currency_buckets"]
-            )
+            and sorted(bucket["currency"] or "\x00" for bucket in flow["currency_buckets"])
             == ["\x00", "INR", "USD"],
             "flow_status_separation": flow["status_separation_documented"]
-            and not any(
-                "by_status" in problem for problem in flow["aggregate_problems"]
-            ),
+            and not any("by_status" in problem for problem in flow["aggregate_problems"]),
             "flow_pattern_precision_recall": not flow["pattern_problems"]
             and flow["not_fired"] == [],
-            "flow_locator_validity": not flow["locator_problems"]
-            and not flow["network_problems"],
+            "flow_locator_validity": not flow["locator_problems"] and not flow["network_problems"],
             "flow_no_direction_claim": flow["direction_absence_ok"]
             and not flow["network_problems"],
             "flow_invalid_amount_rejected": flow["invalid_amount_ok"]
@@ -1885,14 +1797,9 @@ class Phase4EvalRunner:
                     "live_flow_aggregates_match_golden": not flow_live.get(
                         "aggregates_match_golden"
                     ),
-                    "live_flow_db_recompute_exact": flow_live.get("db_recompute_exact")
-                    is True,
-                    "live_flow_locator_validity": not flow_live.get(
-                        "fact_locator_problems"
-                    ),
-                    "live_flow_patterns_match_golden": not flow_live.get(
-                        "pattern_problems"
-                    )
+                    "live_flow_db_recompute_exact": flow_live.get("db_recompute_exact") is True,
+                    "live_flow_locator_validity": not flow_live.get("fact_locator_problems"),
+                    "live_flow_patterns_match_golden": not flow_live.get("pattern_problems")
                     and flow_live.get("not_fired_match") is True
                     and flow_live.get("not_evaluable_match") is True
                     and flow_live.get("rule_count_match") is True,
@@ -1905,12 +1812,9 @@ class Phase4EvalRunner:
                         and trace.get("confirmed_transfer_edges") == 0
                         and trace.get("transfer_status") == "insufficient_data"
                     ),
-                    "live_flow_trace_not_found_bogus": trace.get("unknown_status")
-                    == "not_found",
+                    "live_flow_trace_not_found_bogus": trace.get("unknown_status") == "not_found",
                     "live_flow_no_direction": flow_live.get("no_direction_claim") is True,
-                    "live_flow_no_victim_fabrication": flow_live.get(
-                        "no_victim_fabrication"
-                    )
+                    "live_flow_no_victim_fabrication": flow_live.get("no_victim_fabrication")
                     is True,
                     "live_flow_status_separation_documented": flow_live.get(
                         "status_separation_documented"
@@ -1920,18 +1824,14 @@ class Phase4EvalRunner:
                     "live_flow_cancel_branch_recorded": cancel.get("branch")
                     in ("accepted", "refused"),
                     "live_flow_cancel_zero_artifacts": (
-                        cancel.get("branch") != "accepted"
-                        or cancel.get("zero_artifacts") is True
+                        cancel.get("branch") != "accepted" or cancel.get("zero_artifacts") is True
                     ),
                     "live_flow_cancel_rerun_succeeded": (
                         cancel.get("branch") != "accepted"
                         or cancel.get("rerun_status") == "succeeded"
                     ),
-                    "live_crosscase_job_succeeded": cross_live.get("job_status")
-                    == "succeeded",
-                    "live_crosscase_candidates_exact": cross_live.get(
-                        "candidate_keys_match"
-                    )
+                    "live_crosscase_job_succeeded": cross_live.get("job_status") == "succeeded",
+                    "live_crosscase_candidates_exact": cross_live.get("candidate_keys_match")
                     is True
                     and cross_live.get("classifications_match") is True
                     and cross_live.get("sides_are_xy") is True,
@@ -1945,13 +1845,9 @@ class Phase4EvalRunner:
                         and cross_live.get("scope_denied", {}).get("code")
                         == "CROSS_CASE_SCOPE_DENIED"
                     ),
-                    "live_crosscase_admin_sees_z_side": cross_live.get(
-                        "admin_sees_z_side"
-                    )
-                    is True,
+                    "live_crosscase_admin_sees_z_side": cross_live.get("admin_sees_z_side") is True,
                     "live_crosscase_hidden_artifact_explain_404": (
-                        cross_live.get("hidden_artifact_explain", {}).get("status_code")
-                        == 404
+                        cross_live.get("hidden_artifact_explain", {}).get("status_code") == 404
                     ),
                     "live_crosscase_anon_401": (
                         cross_live.get("anon", {}).get("discover_status") == 401
@@ -1971,30 +1867,21 @@ class Phase4EvalRunner:
                         == 403
                         # Missing case: 404 (documented 404-missing /
                         # 403-IDOR split).
-                        and cross_live.get("viewer", {}).get(
-                            "artifacts_on_missing_case_status"
-                        )
+                        and cross_live.get("viewer", {}).get("artifacts_on_missing_case_status")
                         == 404
                     ),
                     "live_crosscase_name_only_approve_refused": (
-                        cross_live.get("approval", {})
-                        .get("name_only_refusal", {})
-                        .get("attempted")
+                        cross_live.get("approval", {}).get("name_only_refusal", {}).get("attempted")
                         is True
                         and cross_live.get("approval", {})
                         .get("name_only_refusal", {})
                         .get("status_code")
                         == 409
-                        and cross_live.get("approval", {})
-                        .get("name_only_refusal", {})
-                        .get("code")
+                        and cross_live.get("approval", {}).get("name_only_refusal", {}).get("code")
                         == "ARTIFACT_NOT_REVIEWABLE"
                     ),
                     "live_crosscase_generic_list_omits_crosscase": (
-                        cross_live.get("approval", {}).get(
-                            "generic_list_omits_crosscase"
-                        )
-                        is True
+                        cross_live.get("approval", {}).get("generic_list_omits_crosscase") is True
                     ),
                     "live_crosscase_approval_recorded": all(
                         (cross_live.get("approval") or {}).get(key) is True
@@ -2024,20 +1911,14 @@ class Phase4EvalRunner:
                 from app.models import AIConversation, AuditLog, Case, CaseMember
 
                 async with factory() as session:
-                    await session.execute(
-                        sa_delete(AuditLog).where(AuditLog.case_id == case_uuid)
-                    )
+                    await session.execute(sa_delete(AuditLog).where(AuditLog.case_id == case_uuid))
                     await session.execute(
                         sa_delete(CaseMember).where(CaseMember.case_id == case_uuid)
                     )
                     await session.execute(
-                        sa_delete(AIConversation).where(
-                            AIConversation.case_id == case_uuid
-                        )
+                        sa_delete(AIConversation).where(AIConversation.case_id == case_uuid)
                     )
-                    await session.execute(
-                        sa_delete(Case).where(Case.id == case_uuid)
-                    )
+                    await session.execute(sa_delete(Case).where(Case.id == case_uuid))
                     await session.commit()
                 outcome[f"{label}_case_deleted"] = True
             except Exception as exc:  # noqa: BLE001 - cleanup is best-effort

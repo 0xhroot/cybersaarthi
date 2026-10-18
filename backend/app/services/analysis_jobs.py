@@ -50,9 +50,7 @@ def transition(job: AnalysisJob, to_status: str, *, now: datetime | None = None)
     """Move *job* to *to_status* or raise. Terminal states are final."""
     allowed = ALLOWED_TRANSITIONS.get(job.status, frozenset())
     if to_status not in allowed:
-        raise InvalidJobTransition(
-            f"cannot move analysis job from {job.status!r} to {to_status!r}"
-        )
+        raise InvalidJobTransition(f"cannot move analysis job from {job.status!r} to {to_status!r}")
     stamp = now or datetime.now(UTC)
     if to_status == "running":
         if job.started_at is None:
@@ -269,12 +267,8 @@ async def submit_case_feature_job(
     from sqlalchemy.exc import IntegrityError
 
     active = await _active_case_job(session, case_id, feature)
-    if active is not None and not _clear_stale_case_job(
-        active, timeout_seconds=timeout_seconds
-    ):
-        raise FeatureJobActive(
-            active_code, f"a {feature} job is already running for this case"
-        )
+    if active is not None and not _clear_stale_case_job(active, timeout_seconds=timeout_seconds):
+        raise FeatureJobActive(active_code, f"a {feature} job is already running for this case")
     if active is not None:
         await session.flush()
 

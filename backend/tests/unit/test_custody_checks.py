@@ -76,9 +76,7 @@ def test_fixture_set_covers_rules_and_severities() -> None:
         "custody.duplicate_event",
     } <= rules
     severities = {
-        severity
-        for case in cases
-        for severity in case["expect"].get("severities", {}).values()
+        severity for case in cases for severity in case["expect"].get("severities", {}).values()
     }
     assert severities == {"critical", "warning", "info"}
     positives = [case for case in cases if case["category"] == "positive"]

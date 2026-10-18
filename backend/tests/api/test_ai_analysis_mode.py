@@ -304,9 +304,7 @@ async def test_analysis_flags_a_metric_for_an_unknown_entity(
 ) -> None:
     prefix = get_settings().API_V1_PREFIX
     ghost_entity = str(uuid.uuid4())
-    _stub_chat(
-        ai_service, monkeypatch, [f"Score: metric:degree@{ghost_entity} = 1.0"]
-    )
+    _stub_chat(ai_service, monkeypatch, [f"Score: metric:degree@{ghost_entity} = 1.0"])
 
     resp = await http_client.post(
         f"{prefix}/ai/chat",
@@ -373,10 +371,7 @@ async def test_stream_done_carries_the_citation_check(
 ) -> None:
     prefix = get_settings().API_V1_PREFIX
     entity_id = await _seed_entity_with_metric(database, _owned_case)
-    answer = (
-        f"Cited {_owned_case} and {entity_id}. "
-        f"metric:degree@{entity_id} = 4.0"
-    )
+    answer = f"Cited {_owned_case} and {entity_id}. metric:degree@{entity_id} = 4.0"
     _stub_chat(ai_service, monkeypatch, [answer])
 
     events = []
@@ -388,7 +383,7 @@ async def test_stream_done_carries_the_citation_check(
         assert resp.status_code == 200
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     done = events[-1]
     assert done["type"] == "done"
@@ -401,9 +396,7 @@ async def test_stream_done_carries_the_citation_check(
 # -- hygiene ----------------------------------------------------------------
 
 
-async def test_seeded_rows_cascade_with_their_case(
-    database: Database, api_user: ApiUser
-) -> None:
+async def test_seeded_rows_cascade_with_their_case(database: Database, api_user: ApiUser) -> None:
     """The metric/entity seeds above must not outlive their case."""
     case_id = uuid.uuid4()
     factory = database.session_factory()
@@ -444,9 +437,7 @@ async def test_seeded_rows_cascade_with_their_case(
         await session.commit()
         remaining = (
             await session.execute(
-                select(func.count(MetricResult.id)).where(
-                    MetricResult.case_id == str(case_id)
-                )
+                select(func.count(MetricResult.id)).where(MetricResult.case_id == str(case_id))
             )
         ).scalar_one()
         assert remaining == 0  # ON DELETE CASCADE removed the metric row

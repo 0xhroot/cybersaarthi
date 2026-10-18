@@ -45,7 +45,9 @@ def test_tool_list_for_prompt_formats() -> None:
 
 async def test_unknown_tool_returns_error_result() -> None:
     result = await execute_tool(
-        _FakeCtx(), "delete_everything", {"case_id": "x"}  # type: ignore[arg-type]
+        _FakeCtx(),
+        "delete_everything",
+        {"case_id": "x"},  # type: ignore[arg-type]
     )
     assert isinstance(result, ToolExecutionResult)
     assert result.ok is False

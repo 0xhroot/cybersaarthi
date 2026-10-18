@@ -139,9 +139,7 @@ async def _active_extraction_job(
     return result.scalars().first()
 
 
-async def _attempt_count(
-    session: AsyncSession, case_id: uuid.UUID, evidence_id: uuid.UUID
-) -> int:
+async def _attempt_count(session: AsyncSession, case_id: uuid.UUID, evidence_id: uuid.UUID) -> int:
     result = await session.execute(
         select(func.count())
         .select_from(AnalysisJob)
@@ -220,8 +218,7 @@ async def submit_extraction(
         except UploadValidationError as exc:
             raise ExtractionRejected(
                 CODE_UNSUPPORTED_FORMAT,
-                "evidence format is not supported for extraction "
-                "(supported: csv, json, txt, pdf)",
+                "evidence format is not supported for extraction (supported: csv, json, txt, pdf)",
             ) from exc
     elif evidence.format not in SUPPORTED_FORMAT_VALUES:
         raise ExtractionRejected(
@@ -461,9 +458,7 @@ async def execute_extraction(
         )
         return
     if job.cancel_requested:
-        await _stop_job(
-            session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id
-        )
+        await _stop_job(session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id)
         return
 
     # Stage 2: load evidence (deleted between submit and run -> explicit fail).
@@ -545,8 +540,12 @@ async def execute_extraction(
             stop = jobs_svc.should_stop(job)
             if stop is not None:
                 await _stop_job(
-                    session, job, stop=stop, summary=summary,
-                    case_id=case_id, actor_id=actor_id,
+                    session,
+                    job,
+                    stop=stop,
+                    summary=summary,
+                    case_id=case_id,
+                    actor_id=actor_id,
                 )
                 return
             if not await still_authorized_for_case(
@@ -632,9 +631,7 @@ async def execute_extraction(
         # writes (attribute access on the expired proxy would lazy-load IO in
         # a sync context and raise MissingGreenlet).
         await session.refresh(job)
-        await _fail_job(
-            session, job, code=exc.code, error=str(exc), summary=summary, stage=stage
-        )
+        await _fail_job(session, job, code=exc.code, error=str(exc), summary=summary, stage=stage)
     except Exception:
         logger.exception("extraction job crashed", extra={"job_id": str(job.id)})
         await session.rollback()

@@ -60,9 +60,7 @@ async def _verify(client: httpx.AsyncClient, case_id: uuid.UUID, evidence_id: uu
     )
 
 
-async def _recorded_artifacts(
-    client: httpx.AsyncClient, case_id: uuid.UUID
-) -> list[dict]:
+async def _recorded_artifacts(client: httpx.AsyncClient, case_id: uuid.UUID) -> list[dict]:
     response = await client.get(
         f"{PREFIX}/cases/{case_id}/evidence-intelligence/artifacts?kind=custody_finding"
     )
@@ -94,9 +92,7 @@ async def test_verify_match_records_deterministic_fact_not_a_review_queue(
     assert body["file_size_bytes"] == len(LOG_TEXT.encode())
 
     artifacts = await _recorded_artifacts(http_client, _owned_case)
-    verification = [
-        a for a in artifacts if (a["payload"] or {}).get("type") == "hash_verification"
-    ]
+    verification = [a for a in artifacts if (a["payload"] or {}).get("type") == "hash_verification"]
     assert len(verification) == 1
     fact = verification[0]
     assert fact["status"] == "recorded"  # a fact, never queued for approval
@@ -107,13 +103,17 @@ async def test_verify_match_records_deterministic_fact_not_a_review_queue(
     factory = database.session_factory()
     async with factory() as session:
         audit = (
-            await session.execute(
-                select(AuditLog).where(
-                    AuditLog.action == "integrity.verified",
-                    AuditLog.resource_id == str(evidence_id),
+            (
+                await session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "integrity.verified",
+                        AuditLog.resource_id == str(evidence_id),
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
     assert audit is not None
     assert audit.metadata_["status"] == "match"
 
@@ -131,9 +131,7 @@ async def test_verify_mismatch_when_object_bytes_change(
         assert evidence is not None
         key = evidence.stored_key
     # Simulated storage-level tampering; the evidence row keeps its hash.
-    await asyncio.to_thread(
-        storage.upload, key, b"contents swapped after upload", "text/plain"
-    )
+    await asyncio.to_thread(storage.upload, key, b"contents swapped after upload", "text/plain")
     try:
         response = await _verify(http_client, _owned_case, evidence_id)
     finally:
@@ -178,9 +176,7 @@ async def test_verify_missing_source_is_inconclusive_never_a_pass(
     assert body["file_size_bytes"] is None
 
     artifacts = await _recorded_artifacts(http_client, _owned_case)
-    fact = next(
-        a for a in artifacts if (a["payload"] or {}).get("type") == "hash_verification"
-    )
+    fact = next(a for a in artifacts if (a["payload"] or {}).get("type") == "hash_verification")
     assert fact["payload"]["status"] == "missing_source"
     assert fact["payload"]["calculated_sha256"] is None
 
@@ -276,13 +272,17 @@ async def test_custody_event_policy_validation_and_chronology(
     factory = database.session_factory()
     async with factory() as session:
         audit = (
-            await session.execute(
-                select(AuditLog).where(
-                    AuditLog.action == "custody.event_recorded",
-                    AuditLog.resource_id == str(evidence_id),
+            (
+                await session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "custody.event_recorded",
+                        AuditLog.resource_id == str(evidence_id),
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
     assert audit is not None
     assert audit.metadata_["event_type"] == "collected"
 
@@ -318,9 +318,7 @@ async def test_custody_event_permission_and_case_boundaries(
         base_url="http://testserver",
         headers={"Authorization": f"Bearer {stranger.token}"},
     ) as client:
-        blocked = await client.get(
-            f"{PREFIX}/cases/{_owned_case}/evidence/{evidence_id}/custody"
-        )
+        blocked = await client.get(f"{PREFIX}/cases/{_owned_case}/evidence/{evidence_id}/custody")
         post_blocked = await client.post(
             events_url,
             json={"event_type": "collected", "occurred_at": await _past_iso()},
@@ -575,8 +573,7 @@ async def test_explain_records_narration_without_certifying_anything(
     artifacts = await _recorded_artifacts(http_client, _owned_case)
     finding = artifacts[0]
     response = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/"
-        f"{finding['id']}/explain"
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{finding['id']}/explain"
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -609,13 +606,17 @@ async def test_explain_records_narration_without_certifying_anything(
     factory = database.session_factory()
     async with factory() as session:
         logged = (
-            await session.execute(
-                select(AuditLog).where(
-                    AuditLog.action == "custody.explanation_generated",
-                    AuditLog.resource_id == str(explanation["id"]),
+            (
+                await session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "custody.explanation_generated",
+                        AuditLog.resource_id == str(explanation["id"]),
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
     assert logged is not None
 
 
@@ -637,8 +638,7 @@ async def test_explain_refuses_non_findings_and_disabled_ai(
     assert wrong_kind.json()["error"]["code"] == CODE_ARTIFACT_KIND_UNSUPPORTED
 
     unknown = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/"
-        f"{uuid.uuid4()}/explain"
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{uuid.uuid4()}/explain"
     )
     assert unknown.status_code == 404
     assert unknown.json()["error"]["code"] == CODE_ARTIFACT_NOT_FOUND
@@ -657,8 +657,7 @@ async def test_explain_refuses_non_findings_and_disabled_ai(
 
     monkeypatch.setattr(get_settings(), "AI_FEATURE_INTEGRITY_EXPLAIN", False)
     disabled = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/"
-        f"{finding['id']}/explain"
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/artifacts/{finding['id']}/explain"
     )
     assert disabled.status_code == 403
     assert disabled.json()["error"]["code"] == CODE_AI_DISABLED

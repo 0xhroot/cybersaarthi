@@ -465,16 +465,15 @@ async def _explain_custody(
         metadata={"for_artifact_id": str(artifact.id), "rule": rule},
     )
     await session.commit()
-    return ExplainResponse(
-        explanation_artifact=_artifact_out(explanation), text=text, rule=rule
-    )
+    return ExplainResponse(explanation_artifact=_artifact_out(explanation), text=text, rule=rule)
 
 
 def _invalid_explanation(outcome: explanation_svc.ExplanationOutcome) -> ApiHTTPException:
     """A dropped explanation, surfaced honestly (never stored, never asserted)."""
-    detail = "; ".join(
-        f"{issue.get('code', '?')}@{issue.get('field', '?')}" for issue in outcome.issues
-    ) or "schema validation failed"
+    detail = (
+        "; ".join(f"{issue.get('code', '?')}@{issue.get('field', '?')}" for issue in outcome.issues)
+        or "schema validation failed"
+    )
     return ApiHTTPException(
         422,
         CODE_AI_EXPLANATION_INVALID,
@@ -499,9 +498,7 @@ async def _explain_financial(
 ) -> ExplainResponse:
     """Financial-flow narration (Phase 4 A): citation + number validated."""
     if not settings.AI_FEATURE_FLOW_EXPLAIN:
-        raise ApiHTTPException(
-            403, CODE_AI_DISABLED, "AI financial-flow explanations are disabled"
-        )
+        raise ApiHTTPException(403, CODE_AI_DISABLED, "AI financial-flow explanations are disabled")
     outcome = await explanation_svc.explain_financial_artifact(
         session, artifact=artifact, ai=ai, actor_id=user.id
     )
@@ -539,9 +536,7 @@ async def _explain_cross_case(
 ) -> ExplainResponse:
     """Cross-case narration (Phase 4 B): scope-rechecked, provenance validated."""
     if not settings.AI_FEATURE_CROSSCASE_EXPLAIN:
-        raise ApiHTTPException(
-            403, CODE_AI_DISABLED, "AI cross-case explanations are disabled"
-        )
+        raise ApiHTTPException(403, CODE_AI_DISABLED, "AI cross-case explanations are disabled")
     if not rbac.has_permission(roles, rbac.PERM_CROSSCASE_READ):
         raise ApiHTTPException(
             403, CODE_INSUFFICIENT_PERMISSION, f"permission '{rbac.PERM_CROSSCASE_READ}' required"

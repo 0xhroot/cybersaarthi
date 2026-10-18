@@ -174,9 +174,7 @@ async def test_create_job_validates_feature_before_touching_the_db() -> None:
 async def test_create_job_rejects_bad_idempotency_keys() -> None:
     session = cast(AsyncSession, object())
     with pytest.raises(ValueError):
-        await create_job(
-            session, case_id=uuid.uuid4(), feature="ingestion", idempotency_key=""
-        )
+        await create_job(session, case_id=uuid.uuid4(), feature="ingestion", idempotency_key="")
     with pytest.raises(ValueError):
         await create_job(
             session, case_id=uuid.uuid4(), feature="ingestion", idempotency_key="x" * 129

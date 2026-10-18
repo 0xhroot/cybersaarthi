@@ -57,10 +57,7 @@ def test_missing_required_key_is_a_schema_error_not_a_partial_result() -> None:
     result = parse_structured(json.dumps(truncated), EvidenceExtractionSchema)
     assert result.data is None
     assert result.status == "invalid"
-    assert any(
-        issue.field == "events" and issue.code == "schema_error"
-        for issue in result.issues
-    )
+    assert any(issue.field == "events" and issue.code == "schema_error" for issue in result.issues)
 
 
 def test_unknown_field_rejects_the_whole_reply() -> None:

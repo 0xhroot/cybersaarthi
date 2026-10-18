@@ -112,9 +112,7 @@ STATUS_KEYWORDS: dict[str, frozenset[str]] = {
     "pending": frozenset(
         {"pending", "processing", "in_progress", "initiated", "queued", "authorized"}
     ),
-    "rejected": frozenset(
-        {"rejected", "failed", "declined", "denied", "returned", "dishonoured"}
-    ),
+    "rejected": frozenset({"rejected", "failed", "declined", "denied", "returned", "dishonoured"}),
     "reversed": frozenset(
         {"reversed", "reversal", "refund", "refunded", "chargeback", "cancelled", "canceled"}
     ),
@@ -694,8 +692,16 @@ def build_structure_network(
 
     edge_ids: dict[tuple[str, str], dict[str, Any]] = {}
 
-    def add_edge(a: str, b: str, *, edge_kind: str, derivation: str, record_id: str | None,
-                 relationship_type: str | None = None, confidence: float | None = None) -> None:
+    def add_edge(
+        a: str,
+        b: str,
+        *,
+        edge_kind: str,
+        derivation: str,
+        record_id: str | None,
+        relationship_type: str | None = None,
+        confidence: float | None = None,
+    ) -> None:
         if a == b:
             return
         key = (a, b) if a < b else (b, a)
@@ -739,13 +745,23 @@ def build_structure_network(
         if fact.account_normalized and len(present) > 1:
             hub = present[0]
             for other in present[1:]:
-                add_edge(hub, other, edge_kind="association", derivation="account_star",
-                         record_id=fact.source_record_id)
+                add_edge(
+                    hub,
+                    other,
+                    edge_kind="association",
+                    derivation="account_star",
+                    record_id=fact.source_record_id,
+                )
         else:
             for i, left in enumerate(present):
                 for right in present[i + 1 :]:
-                    add_edge(left, right, edge_kind="association", derivation="co_occurrence",
-                             record_id=fact.source_record_id)
+                    add_edge(
+                        left,
+                        right,
+                        edge_kind="association",
+                        derivation="co_occurrence",
+                        record_id=fact.source_record_id,
+                    )
 
     for edge in owns_edges:
         src_kind = "person" if edge["source_type"] == "person" else edge["source_type"]
@@ -1171,8 +1187,7 @@ TRACE_LIMITATIONS: tuple[str, ...] = (
     "every hop is an association (documented co-occurrence) or a recorded "
     "relationship, never a confirmed transfer, so a trace answers what else is "
     "documented about an account — not where money went",
-    "no ingested record carries a transaction timestamp, so a trace has no time "
-    "dimension",
+    "no ingested record carries a transaction timestamp, so a trace has no time dimension",
     "a path ending dead_end means the trail stops there in the ingested "
     "evidence; no destination beyond it is ever guessed",
 )
@@ -1507,9 +1522,7 @@ async def execute_financial_flow(
         )
         return
     if job.cancel_requested:
-        await _stop_job(
-            session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id
-        )
+        await _stop_job(session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id)
         return
 
     jobs_svc.transition(job, "running")
@@ -1571,9 +1584,7 @@ async def execute_financial_flow(
         facts, warnings = extract_facts(rows)
         summary["facts_extracted"] = len(facts)
         summary["facts_transaction"] = sum(1 for f in facts if f.fact_class == "transaction")
-        summary["facts_account_reference"] = (
-            len(facts) - summary["facts_transaction"]
-        )
+        summary["facts_account_reference"] = len(facts) - summary["facts_transaction"]
         victim_financials = extract_victim_financials(victims)
         if await check_stop():
             return

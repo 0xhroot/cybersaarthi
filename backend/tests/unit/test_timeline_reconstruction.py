@@ -51,9 +51,7 @@ def test_fixture_set_exercises_every_outcome() -> None:
     assert any(not c["expect"]["parseable"] for c in parse_cases)
     assert any(c["expect"].get("tz_assumed") for c in parse_cases if c["expect"]["parseable"])
     assert any(
-        c["expect"].get("granularity") == "date"
-        for c in parse_cases
-        if c["expect"]["parseable"]
+        c["expect"].get("granularity") == "date" for c in parse_cases if c["expect"]["parseable"]
     )
     assert any(c["expect"].get("tz") for c in parse_cases if c["expect"]["parseable"])
 

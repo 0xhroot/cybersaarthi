@@ -24,7 +24,7 @@ def _case(case_id: uuid.UUID) -> Case:
 
 def test_parse_tool_call_valid(service: AIService) -> None:
     answer = (
-        'Sure.\n```tool_call\n'
+        "Sure.\n```tool_call\n"
         '{"tool": "list_evidence", "arguments": {"case_id": "abc", "limit": 5}}\n'
         "```"
     )
@@ -43,7 +43,7 @@ def test_parse_tool_call_invalid_json(service: AIService) -> None:
 
 
 def test_parse_tool_call_not_a_dict(service: AIService) -> None:
-    assert service._parse_tool_call('```tool_call\n[1, 2]\n```') is None
+    assert service._parse_tool_call("```tool_call\n[1, 2]\n```") is None
 
 
 def test_parse_tool_call_missing_tool_key(service: AIService) -> None:
@@ -51,9 +51,7 @@ def test_parse_tool_call_missing_tool_key(service: AIService) -> None:
 
 
 def test_parse_tool_call_non_dict_arguments(service: AIService) -> None:
-    assert (
-        service._parse_tool_call('```tool_call\n{"tool": "x", "arguments": [1]}\n```') is None
-    )
+    assert service._parse_tool_call('```tool_call\n{"tool": "x", "arguments": [1]}\n```') is None
 
 
 def test_parse_tool_call_empty_answer(service: AIService) -> None:
@@ -265,9 +263,7 @@ def test_history_is_left_intact_when_it_already_fits(service: AIService) -> None
         {"role": "user", "content": "short q"},
         {"role": "assistant", "content": "short a"},
     ]
-    trimmed = service._clamp_history_to_budget(
-        "SYSTEM", "", "q", list(history), max_tokens=160
-    )
+    trimmed = service._clamp_history_to_budget("SYSTEM", "", "q", list(history), max_tokens=160)
     assert trimmed == history
 
 
@@ -310,9 +306,7 @@ async def test_closing_the_sse_generator_cancels_the_producer(
     monkeypatch.setattr(service, "ensure_ready", noop)
     monkeypatch.setattr(service, "check_rate_limit", noop)
 
-    request = Request(
-        {"type": "http", "method": "POST", "path": "/ai/chat/stream", "headers": []}
-    )
+    request = Request({"type": "http", "method": "POST", "path": "/ai/chat/stream", "headers": []})
     user = SimpleNamespace(id=uuid.uuid4())
 
     gen = service.ask_stream(request, None, user, question="hi")  # type: ignore[arg-type]

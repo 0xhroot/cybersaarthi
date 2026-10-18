@@ -95,9 +95,7 @@ def _norm(value: Any) -> str:
 class EvidenceEvalRunner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.api = httpx.AsyncClient(
-            base_url=args.api_base, timeout=REQUEST_TIMEOUT_SECONDS
-        )
+        self.api = httpx.AsyncClient(base_url=args.api_base, timeout=REQUEST_TIMEOUT_SECONDS)
         self.token: str | None = None
         self.settings = get_settings()
         self.database = Database(self.settings)
@@ -181,9 +179,7 @@ class EvidenceEvalRunner:
             )
             assert submitted.status_code == 202, submitted.text
             started = time.monotonic()
-            job = await self._poll_job(
-                submitted.json()["job"]["id"], feature="ingestion"
-            )
+            job = await self._poll_job(submitted.json()["job"]["id"], feature="ingestion")
             job_latency_ms = int((time.monotonic() - started) * 1000)
 
             artifacts = [
@@ -237,9 +233,7 @@ class EvidenceEvalRunner:
                             locator_violations.append(
                                 {"artifact": artifact["id"], "reason": "record_no mismatch"}
                             )
-                        if not unsupported and not value_matches_source(
-                            values, list(raw.values())
-                        ):
+                        if not unsupported and not value_matches_source(values, list(raw.values())):
                             locator_violations.append(
                                 {
                                     "artifact": artifact["id"],
@@ -295,11 +289,7 @@ class EvidenceEvalRunner:
             ),
             "unsupported_claim_rate": (
                 f"{totals['fields_unsupported']}/{claimed}"
-                + (
-                    f" ({totals['fields_unsupported'] / claimed:.0%})"
-                    if claimed
-                    else ""
-                )
+                + (f" ({totals['fields_unsupported'] / claimed:.0%})" if claimed else "")
             ),
             "schema_invalid_artifacts": totals["schema_invalid_artifacts"],
             "locator_violations": totals["locator_violations"],
@@ -358,9 +348,7 @@ class EvidenceEvalRunner:
         import asyncio as aio
 
         original = text.encode()
-        await aio.to_thread(
-            self.storage.upload, key, b"swapped by the eval harness", "text/plain"
-        )
+        await aio.to_thread(self.storage.upload, key, b"swapped by the eval harness", "text/plain")
         try:
             tampered = await verify()
             states.append(
@@ -389,9 +377,7 @@ class EvidenceEvalRunner:
         finally:
             await aio.to_thread(self.storage.upload, key, original, "text/plain")
         correct = sum(
-            1
-            for s in states
-            if s["actual"] == s["expected"] and s["harness_hash_matches"]
+            1 for s in states if s["actual"] == s["expected"] and s["harness_hash_matches"]
         )
         return {"n_states": len(states), "correct": correct, "states": states}
 
@@ -490,9 +476,7 @@ class EvidenceEvalRunner:
             self.storage.close()
 
         ingestion_ok = self.report["ingestion"]["locator_violations"] == 0
-        integrity_ok = (
-            self.report["integrity"]["correct"] == self.report["integrity"]["n_states"]
-        )
+        integrity_ok = self.report["integrity"]["correct"] == self.report["integrity"]["n_states"]
         custody_ok = (
             self.report["custody"]["gap_rules"] == ["custody.unacknowledged_transfer"]
             and self.report["custody"]["clean_findings"] == 0
@@ -535,12 +519,8 @@ class EvidenceEvalRunner:
 
             factory = self.database.session_factory()
             async with factory() as session:
-                await session.execute(
-                    sa_delete(AuditLog).where(AuditLog.case_id == case_uuid)
-                )
-                await session.execute(
-                    sa_delete(CaseMember).where(CaseMember.case_id == case_uuid)
-                )
+                await session.execute(sa_delete(AuditLog).where(AuditLog.case_id == case_uuid))
+                await session.execute(sa_delete(CaseMember).where(CaseMember.case_id == case_uuid))
                 await session.execute(
                     sa_delete(AIConversation).where(AIConversation.case_id == case_uuid)
                 )

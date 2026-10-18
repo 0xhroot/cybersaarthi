@@ -64,9 +64,7 @@ async def _seed_person(database: Database, case_id: uuid.UUID, name: str) -> uui
 
 async def _graph_node(graph_store, entity_id: uuid.UUID) -> dict | None:
     async with graph_store.driver().session() as session:
-        result = await session.run(
-            "MATCH (n:Entity {id: $eid}) RETURN n", eid=str(entity_id)
-        )
+        result = await session.run("MATCH (n:Entity {id: $eid}) RETURN n", eid=str(entity_id))
         record = await result.single()
         return dict(record["n"]) if record else None
 
@@ -95,9 +93,7 @@ async def _audit_row(
         return rows.scalars().first()
 
 
-async def _artifacts(
-    database: Database, case_id: uuid.UUID, *, kind: str
-) -> list[DerivedArtifact]:
+async def _artifacts(database: Database, case_id: uuid.UUID, *, kind: str) -> list[DerivedArtifact]:
     factory = database.session_factory()
     async with factory() as session:
         rows = await session.execute(
@@ -147,9 +143,7 @@ async def test_full_case_sync_projects_aliases_onto_nodes(
     service = GraphSyncService(graph_store, settings)
     factory = database.session_factory()
     async with factory() as session:
-        synced = await service.sync_entities_by_id(
-            session, [str(entity_a), str(entity_b)]
-        )
+        synced = await service.sync_entities_by_id(session, [str(entity_a), str(entity_b)])
     assert synced == 2
 
     node_a = await _graph_node(graph_store, entity_a)

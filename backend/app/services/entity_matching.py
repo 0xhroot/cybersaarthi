@@ -77,16 +77,12 @@ MAX_PAYLOAD_SOURCE_RECORDS = 20
 
 VALIDATION_MESSAGES: dict[str, str] = {
     "no_identifier_evidence": (
-        "no shared identifier or alias; name or context similarity alone "
-        "never proves identity"
+        "no shared identifier or alias; name or context similarity alone never proves identity"
     ),
     "conflicting_identifiers": (
-        "the two entities carry disjoint identifier signals alongside the "
-        "matching evidence"
+        "the two entities carry disjoint identifier signals alongside the matching evidence"
     ),
-    "ai_unverified": (
-        "an LLM verdict is included; it is unverified and cannot certify identity"
-    ),
+    "ai_unverified": ("an LLM verdict is included; it is unverified and cannot certify identity"),
 }
 
 
@@ -185,9 +181,7 @@ def build_entity_facts(entity: Entity, source_record_ids: Sequence[str] = ()) ->
     )
 
 
-def _identifier_signals(
-    entity: EntityFacts, identifier_map: Mapping[str, str]
-) -> tuple[str, ...]:
+def _identifier_signals(entity: EntityFacts, identifier_map: Mapping[str, str]) -> tuple[str, ...]:
     """Context signals that resolve (by deterministic normalization) to an
     identifier entity of this case: co-mentions of phones/accounts/vehicles/
     documents, never values invented here."""
@@ -242,9 +236,7 @@ def build_candidate_pairs(
             normalized = normalize_value(entity.entity_type, raw)
             if not normalized.is_valid:
                 continue
-            exact_index.setdefault((entity.entity_type, normalized.canonical), set()).add(
-                entity.id
-            )
+            exact_index.setdefault((entity.entity_type, normalized.canonical), set()).add(entity.id)
 
     # Probe 2: blocking buckets.
     buckets: dict[tuple[str, str], list[str]] = {}
@@ -334,16 +326,10 @@ def build_candidate_pairs(
                 }
             )
         if shared_identifiers:
-            matching.append(
-                {"field": "shared_identifier", "detail": list(shared_identifiers)}
-            )
+            matching.append({"field": "shared_identifier", "detail": list(shared_identifiers)})
         if name_similarity >= review_threshold:
-            matching.append(
-                {"field": "name_variant", "detail": {"similarity": name_similarity}}
-            )
-        shared_records = sorted(
-            set(entity_a.source_record_ids) & set(entity_b.source_record_ids)
-        )
+            matching.append({"field": "name_variant", "detail": {"similarity": name_similarity}})
+        shared_records = sorted(set(entity_a.source_record_ids) & set(entity_b.source_record_ids))
         if shared_records:
             matching.append({"field": "shared_source_record", "detail": len(shared_records)})
 
@@ -362,9 +348,9 @@ def build_candidate_pairs(
         if conflicting and from_exact:
             codes.append("conflicting_identifiers")
 
-        union = sorted(
-            set(entity_a.source_record_ids) | set(entity_b.source_record_ids)
-        )[:MAX_PAYLOAD_SOURCE_RECORDS]
+        union = sorted(set(entity_a.source_record_ids) | set(entity_b.source_record_ids))[
+            :MAX_PAYLOAD_SOURCE_RECORDS
+        ]
         proposed.append(
             CandidatePair(
                 entity_a=entity_a,
@@ -381,9 +367,7 @@ def build_candidate_pairs(
                 union_source_record_ids=tuple(union),
                 validation_codes=tuple(codes),
                 llm_eligible=(
-                    not from_exact
-                    and not shared_identifiers
-                    and score_band == "ambiguous"
+                    not from_exact and not shared_identifiers and score_band == "ambiguous"
                 ),
             )
         )
@@ -578,9 +562,7 @@ async def _load_entity_facts(
     for entity_id, record_id in link_rows.all():
         link_map.setdefault(str(entity_id), []).append(str(record_id))
 
-    facts = [
-        build_entity_facts(entity, link_map.get(str(entity.id), ())) for entity in entities
-    ]
+    facts = [build_entity_facts(entity, link_map.get(str(entity.id), ())) for entity in entities]
     aliases = {entity_id: tuple(sorted(set(values))) for entity_id, values in alias_map.items()}
     return facts, aliases, bounded
 
@@ -606,9 +588,7 @@ async def execute_entity_resolution(
     actor_id = uuid.UUID(str(job.actor_id)) if job.actor_id else None
 
     if actor_id is None:
-        await _fail_job(
-            session, job, code="RESOLUTION_FAILED", error="job has no actor reference"
-        )
+        await _fail_job(session, job, code="RESOLUTION_FAILED", error="job has no actor reference")
         return
     if not await still_authorized_for_case(
         session, user_id=actor_id, case_id=case_id, permission=rbac.PERM_CASE_READ
@@ -622,9 +602,7 @@ async def execute_entity_resolution(
         )
         return
     if job.cancel_requested:
-        await _stop_job(
-            session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id
-        )
+        await _stop_job(session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id)
         return
 
     jobs_svc.transition(job, "running")
@@ -673,8 +651,12 @@ async def execute_entity_resolution(
             stop = jobs_svc.should_stop(job)
             if stop is not None:
                 await _stop_job(
-                    session, job, stop=stop, summary=summary,
-                    case_id=case_id, actor_id=actor_id,
+                    session,
+                    job,
+                    stop=stop,
+                    summary=summary,
+                    case_id=case_id,
+                    actor_id=actor_id,
                 )
                 return
             if not await still_authorized_for_case(

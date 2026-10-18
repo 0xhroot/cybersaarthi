@@ -62,9 +62,7 @@ def _live_settings() -> Settings:
             "AI_SERVER_API_KEY not available (set it in the environment or "
             "repository-root .env; see docs/ai/LOCAL_MODEL_SETUP.md)"
         )
-    return settings.model_copy(
-        update={"AI_SERVER_API_KEY": key, "AI_MANAGE_SERVER": False}
-    )
+    return settings.model_copy(update={"AI_SERVER_API_KEY": key, "AI_MANAGE_SERVER": False})
 
 
 async def _server_reachable(settings: Settings) -> bool:
@@ -180,9 +178,7 @@ async def live_env(
     await service.stop()
     async with factory() as session:
         await session.execute(delete(AIMessage).where(AIMessage.case_id == case_id))
-        await session.execute(
-            delete(AIConversation).where(AIConversation.case_id == case_id)
-        )
+        await session.execute(delete(AIConversation).where(AIConversation.case_id == case_id))
         await session.execute(delete(CaseMember).where(CaseMember.case_id == case_id))
         await session.execute(delete(Case).where(Case.id == case_id))
         for user_id in created:
@@ -250,7 +246,7 @@ async def test_real_stream_emits_tokens_then_done(live_env) -> None:
             assert resp.status_code == 200
             async for line in resp.aiter_lines():
                 if line.startswith("data: "):
-                    events.append(json.loads(line[len("data: "):]))
+                    events.append(json.loads(line[len("data: ") :]))
     types = [e["type"] for e in events]
     assert "token" in types, f"expected real token events, got {types}"
     assert types[-1] == "done", f"stream must end with done, got {types}"
@@ -296,9 +292,7 @@ async def test_real_foreign_conversation_is_404(live_env) -> None:
     assert rename.status_code == 404
 
 
-async def test_real_owner_messages_are_stored_on_their_thread(
-    live_env, database: Database
-) -> None:
+async def test_real_owner_messages_are_stored_on_their_thread(live_env, database: Database) -> None:
     """Persistence: the owner's thread holds both user and assistant messages."""
     prefix = live_env["prefix"]
     async with _client(live_env["owner_token"]) as client:
@@ -313,8 +307,10 @@ async def test_real_owner_messages_are_stored_on_their_thread(
     factory = database.session_factory()
     async with factory() as session:
         rows = (
-            await session.execute(select(AIMessage).where(AIMessage.conversation_id == conv_id))
-        ).scalars().all()
+            (await session.execute(select(AIMessage).where(AIMessage.conversation_id == conv_id)))
+            .scalars()
+            .all()
+        )
     assert len(rows) >= 2, "user + assistant messages must be persisted"
     assert {row.role for row in rows} == {"user", "assistant"}
 

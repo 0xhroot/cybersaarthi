@@ -48,9 +48,7 @@ def _assert_legal_relationship_types(payload: list[RelationshipPayload]) -> None
             raise ValueError(f"illegal relationship type for graph sync: {label!r}")
 
 
-async def load_alias_map(
-    session: AsyncSession, entity_ids: list[str]
-) -> dict[str, list[str]]:
+async def load_alias_map(session: AsyncSession, entity_ids: list[str]) -> dict[str, list[str]]:
     """Batch-load alias values (one query) so projections carry identity
     context — including Phase 3 reviewed ``resolution`` aliases."""
     if not entity_ids:

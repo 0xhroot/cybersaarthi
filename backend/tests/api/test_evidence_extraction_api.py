@@ -126,12 +126,10 @@ async def test_extract_submit_schedules_job_and_records_reviewable_artifacts(
     assert artifact["payload"]["record_no"] == 1
     assert artifact["payload"]["fields"]["person_names"] == ["Asha Verma"]
 
-    assert await _audit_action(
-        database, action="extraction.submitted", resource_id=job_id
-    ) is not None
-    completed = await _audit_action(
-        database, action="extraction.completed", resource_id=job_id
+    assert (
+        await _audit_action(database, action="extraction.submitted", resource_id=job_id) is not None
     )
+    completed = await _audit_action(database, action="extraction.completed", resource_id=job_id)
     assert completed is not None
     assert completed.metadata_["status"] == "succeeded"
     # Audit metadata is counts-only: no extracted content ever leaks into it.
@@ -373,9 +371,7 @@ async def test_extraction_artifact_review_with_edit_is_a_new_superseding_artifac
     async with factory() as session:
         original = await session.get(DerivedArtifact, uuid.UUID(artifact["id"]))
         child_rows = await session.execute(
-            select(DerivedArtifact).where(
-                DerivedArtifact.parent_artifact_id == str(artifact["id"])
-            )
+            select(DerivedArtifact).where(DerivedArtifact.parent_artifact_id == str(artifact["id"]))
         )
         child = child_rows.scalars().first()
     assert original is not None

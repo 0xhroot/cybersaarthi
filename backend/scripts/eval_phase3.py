@@ -133,9 +133,7 @@ def _load(path: Path) -> dict[str, Any]:
 class Phase3EvalRunner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.api = httpx.AsyncClient(
-            base_url=args.api_base, timeout=REQUEST_TIMEOUT_SECONDS
-        )
+        self.api = httpx.AsyncClient(base_url=args.api_base, timeout=REQUEST_TIMEOUT_SECONDS)
         self.token: str | None = None
         self.settings = get_settings()
         self.database = Database(self.settings)
@@ -186,11 +184,7 @@ class Phase3EvalRunner:
             )
             key = frozenset(case["pair"])
             match = next(
-                (
-                    p
-                    for p in pairs
-                    if frozenset((p.entity_a.id, p.entity_b.id)) == key
-                ),
+                (p for p in pairs if frozenset((p.entity_a.id, p.entity_b.id)) == key),
                 None,
             )
             expect = case["expect"]
@@ -212,9 +206,9 @@ class Phase3EvalRunner:
                     attrs_match = False
                 if "score_band" in expect and match.score_band != expect["score_band"]:
                     attrs_match = False
-                if "validation_codes" in expect and sorted(
-                    match.validation_codes
-                ) != sorted(expect["validation_codes"]):
+                if "validation_codes" in expect and sorted(match.validation_codes) != sorted(
+                    expect["validation_codes"]
+                ):
                     attrs_match = False
                 if attrs_match:
                     attr_ok += 1
@@ -280,9 +274,7 @@ class Phase3EvalRunner:
                             "id": case["id"],
                             "value": case["value"],
                             "got_utc": (
-                                parsed.occurred_at.isoformat()
-                                if parsed.occurred_at
-                                else None
+                                parsed.occurred_at.isoformat() if parsed.occurred_at else None
                             ),
                             "expected_utc": expect["utc"],
                             "got_tz": parsed.tz,
@@ -415,9 +407,7 @@ class Phase3EvalRunner:
             cat_fp += len(got_set - want_set)
             cat_fn += len(want_set - got_set)
 
-            is_entity_anchor = any(
-                "account_no" in r["raw_data"] for r in case["records"]
-            )
+            is_entity_anchor = any("account_no" in r["raw_data"] for r in case["records"])
             false_positive_here = bool(got_set - want_set)
             if is_entity_anchor and false_positive_here:
                 entity_anchor_fp += 1
@@ -444,8 +434,7 @@ class Phase3EvalRunner:
             if "missing_any" in expect:
                 needle = expect["missing_any"]
                 missing_ok = any(
-                    any(needle in m for m in conflict.missing)
-                    for conflict, _, _ in conflicts
+                    any(needle in m for m in conflict.missing) for conflict, _, _ in conflicts
                 )
             count_ok: bool | None = None
             if "conflict_count" in expect:
@@ -682,14 +671,9 @@ class Phase3EvalRunner:
             return {"proposals": 0, "note": "no timeline proposal generated"}
 
         granularities = sorted(
-            {
-                str((a.get("payload") or {}).get("time_granularity"))
-                for a in proposals
-            }
+            {str((a.get("payload") or {}).get("time_granularity")) for a in proposals}
         )
-        ambiguous = sum(
-            1 for a in proposals if (a.get("payload") or {}).get("tz_assumed")
-        )
+        ambiguous = sum(1 for a in proposals if (a.get("payload") or {}).get("tz_assumed"))
 
         # Locator validity: re-read each cited source record and confirm the
         # cited field is genuinely present.
@@ -772,9 +756,7 @@ class Phase3EvalRunner:
         self, artifacts: list[dict[str, Any]], expect: dict[str, Any]
     ) -> dict[str, Any]:
         candidates = [
-            a
-            for a in artifacts
-            if (a.get("payload") or {}).get("type") == "contradiction"
+            a for a in artifacts if (a.get("payload") or {}).get("type") == "contradiction"
         ]
         if not candidates:
             return {"candidates": 0, "note": "no contradiction candidate generated"}
@@ -811,12 +793,8 @@ class Phase3EvalRunner:
             headers=self._headers(),
         )
         after.raise_for_status()
-        still_present = any(
-            a["id"] == candidate["id"] for a in after.json()["items"]
-        )
-        after_row = next(
-            (a for a in after.json()["items"] if a["id"] == candidate["id"]), None
-        )
+        still_present = any(a["id"] == candidate["id"] for a in after.json()["items"])
+        after_row = next((a for a in after.json()["items"] if a["id"] == candidate["id"]), None)
         candidate_unrewritten = (
             after_row is not None and after_row.get("content_hash") == before_hash
         )
@@ -972,9 +950,7 @@ class Phase3EvalRunner:
             "timeline_zero_invented_timestamps": timeline["invented_timestamps"] == 0,
             "timeline_timestamps_correct": timeline["timestamp_correctness"].endswith("(100%)"),
             "timeline_locators_valid": not timeline["locator_violations"],
-            "timeline_record_cases_correct": timeline["record_case_correctness"].endswith(
-                "(100%)"
-            ),
+            "timeline_record_cases_correct": timeline["record_case_correctness"].endswith("(100%)"),
             "contradiction_classifier_exact": contra["classifier_accuracy"].endswith("(100%)"),
             "contradiction_not_vacuous": contra["category_recall"] != "n/a"
             and not contra["category_recall"].startswith("0/"),
@@ -989,8 +965,7 @@ class Phase3EvalRunner:
             gates["live_resolution_no_merge"] = (
                 resolution.get("entities_unmerged_after_approval") is True
                 and resolution.get("entities_still_active_after_approval") is True
-                and resolution.get("aliases_added")
-                == resolution.get("expected_aliases")
+                and resolution.get("aliases_added") == resolution.get("expected_aliases")
             )
             reconstruction = live.get("reconstruction", {})
             gates["live_reconstruction_locators_valid"] = not reconstruction.get(
@@ -1021,12 +996,8 @@ class Phase3EvalRunner:
 
             factory = self.database.session_factory()
             async with factory() as session:
-                await session.execute(
-                    sa_delete(AuditLog).where(AuditLog.case_id == case_uuid)
-                )
-                await session.execute(
-                    sa_delete(CaseMember).where(CaseMember.case_id == case_uuid)
-                )
+                await session.execute(sa_delete(AuditLog).where(AuditLog.case_id == case_uuid))
+                await session.execute(sa_delete(CaseMember).where(CaseMember.case_id == case_uuid))
                 await session.execute(
                     sa_delete(AIConversation).where(AIConversation.case_id == case_uuid)
                 )

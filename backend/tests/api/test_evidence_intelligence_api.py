@@ -88,9 +88,7 @@ async def test_artifacts_require_authentication(_owned_case: uuid.UUID) -> None:
     _wire_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        resp = await client.get(
-            f"/api/v1/cases/{_owned_case}/evidence-intelligence/artifacts"
-        )
+        resp = await client.get(f"/api/v1/cases/{_owned_case}/evidence-intelligence/artifacts")
     assert resp.status_code == 401
 
 
@@ -143,9 +141,7 @@ async def test_non_member_gets_403_on_stranger_case(
     _stranger_case: uuid.UUID,
 ) -> None:
     await _seed_artifact(database, _stranger_case)
-    resp = await http_client.get(
-        f"/api/v1/cases/{_stranger_case}/evidence-intelligence/artifacts"
-    )
+    resp = await http_client.get(f"/api/v1/cases/{_stranger_case}/evidence-intelligence/artifacts")
     assert resp.status_code == 403
 
 
@@ -178,9 +174,7 @@ async def test_non_member_gets_403_on_stranger_jobs(
     http_client: httpx.AsyncClient,
     _stranger_case: uuid.UUID,
 ) -> None:
-    resp = await http_client.get(
-        f"/api/v1/cases/{_stranger_case}/evidence-intelligence/jobs"
-    )
+    resp = await http_client.get(f"/api/v1/cases/{_stranger_case}/evidence-intelligence/jobs")
     assert resp.status_code == 403
 
 

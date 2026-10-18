@@ -101,8 +101,7 @@ def test_fixture_set_exercises_every_decision_class() -> None:
     assert any(c["expect"].get("llm_eligible") for c in proposed)
     assert any(not c["expect"].get("llm_eligible") for c in proposed)
     assert any(
-        "no_identifier_evidence" in c["expect"].get("validation_codes", [])
-        for c in proposed
+        "no_identifier_evidence" in c["expect"].get("validation_codes", []) for c in proposed
     )
     assert any(c["expect"].get("validation_codes") == [] for c in proposed)
 
@@ -114,11 +113,7 @@ def test_every_fixture_case_produces_expected_decision() -> None:
         pairs, _counts = _run(entities, aliases)
         pair_key = frozenset(case["pair"])
         match = next(
-            (
-                pair
-                for pair in pairs
-                if frozenset((pair.entity_a.id, pair.entity_b.id)) == pair_key
-            ),
+            (pair for pair in pairs if frozenset((pair.entity_a.id, pair.entity_b.id)) == pair_key),
             None,
         )
         expect = case["expect"]
@@ -135,9 +130,9 @@ def test_every_fixture_case_produces_expected_decision() -> None:
             assert match.score == expect["score"], case["id"]
         if "score_band" in expect:
             assert match.score_band == expect["score_band"], case["id"]
-        assert sorted(match.validation_codes) == sorted(
-            expect.get("validation_codes", [])
-        ), case["id"]
+        assert sorted(match.validation_codes) == sorted(expect.get("validation_codes", [])), case[
+            "id"
+        ]
         assert match.llm_eligible == expect.get("llm_eligible", False), case["id"]
 
 

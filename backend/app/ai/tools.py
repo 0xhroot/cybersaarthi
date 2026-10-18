@@ -151,9 +151,7 @@ async def _lookup_case(ctx: ToolContext, arguments: dict[str, Any]) -> _CaseLook
             "another user or tenant)",
         )
     if resolution.status == "ambiguous":
-        options = "; ".join(
-            f"{c.case_number} — {c.title}" for c in resolution.candidates[:8]
-        )
+        options = "; ".join(f"{c.case_number} — {c.title}" for c in resolution.candidates[:8])
         return _CaseLookup(
             None,
             CASE_AMBIGUOUS,
@@ -282,8 +280,12 @@ async def tool_get_entity(ctx: ToolContext, arguments: dict[str, Any]) -> ToolEx
         "case_id": entity.case_id,
     }
     sources = [
-        SourceRef(type="entity", id=str(entity.id), label=entity.display_value[:80],
-                  url=f"/cases/{entity.case_id}/entities")
+        SourceRef(
+            type="entity",
+            id=str(entity.id),
+            label=entity.display_value[:80],
+            url=f"/cases/{entity.case_id}/entities",
+        )
     ]
     return _ok("get_entity", payload, sources, status=CASE_FOUND_WITH_DATA)
 
@@ -320,9 +322,7 @@ async def tool_get_analytics_summary(
     )
 
 
-async def tool_rank_entities(
-    ctx: ToolContext, arguments: dict[str, Any]
-) -> ToolExecutionResult:
+async def tool_rank_entities(ctx: ToolContext, arguments: dict[str, Any]) -> ToolExecutionResult:
     """Authoritative top-N entity ranking — deterministic, case-scoped.
 
     The model must call this instead of eyeballing the entities digest for
@@ -340,9 +340,7 @@ async def tool_rank_entities(
     except (TypeError, ValueError):
         return _err("rank_entities", "top_n must be an integer", status=LOOKUP_ERROR)
     try:
-        record = await ranking.rank_entities(
-            ctx.session, str(case.id), metric=metric, top_n=top_n
-        )
+        record = await ranking.rank_entities(ctx.session, str(case.id), metric=metric, top_n=top_n)
     except ranking.UnsupportedMetricError as exc:
         return _err("rank_entities", str(exc))
 
@@ -419,9 +417,7 @@ TOOLS: dict[str, ToolSpec] = {
                     "query": {"type": "string", "description": "keywords or case number"},
                     "case_id": {
                         "type": "string",
-                        "description": (
-                            "optional: a case UUID, case number, or exact case name"
-                        ),
+                        "description": ("optional: a case UUID, case number, or exact case name"),
                     },
                 },
             },
@@ -493,8 +489,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             name="get_analytics_summary",
             description=(
-                "Fetch analytics metrics and relationship statistics for one "
-                "authorized case."
+                "Fetch analytics metrics and relationship statistics for one authorized case."
             ),
             parameters={
                 "type": "object",
@@ -541,8 +536,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec(
             name="search_knowledge",
             description=(
-                "Keyword-search the approved CyberSaarthi documentation "
-                "(how-to, architecture)."
+                "Keyword-search the approved CyberSaarthi documentation (how-to, architecture)."
             ),
             parameters={
                 "type": "object",

@@ -186,9 +186,7 @@ async def _seed_evidence_records(
         return evidence_id
 
 
-async def _artifacts(
-    database: Database, case_id: uuid.UUID, *, kind: str
-) -> list[DerivedArtifact]:
+async def _artifacts(database: Database, case_id: uuid.UUID, *, kind: str) -> list[DerivedArtifact]:
     factory = database.session_factory()
     async with factory() as session:
         rows = await session.execute(
@@ -468,9 +466,7 @@ def test_structure_network_types_edges_and_never_asserts_a_transfer() -> None:
 
 
 def test_structure_network_is_bounded() -> None:
-    records = [
-        _rec({"account_no": f"ACC-{i}", "bank_name": f"Bank {i}"}, i) for i in range(1, 21)
-    ]
+    records = [_rec({"account_no": f"ACC-{i}", "bank_name": f"Bank {i}"}, i) for i in range(1, 21)]
     facts, _ = extract_facts(records)
     network = build_structure_network(facts, [], max_edges=5)
     assert network["edges_total"] <= 5
@@ -795,9 +791,7 @@ async def test_runner_denies_when_case_access_was_revoked(
     member = await user_factory(role="INVESTIGATOR")
     factory = database.session_factory()
     async with factory() as session:
-        session.add(
-            CaseMember(case_id=_owned_case, user_id=member.id, role="collaborator")
-        )
+        session.add(CaseMember(case_id=_owned_case, user_id=member.id, role="collaborator"))
         await session.commit()
     await _seed_evidence_records(database, _owned_case, FLOW_RECORDS, label="revoked")
     job_id = await _seed_pending_job(database, _owned_case, actor_id=member.id)
@@ -1090,9 +1084,7 @@ async def test_trace_is_read_only_and_permission_scoped(
     viewer = await user_factory(role="VIEWER")
     factory = database.session_factory()
     async with factory() as session:
-        session.add(
-            CaseMember(case_id=_owned_case, user_id=viewer.id, role="collaborator")
-        )
+        session.add(CaseMember(case_id=_owned_case, user_id=viewer.id, role="collaborator"))
         await session.commit()
     async with _client(viewer.token) as client:
         allowed = await _trace(client, _owned_case, {"target": "ACC-SIH-001"})

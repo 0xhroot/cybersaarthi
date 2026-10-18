@@ -313,9 +313,7 @@ class IngestionService:
         try:
             entities = await self._list_entities(case_id)
             relationships = await self._list_relationships(case_id)
-            aliases = await load_alias_map(
-                self._session, [str(entity.id) for entity in entities]
-            )
+            aliases = await load_alias_map(self._session, [str(entity.id) for entity in entities])
             nodes, edges = await self._graph_sync.sync_case(
                 case_id=case_id,
                 entities=entities,

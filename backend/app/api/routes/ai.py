@@ -131,9 +131,7 @@ async def rename_conversation(
 ) -> Any:
     """Rename an owned conversation (404 for foreign or unknown ids)."""
     service = _service(request)
-    conversation = await service.rename_conversation(
-        session, user, conversation_id, payload.title
-    )
+    conversation = await service.rename_conversation(session, user, conversation_id, payload.title)
     await session.commit()
     return AiConversationOut.model_validate(conversation)
 
@@ -207,9 +205,7 @@ async def chat(
             if outcome.citation_check is not None
             else None
         ),
-        hypothesis_drafts=[
-            AiHypothesisDraftOut(**draft) for draft in outcome.hypothesis_drafts
-        ],
+        hypothesis_drafts=[AiHypothesisDraftOut(**draft) for draft in outcome.hypothesis_drafts],
         hypothesis_draft_errors=outcome.hypothesis_draft_errors,
     )
 

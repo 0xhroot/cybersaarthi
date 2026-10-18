@@ -98,19 +98,63 @@ PRIORITY: dict[str, str] = {
 }
 
 AMOUNT_NAME_HINTS = (
-    "amount", "amt", "value", "price", "total", "sum", "balance", "debit",
-    "credit", "paid", "received", "fee", "charge", "tax",
+    "amount",
+    "amt",
+    "value",
+    "price",
+    "total",
+    "sum",
+    "balance",
+    "debit",
+    "credit",
+    "paid",
+    "received",
+    "fee",
+    "charge",
+    "tax",
 )
 CURRENCY_NAME_HINTS = ("currency", "ccy", "curr")
 STATUS_NAME_HINTS = ("status", "state", "result", "outcome", "decision", "disposition", "stage")
 IDENTIFIER_NAME_HINTS = (
-    "txn", "transaction", "reference", "ref_no", "refno", "rrn", "utr", "order",
-    "invoice", "check", "cheque", "account", "a_c", "iban", "ifsc", "swift",
-    "phone", "mobile", "email", "id", "serial", "imei",
+    "txn",
+    "transaction",
+    "reference",
+    "ref_no",
+    "refno",
+    "rrn",
+    "utr",
+    "order",
+    "invoice",
+    "check",
+    "cheque",
+    "account",
+    "a_c",
+    "iban",
+    "ifsc",
+    "swift",
+    "phone",
+    "mobile",
+    "email",
+    "id",
+    "serial",
+    "imei",
 )
 TXN_SCOPE_HINTS = (
-    "txn", "transaction", "payment", "order", "invoice", "transfer", "upi",
-    "ref", "rrn", "utr", "cheque", "check", "imps", "neft", "rtgs",
+    "txn",
+    "transaction",
+    "payment",
+    "order",
+    "invoice",
+    "transfer",
+    "upi",
+    "ref",
+    "rrn",
+    "utr",
+    "cheque",
+    "check",
+    "imps",
+    "neft",
+    "rtgs",
 )
 
 ISO_CURRENCIES = frozenset(
@@ -196,9 +240,7 @@ def classify_field(name: str, value: Any) -> str | None:
         text = str(value)
 
     upper = text.upper()
-    if upper in ISO_CURRENCIES and (
-        len(text) == 3 or _hint_match(CURRENCY_NAME_HINTS, norm)
-    ):
+    if upper in ISO_CURRENCIES and (len(text) == 3 or _hint_match(CURRENCY_NAME_HINTS, norm)):
         return "currency"
     decimal_value = as_decimal(value)
     if decimal_value is not None and (
@@ -241,9 +283,7 @@ def record_claims(record: RecordFacts) -> list[Claim]:
             granularity = parsed.granularity if parsed else None
         else:
             text = str(value).strip()
-            compared = (
-                _identifier_norm(text) if cls == "identifier" else normalize_text(text)
-            )
+            compared = _identifier_norm(text) if cls == "identifier" else normalize_text(text)
             granularity = None
         if compared is None:
             continue
@@ -630,9 +670,7 @@ def semantic_pairs(
     for statement in statements:
         by_record.setdefault(statement.record_id, []).append(statement)
     claims_by_record = {
-        record.id: record_claims(record)
-        for record in records
-        if record.id in by_record
+        record.id: record_claims(record) for record in records if record.id in by_record
     }
     index = identifier_index(claims_by_record)
 
@@ -782,9 +820,7 @@ async def resolve_contradiction(
         )
     parent = await artifacts_svc.get_artifact(session, case_id, artifact_id)
     if parent is None:
-        raise ContradictionRejected(
-            CODE_ARTIFACT_NOT_FOUND, f"artifact {artifact_id} not found"
-        )
+        raise ContradictionRejected(CODE_ARTIFACT_NOT_FOUND, f"artifact {artifact_id} not found")
     if parent.kind != "contradiction" or (parent.payload or {}).get("type") != "contradiction":
         raise ContradictionRejected(
             CODE_ARTIFACT_KIND_UNSUPPORTED, "artifact is not a contradiction candidate"
@@ -911,9 +947,7 @@ async def execute_contradiction_detection(
         )
         return
     if job.cancel_requested:
-        await _stop_job(
-            session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id
-        )
+        await _stop_job(session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id)
         return
 
     jobs_svc.transition(job, "running")
@@ -935,9 +969,7 @@ async def execute_contradiction_detection(
     }
     stage = "load"
     try:
-        records, bounded = await _load_records(
-            session, case_id, settings.CONTRADICTION_MAX_RECORDS
-        )
+        records, bounded = await _load_records(session, case_id, settings.CONTRADICTION_MAX_RECORDS)
         summary["records_scanned"] = len(records)
         summary["records_bounded"] = bounded
 
@@ -964,8 +996,12 @@ async def execute_contradiction_detection(
             stop = jobs_svc.should_stop(job)
             if stop is not None:
                 await _stop_job(
-                    session, job, stop=stop, summary=summary,
-                    case_id=case_id, actor_id=actor_id,
+                    session,
+                    job,
+                    stop=stop,
+                    summary=summary,
+                    case_id=case_id,
+                    actor_id=actor_id,
                 )
                 return
             if not await still_authorized_for_case(

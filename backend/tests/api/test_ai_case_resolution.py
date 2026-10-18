@@ -84,16 +84,41 @@ async def cases(database: Database, api_user: ApiUser, user_factory):
     async with factory() as session:
         session.add_all(
             [
-                Case(id=ids["with_data"], case_number=nums["with_data"],
-                     title="Alpha phishing ring", status="open", owner_id=api_user.id),
-                Case(id=ids["empty"], case_number=nums["empty"],
-                     title="Beta empty shell", status="open", owner_id=api_user.id),
-                Case(id=ids["stranger"], case_number=nums["stranger"],
-                     title="Gamma foreign operation", status="open", owner_id=stranger.id),
-                Case(id=ids["amb1"], case_number=nums["amb1"],
-                     title="Duplicate Title Case", status="open", owner_id=api_user.id),
-                Case(id=ids["amb2"], case_number=nums["amb2"],
-                     title="Duplicate Title Case", status="open", owner_id=api_user.id),
+                Case(
+                    id=ids["with_data"],
+                    case_number=nums["with_data"],
+                    title="Alpha phishing ring",
+                    status="open",
+                    owner_id=api_user.id,
+                ),
+                Case(
+                    id=ids["empty"],
+                    case_number=nums["empty"],
+                    title="Beta empty shell",
+                    status="open",
+                    owner_id=api_user.id,
+                ),
+                Case(
+                    id=ids["stranger"],
+                    case_number=nums["stranger"],
+                    title="Gamma foreign operation",
+                    status="open",
+                    owner_id=stranger.id,
+                ),
+                Case(
+                    id=ids["amb1"],
+                    case_number=nums["amb1"],
+                    title="Duplicate Title Case",
+                    status="open",
+                    owner_id=api_user.id,
+                ),
+                Case(
+                    id=ids["amb2"],
+                    case_number=nums["amb2"],
+                    title="Duplicate Title Case",
+                    status="open",
+                    owner_id=api_user.id,
+                ),
             ]
         )
         for i in range(2):
@@ -151,9 +176,7 @@ async def test_resolves_owned_case_by_exact_name(database, api_user, cases):
     ctx, session = await _tool_ctx(database, api_user.id)
     try:
         # "Beta empty shell" is unique and the case has no records.
-        result = await execute_tool(
-            ctx, "get_case_summary", {"case_id": "Beta empty shell"}
-        )
+        result = await execute_tool(ctx, "get_case_summary", {"case_id": "Beta empty shell"})
     finally:
         await session.close()
     assert result.ok is True, result.error
@@ -163,9 +186,7 @@ async def test_resolves_owned_case_by_exact_name(database, api_user, cases):
 async def test_ambiguous_name_returns_candidates_not_a_guess(database, api_user, cases):
     ctx, session = await _tool_ctx(database, api_user.id)
     try:
-        result = await execute_tool(
-            ctx, "get_case_summary", {"case_id": "Duplicate Title Case"}
-        )
+        result = await execute_tool(ctx, "get_case_summary", {"case_id": "Duplicate Title Case"})
     finally:
         await session.close()
     # Ambiguity is surfaced as an actionable, structured outcome — never a
@@ -181,9 +202,7 @@ async def test_ambiguous_name_returns_candidates_not_a_guess(database, api_user,
 async def test_case_with_evidence_returns_evidence_sources(database, api_user, cases):
     ctx, session = await _tool_ctx(database, api_user.id)
     try:
-        result = await execute_tool(
-            ctx, "list_evidence", {"case_id": cases["nums"]["with_data"]}
-        )
+        result = await execute_tool(ctx, "list_evidence", {"case_id": cases["nums"]["with_data"]})
     finally:
         await session.close()
     assert result.ok is True
@@ -199,12 +218,8 @@ async def test_case_with_evidence_returns_evidence_sources(database, api_user, c
 async def test_empty_case_is_distinct_from_missing_case(database, api_user, cases):
     ctx, session = await _tool_ctx(database, api_user.id)
     try:
-        empty = await execute_tool(
-            ctx, "get_case_summary", {"case_id": cases["nums"]["empty"]}
-        )
-        missing = await execute_tool(
-            ctx, "get_case_summary", {"case_id": str(uuid.uuid4())}
-        )
+        empty = await execute_tool(ctx, "get_case_summary", {"case_id": cases["nums"]["empty"]})
+        missing = await execute_tool(ctx, "get_case_summary", {"case_id": str(uuid.uuid4())})
     finally:
         await session.close()
     assert empty.ok is True
@@ -220,9 +235,9 @@ async def test_empty_case_is_distinct_from_missing_case(database, api_user, case
 async def test_stranger_case_is_never_disclosed(database, api_user, cases):
     stranger_case = str(cases["ids"]["stranger"])
     for reference in (
-        stranger_case,                                   # by UUID
-        cases["nums"]["stranger"],                        # by case number
-        "Gamma foreign operation",                        # by name
+        stranger_case,  # by UUID
+        cases["nums"]["stranger"],  # by case number
+        "Gamma foreign operation",  # by name
     ):
         ctx, session = await _tool_ctx(database, api_user.id)
         try:
@@ -240,9 +255,7 @@ async def test_stranger_case_is_never_disclosed(database, api_user, cases):
 async def test_stranger_case_search_returns_no_match(database, api_user, cases):
     ctx, session = await _tool_ctx(database, api_user.id)
     try:
-        result = await execute_tool(
-            ctx, "search_cases", {"case_id": cases["nums"]["stranger"]}
-        )
+        result = await execute_tool(ctx, "search_cases", {"case_id": cases["nums"]["stranger"]})
     finally:
         await session.close()
     assert result.status == CASE_NOT_FOUND_OR_NOT_ACCESSIBLE
@@ -260,9 +273,7 @@ async def test_search_cases_honours_case_id_alias(database, api_user, cases):
         by_case_id = await execute_tool(
             ctx, "search_cases", {"case_id": cases["nums"]["with_data"]}
         )
-        by_query = await execute_tool(
-            ctx, "search_cases", {"query": cases["nums"]["with_data"]}
-        )
+        by_query = await execute_tool(ctx, "search_cases", {"query": cases["nums"]["with_data"]})
     finally:
         await session.close()
     assert by_case_id.status == CASE_FOUND_WITH_DATA
@@ -348,8 +359,7 @@ async def test_general_chat_summarizes_by_number_end_to_end(
 
     number = cases["nums"]["with_data"]
     tool_call = (
-        f'```tool_call\n{{"tool": "get_case_summary", '
-        f'"arguments": {{"case_id": "{number}"}}}}\n```'
+        f'```tool_call\n{{"tool": "get_case_summary", "arguments": {{"case_id": "{number}"}}}}\n```'
     )
     _stub_chat(ai_service, monkeypatch, [tool_call, f"Summarizing case {number}."])
 
@@ -375,8 +385,7 @@ async def test_general_chat_reports_missing_case_honestly(
 
     bogus = f"NOSUCH-{uuid.uuid4().hex[:8]}"
     tool_call = (
-        f'```tool_call\n{{"tool": "get_case_summary", '
-        f'"arguments": {{"case_id": "{bogus}"}}}}\n```'
+        f'```tool_call\n{{"tool": "get_case_summary", "arguments": {{"case_id": "{bogus}"}}}}\n```'
     )
     _stub_chat(ai_service, monkeypatch, [tool_call, "No such case to my knowledge."])
 

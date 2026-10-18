@@ -99,9 +99,7 @@ async def star_case(database: Database):
     [a, b, c, d] = await _add_entities(database, cid, ["Hub", "LeafB", "LeafC", "LeafD"])
     # Bidirectional edges: an "associated_with" relation links both endpoints,
     # so the graph is undirected. This matters for PageRank — see the sink test.
-    await _add_relationships(
-        database, cid, [(a, b), (b, a), (a, c), (c, a), (a, d), (d, a)]
-    )
+    await _add_relationships(database, cid, [(a, b), (b, a), (a, c), (c, a), (a, d), (d, a)])
     yield cid
     await _cleanup(database, cid)
 
@@ -122,9 +120,7 @@ async def test_correct_top_entity(database: Database, star_case: uuid.UUID) -> N
     assert top["entity_id"]  # a real id the citation layer can resolve
 
 
-async def test_top_n_ordering_is_descending(
-    database: Database, star_case: uuid.UUID
-) -> None:
+async def test_top_n_ordering_is_descending(database: Database, star_case: uuid.UUID) -> None:
     factory = database.session_factory()
     async with factory() as session:
         record = await rank_entities(session, str(star_case), metric="relationship_count", top_n=3)
@@ -150,9 +146,7 @@ async def test_ties_break_deterministically_by_id(
     assert len({r["rank"] for r in first["results"]}) == 3
 
 
-async def test_empty_dataset_returns_no_results(
-    database: Database, empty_case: uuid.UUID
-) -> None:
+async def test_empty_dataset_returns_no_results(database: Database, empty_case: uuid.UUID) -> None:
     factory = database.session_factory()
     async with factory() as session:
         record = await rank_entities(session, str(empty_case), metric="relationship_count")
@@ -180,9 +174,7 @@ async def test_unauthorized_case_id_has_no_data(database: Database) -> None:
     assert record["results"] == []
 
 
-async def test_non_active_entities_are_excluded(
-    database: Database, empty_case: uuid.UUID
-) -> None:
+async def test_non_active_entities_are_excluded(database: Database, empty_case: uuid.UUID) -> None:
     ids = await _add_entities(database, empty_case, ["Keep", "Merged"])
     await _add_relationships(database, empty_case, [(ids[0], ids[1])])
     factory = database.session_factory()
@@ -212,9 +204,7 @@ async def test_pagerank_metric_returns_ranked_scores(
     assert all(s > 0 for s in scores)
 
 
-async def test_result_is_stable_across_calls(
-    database: Database, star_case: uuid.UUID
-) -> None:
+async def test_result_is_stable_across_calls(database: Database, star_case: uuid.UUID) -> None:
     factory = database.session_factory()
     async with factory() as session:
         a = await rank_entities(session, str(star_case), metric="relationship_count")
@@ -231,9 +221,7 @@ async def test_pagerank_on_directed_sink_is_not_a_degree_proxy(
     accident. relationship_count is the correct metric for 'most connected'."""
     ids = await _add_entities(database, empty_case, ["Hub", "Sink1", "Sink2"])
     # Hub -> each sink, one direction only (no return edges).
-    await _add_relationships(
-        database, empty_case, [(ids[0], ids[1]), (ids[0], ids[2])]
-    )
+    await _add_relationships(database, empty_case, [(ids[0], ids[1]), (ids[0], ids[2])])
     factory = database.session_factory()
     async with factory() as session:
         pr = await rank_entities(session, str(empty_case), metric="pagerank")
@@ -252,9 +240,7 @@ async def test_distinct_neighbors_dedupes_bidirectional_rows(
     true neighbours — this is the metric to use for 'most connected'."""
     factory = database.session_factory()
     async with factory() as session:
-        rec = await rank_entities(
-            session, str(star_case), metric="distinct_neighbors", top_n=4
-        )
+        rec = await rank_entities(session, str(star_case), metric="distinct_neighbors", top_n=4)
     by_label = {r["label"]: r["value"] for r in rec["results"]}
     # Hub touches 3 distinct neighbours; each leaf touches only the hub.
     assert by_label["Hub"] == 3.0

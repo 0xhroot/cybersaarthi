@@ -75,7 +75,7 @@ def test_malformed_output_is_rejected() -> None:
 def test_json_array_is_not_an_extraction() -> None:
     result = parse_structured('[{"person_name": "Rahul Patil"}]', SampleExtraction)
     assert result.status == "invalid"
-    assert parse_json_object('[1, 2]') is None
+    assert parse_json_object("[1, 2]") is None
 
 
 def test_unknown_field_rejects_output() -> None:
@@ -91,10 +91,7 @@ def test_unknown_field_rejects_output() -> None:
 
 
 def test_schema_type_error_rejects_output() -> None:
-    raw = (
-        '{"person_name": "Rahul Patil", "amount": {"value": 1000}, '
-        '"txn_date": "2026-03-15"}'
-    )
+    raw = '{"person_name": "Rahul Patil", "amount": {"value": 1000}, "txn_date": "2026-03-15"}'
     result = parse_structured(raw, SampleExtraction)
     assert result.status == "invalid"
     assert result.data is None

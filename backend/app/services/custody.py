@@ -318,11 +318,7 @@ def evaluate_custody(snapshot: CustodySnapshot) -> tuple[CustodyIssue, ...]:
     # -- policy party fields ---------------------------------------------------
     for event in events:
         required = CUSTODY_REQUIRED_FIELDS.get(event.event_type, ())
-        absent = tuple(
-            name
-            for name in required
-            if not str(getattr(event, name) or "").strip()
-        )
+        absent = tuple(name for name in required if not str(getattr(event, name) or "").strip())
         if absent:
             issues.append(
                 _issue(

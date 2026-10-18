@@ -61,9 +61,9 @@ def test_every_fixture_case_produces_expected_status_and_codes() -> None:
             result = type(result)(result.data, result.issues + source_issues)
 
         assert result.status == case["expect"]["status"], case["id"]
-        assert sorted(issue.code for issue in result.issues) == sorted(
-            case["expect"]["codes"]
-        ), case["id"]
+        assert sorted(issue.code for issue in result.issues) == sorted(case["expect"]["codes"]), (
+            case["id"]
+        )
         # Every flagged/invalid case must carry at least one machine-readable code.
         if result.status != "valid":
             assert result.issues, case["id"]

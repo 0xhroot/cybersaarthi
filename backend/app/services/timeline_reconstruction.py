@@ -229,8 +229,8 @@ def parse_timestamp(value: Any) -> ParsedTimestamp | None:
     if offset_match is not None:
         tz = offset_match.group("tz")
         body = offset_match.group("body")
-        normalized_tz = "+00:00" if tz in ("Z", "z") else (
-            f"{tz[:3]}:{tz[3:]}" if len(tz) == 5 else tz
+        normalized_tz = (
+            "+00:00" if tz in ("Z", "z") else (f"{tz[:3]}:{tz[3:]}" if len(tz) == 5 else tz)
         )
         try:
             parsed = datetime.fromisoformat(f"{body}{normalized_tz}")
@@ -756,9 +756,7 @@ async def execute_timeline_reconstruction(
         )
         return
     if job.cancel_requested:
-        await _stop_job(
-            session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id
-        )
+        await _stop_job(session, job, stop="cancel", summary={}, case_id=case_id, actor_id=actor_id)
         return
 
     jobs_svc.transition(job, "running")
@@ -822,12 +820,8 @@ async def execute_timeline_reconstruction(
         for artifact in artifacts:
             payload = artifact.payload or {}
             record_no = payload.get("record_no")
-            evidence_file_id = (
-                str(artifact.evidence_file_id) if artifact.evidence_file_id else None
-            )
-            source_record_id = (
-                str(artifact.source_record_id) if artifact.source_record_id else None
-            )
+            evidence_file_id = str(artifact.evidence_file_id) if artifact.evidence_file_id else None
+            source_record_id = str(artifact.source_record_id) if artifact.source_record_id else None
             drafts.extend(
                 drafts_from_artifact(
                     artifact_id=str(artifact.id),
@@ -855,8 +849,12 @@ async def execute_timeline_reconstruction(
             stop = jobs_svc.should_stop(job)
             if stop is not None:
                 await _stop_job(
-                    session, job, stop=stop, summary=summary,
-                    case_id=case_id, actor_id=actor_id,
+                    session,
+                    job,
+                    stop=stop,
+                    summary=summary,
+                    case_id=case_id,
+                    actor_id=actor_id,
                 )
                 return
             if not await still_authorized_for_case(
@@ -1036,9 +1034,7 @@ async def commit_timeline_proposal(
         title=str(payload.get("title") or "Reconstructed event")[:255],
         description=str(description)[:1000] if description else None,
         evidence_file_id=(
-            uuid.UUID(str(payload["evidence_file_id"]))
-            if payload.get("evidence_file_id")
-            else None
+            uuid.UUID(str(payload["evidence_file_id"])) if payload.get("evidence_file_id") else None
         ),
         actor_user_id=actor_id,
         payload={

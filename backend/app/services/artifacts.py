@@ -157,12 +157,9 @@ async def list_artifacts(
     would leak an inaccessible case's identifiers. They are read only through
     the dedicated scope-checked ``/cross-case/candidates`` endpoint.
     """
-    query = (
-        select(DerivedArtifact)
-        .where(
-            DerivedArtifact.case_id == str(case_id),
-            DerivedArtifact.kind != "cross_case_link",
-        )
+    query = select(DerivedArtifact).where(
+        DerivedArtifact.case_id == str(case_id),
+        DerivedArtifact.kind != "cross_case_link",
     )
     if kind is not None:
         query = query.where(DerivedArtifact.kind == kind)

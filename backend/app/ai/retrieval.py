@@ -77,16 +77,18 @@ async def case_summary(
 
     async def count(model: Any) -> int:
         return int(
-            (await session.execute(select(func.count(model.id)).where(model.case_id == case_id)))
-            .scalar_one()
+            (
+                await session.execute(select(func.count(model.id)).where(model.case_id == case_id))
+            ).scalar_one()
         )
 
     entity_count, evidence_count, finding_count, timeline_count = await asyncio.gather(
         count(Entity), count(EvidenceFile), count(Finding), count(TimelineEvent)
     )
     victim_count = int(
-        (await session.execute(select(func.count(Victim.id)).where(Victim.case_id == case.id)))
-        .scalar_one()
+        (
+            await session.execute(select(func.count(Victim.id)).where(Victim.case_id == case.id))
+        ).scalar_one()
     )
     counts: dict[str, int] = {
         "entities": entity_count,
@@ -106,9 +108,7 @@ async def case_summary(
         f"counts: entities={entity_count} evidence={evidence_count} "
         f"findings={finding_count} victims={victim_count}",
     ]
-    sources = [
-        SourceRef(type="case", id=case_id, label=case.case_number, url=f"/cases/{case_id}")
-    ]
+    sources = [SourceRef(type="case", id=case_id, label=case.case_number, url=f"/cases/{case_id}")]
     return "\n".join(lines), sources, counts
 
 
@@ -138,9 +138,7 @@ async def evidence_digest(
             f"type={_clip(row.content_type, 80)} size={row.file_size}B "
             f"sha256={row.sha256[:16]}… uploaded={_iso(row.created_at)}"
         )
-        sources.append(
-            SourceRef(type="evidence", id=str(row.id), label=row.original_filename)
-        )
+        sources.append(SourceRef(type="evidence", id=str(row.id), label=row.original_filename))
     return "\n".join(lines), sources
 
 
@@ -283,13 +281,17 @@ async def analytics_digest(
     session: AsyncSession, case: Case, limit: int = METRICS_LIMIT
 ) -> tuple[str, list[SourceRef]]:
     rows = (
-        await session.execute(
-            select(MetricResult)
-            .where(MetricResult.case_id == str(case.id))
-            .order_by(MetricResult.metric_name, MetricResult.rank.is_(None), MetricResult.rank)
-            .limit(limit)
+        (
+            await session.execute(
+                select(MetricResult)
+                .where(MetricResult.case_id == str(case.id))
+                .order_by(MetricResult.metric_name, MetricResult.rank.is_(None), MetricResult.rank)
+                .limit(limit)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not rows:
         return "No graph analytics metrics computed for this case yet.", []
     lines: list[str] = []
@@ -300,9 +302,7 @@ async def analytics_digest(
             f"value={row.raw_value:.4f} score={row.normalized_score} rank={row.rank} "
             f"note={_clip(row.explanation, 120)}"
         )
-        sources.append(
-            SourceRef(type="metric", id=str(row.id), label=_clip(row.metric_name, 60))
-        )
+        sources.append(SourceRef(type="metric", id=str(row.id), label=_clip(row.metric_name, 60)))
     return "\n".join(lines), sources
 
 
@@ -399,9 +399,7 @@ async def build_case_context(
     return "\n\n".join(blocks), all_sources
 
 
-async def _visibility_condition(
-    session: AsyncSession, user: User
-) -> Any | None:
+async def _visibility_condition(session: AsyncSession, user: User) -> Any | None:
     """Owner/member predicate for *user*; ``None`` means "every case" (admin).
 
     Single source of truth for case visibility, shared by the ``search_cases``
@@ -532,9 +530,7 @@ async def accessible_cases(
 
 # -- post-generation claim validation (analysis mode) -----------------------
 
-UUID_RE = re.compile(
-    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I
-)
+UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
 # Metric-number claims the model can state. Two shapes are recognized because
 # models naturally echo the DATA line format instead of a synthetic grammar:
 #   echo  (mandated by the analysis prompt, mirrors DATA verbatim):
@@ -629,8 +625,7 @@ async def validate_cited_claims(
                 if abs(value - float(count)) <= 0.5:
                     continue
                 mismatches.append(
-                    f"metric:{name}@{entity_id} = {value}: data says "
-                    f"{float(count):.4f}"
+                    f"metric:{name}@{entity_id} = {value}: data says {float(count):.4f}"
                 )
             continue
         rows = (
@@ -643,9 +638,7 @@ async def validate_cited_claims(
             )
         ).all()
         if not rows:
-            mismatches.append(
-                f"metric:{name}@{entity_id}: no such metric for this case"
-            )
+            mismatches.append(f"metric:{name}@{entity_id}: no such metric for this case")
             continue
         for value in values:
             matches = any(
@@ -658,9 +651,7 @@ async def validate_cited_claims(
             )
             if not matches:
                 sample = ", ".join(f"{float(r):.4f}" for r, _ in rows[:3])
-                mismatches.append(
-                    f"metric:{name}@{entity_id} = {value}: data says {sample}"
-                )
+                mismatches.append(f"metric:{name}@{entity_id} = {value}: data says {sample}")
 
     return {
         "cited_ids": len(cited),

@@ -225,9 +225,7 @@ def value_matches_source(value: Any, source_values: Iterable[Any]) -> bool:
     if isinstance(value, list):
         if not value:
             return True
-        return all(
-            item is None or value_matches_source(item, sources) for item in value
-        )
+        return all(item is None or value_matches_source(item, sources) for item in value)
     if isinstance(value, dict | tuple):
         return False
     if value is None:

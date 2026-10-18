@@ -58,9 +58,7 @@ async def _make_case(database: Database, tag: str, owner_id: uuid.UUID | None = 
     return case_id
 
 
-async def _make_record(
-    database: Database, case_id: uuid.UUID
-) -> tuple[uuid.UUID, uuid.UUID]:
+async def _make_record(database: Database, case_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID]:
     factory = database.session_factory()
     async with factory() as session:
         evidence = EvidenceFile(
@@ -108,9 +106,7 @@ async def _make_artifact(database: Database, case_id: uuid.UUID) -> uuid.UUID:
 async def _add_member(database: Database, case_id: uuid.UUID, user_id: uuid.UUID) -> None:
     factory = database.session_factory()
     async with factory() as session:
-        session.add(
-            CaseMember(case_id=case_id, user_id=user_id, role="collaborator")
-        )
+        session.add(CaseMember(case_id=case_id, user_id=user_id, role="collaborator"))
         await session.commit()
 
 
@@ -123,21 +119,15 @@ async def _purge(
             evidence_ids = list(
                 (
                     await session.execute(
-                        select(EvidenceFile.id).where(
-                            EvidenceFile.case_id == str(case_id)
-                        )
+                        select(EvidenceFile.id).where(EvidenceFile.case_id == str(case_id))
                     )
                 ).scalars()
             )
             if evidence_ids:
                 await session.execute(
-                    delete(SourceRecord).where(
-                        SourceRecord.evidence_file_id.in_(evidence_ids)
-                    )
+                    delete(SourceRecord).where(SourceRecord.evidence_file_id.in_(evidence_ids))
                 )
-            await session.execute(
-                delete(EvidenceFile).where(EvidenceFile.case_id == str(case_id))
-            )
+            await session.execute(delete(EvidenceFile).where(EvidenceFile.case_id == str(case_id)))
             await session.execute(delete(CaseMember).where(CaseMember.case_id == case_id))
             await session.execute(
                 delete(DerivedArtifact).where(DerivedArtifact.case_id == str(case_id))
@@ -208,9 +198,7 @@ async def test_valid_citation_and_quote_equality(database: Database) -> None:
     ctx.cases.append(case_id)
     ctx.users.append(owner)
     _, record_id = await _make_record(database, case_id)
-    user = User(
-        id=owner, username="loaded", email="loaded@citation.test", password_hash="x" * 60
-    )
+    user = User(id=owner, username="loaded", email="loaded@citation.test", password_hash="x" * 60)
     try:
         factory = database.session_factory()
         async with factory() as session:
@@ -274,9 +262,7 @@ async def test_scope_mismatch_and_claimed_case_mismatch(database: Database) -> N
                 session,
                 user=user,
                 case_id=case_a,
-                ref=CitationRef(
-                    kind="source_record", id=str(record_id), case_id=str(case_b)
-                ),
+                ref=CitationRef(kind="source_record", id=str(record_id), case_id=str(case_b)),
             )
             assert not claimed.ok
             assert "citation_case_mismatch" in claimed.codes
@@ -291,9 +277,7 @@ async def test_locator_and_quote_failures(database: Database) -> None:
     ctx.cases.append(case_id)
     ctx.users.append(owner)
     _, record_id = await _make_record(database, case_id)
-    user = User(
-        id=owner, username="loaded", email="loaded@citation.test", password_hash="x" * 60
-    )
+    user = User(id=owner, username="loaded", email="loaded@citation.test", password_hash="x" * 60)
     try:
         factory = database.session_factory()
         async with factory() as session:
@@ -347,9 +331,7 @@ async def test_derived_artifact_citations(database: Database) -> None:
     ctx.cases.append(case_id)
     ctx.users.append(owner)
     artifact_id = await _make_artifact(database, case_id)
-    user = User(
-        id=owner, username="loaded", email="loaded@citation.test", password_hash="x" * 60
-    )
+    user = User(id=owner, username="loaded", email="loaded@citation.test", password_hash="x" * 60)
     try:
         factory = database.session_factory()
         async with factory() as session:
@@ -395,9 +377,7 @@ async def test_cross_case_visibility_is_rechecked_per_call(database: Database) -
     _, record_id = await _make_record(database, case_id)
 
     def _user(uid: uuid.UUID) -> User:
-        return User(
-            id=uid, username="loaded", email="loaded@citation.test", password_hash="x" * 60
-        )
+        return User(id=uid, username="loaded", email="loaded@citation.test", password_hash="x" * 60)
 
     try:
         factory = database.session_factory()

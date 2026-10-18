@@ -175,9 +175,7 @@ async def validate_citation(
         if not allow_cross_case:
             return CitationCheck(ok=False, codes=("citation_wrong_case",), resolved_case_id=scope)
         if not await case_visible_to(session, user, uuid.UUID(scope)):
-            return CitationCheck(
-                ok=False, codes=("citation_unauthorized",), resolved_case_id=scope
-            )
+            return CitationCheck(ok=False, codes=("citation_unauthorized",), resolved_case_id=scope)
 
     codes: list[str] = []
     actual: dict[str, Any] | None = None

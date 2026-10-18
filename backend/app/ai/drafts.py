@@ -93,9 +93,7 @@ def parse_hypothesis_drafts(answer: str) -> tuple[list[dict[str, Any]], int]:
     return drafts, unparseable
 
 
-def mark_unverified_ids(
-    drafts: list[dict[str, Any]], known_ids: set[str]
-) -> None:
+def mark_unverified_ids(drafts: list[dict[str, Any]], known_ids: set[str]) -> None:
     """Flag each draft's evidence ids that were not in the retrieved data.
 
     ``known_ids`` is the machine-verified set (shown DATA + response sources);

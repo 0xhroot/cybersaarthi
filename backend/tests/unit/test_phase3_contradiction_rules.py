@@ -78,8 +78,7 @@ def test_every_classify_case_produces_expected_class() -> None:
 def test_every_pair_case_produces_expected_conflicts() -> None:
     for case in _load()["pair_cases"]:
         records = [
-            _record(r["id"], r["raw_data"], record_no=r["record_no"])
-            for r in case["records"]
+            _record(r["id"], r["raw_data"], record_no=r["record_no"]) for r in case["records"]
         ]
         conflicts, counts = generate_conflicts(
             records, max_records_per_anchor=8, max_pair_evals=2000
@@ -104,9 +103,7 @@ def test_every_pair_case_produces_expected_conflicts() -> None:
         )
         if "alternative_any" in expect:
             assert expect["alternative_any"] in union_alternatives, case["id"]
-        union_missing = " ".join(
-            miss for conflict, _, _ in conflicts for miss in conflict.missing
-        )
+        union_missing = " ".join(miss for conflict, _, _ in conflicts for miss in conflict.missing)
         if "missing_any" in expect:
             assert expect["missing_any"] in union_missing, case["id"]
 
@@ -165,9 +162,7 @@ def test_pair_evaluation_budget_is_enforced() -> None:
         _record("r2", {"txn_id": "TXN-9", "txn_amount": "200"}),
         _record("r3", {"txn_id": "TXN-9", "txn_amount": "300"}),
     ]
-    _conflicts, counts = generate_conflicts(
-        records, max_records_per_anchor=8, max_pair_evals=1
-    )
+    _conflicts, counts = generate_conflicts(records, max_records_per_anchor=8, max_pair_evals=1)
     assert counts["pair_evals"] == 1
 
 
@@ -193,8 +188,7 @@ def test_semantic_pairs_require_anchor_same_field_and_different_text() -> None:
             {
                 "txn_id": "TXN-S",
                 "statement": (
-                    "Vendor reported the goods were delivered to the wrong "
-                    "warehouse on 2026-03-10."
+                    "Vendor reported the goods were delivered to the wrong warehouse on 2026-03-10."
                 ),
             },
         ),
@@ -203,8 +197,7 @@ def test_semantic_pairs_require_anchor_same_field_and_different_text() -> None:
             {
                 "txn_id": "TXN-S",
                 "statement": (
-                    "Vendor reported the goods were never dispatched from "
-                    "the origin warehouse."
+                    "Vendor reported the goods were never dispatched from the origin warehouse."
                 ),
             },
         ),
@@ -213,8 +206,7 @@ def test_semantic_pairs_require_anchor_same_field_and_different_text() -> None:
             {
                 "txn_id": "TXN-OTHER",
                 "statement": (
-                    "Unrelated statement about a completely different "
-                    "transaction reference."
+                    "Unrelated statement about a completely different transaction reference."
                 ),
             },
         ),
@@ -234,10 +226,7 @@ def test_semantic_pairs_never_compare_different_fields_or_identical_text() -> No
             "r1",
             {
                 "txn_id": "TXN-S2",
-                "statement": (
-                    "The goods were delivered late due to a port strike "
-                    "in March."
-                ),
+                "statement": ("The goods were delivered late due to a port strike in March."),
             },
         ),
         _record(
@@ -248,10 +237,7 @@ def test_semantic_pairs_never_compare_different_fields_or_identical_text() -> No
             "r3",
             {
                 "txn_id": "TXN-S2",
-                "statement": (
-                    "The goods were delivered late due to a port strike "
-                    "in March."
-                ),
+                "statement": ("The goods were delivered late due to a port strike in March."),
             },
         ),
     ]
@@ -268,8 +254,7 @@ def test_semantic_pair_limit_is_enforced() -> None:
             {
                 "txn_id": "TXN-L1",
                 "statement": (
-                    "Statement number one claiming delivery happened on "
-                    "the fifteenth of March."
+                    "Statement number one claiming delivery happened on the fifteenth of March."
                 ),
             },
         ),
@@ -278,8 +263,7 @@ def test_semantic_pair_limit_is_enforced() -> None:
             {
                 "txn_id": "TXN-L1",
                 "statement": (
-                    "Statement number two claiming nothing was ever "
-                    "delivered to anyone."
+                    "Statement number two claiming nothing was ever delivered to anyone."
                 ),
             },
         ),
@@ -287,20 +271,14 @@ def test_semantic_pair_limit_is_enforced() -> None:
             "r3",
             {
                 "txn_id": "TXN-L2",
-                "statement": (
-                    "Statement number three claiming a refund was issued "
-                    "in cash."
-                ),
+                "statement": ("Statement number three claiming a refund was issued in cash."),
             },
         ),
         _record(
             "r4",
             {
                 "txn_id": "TXN-L2",
-                "statement": (
-                    "Statement number four claiming no refund was ever "
-                    "issued."
-                ),
+                "statement": ("Statement number four claiming no refund was ever issued."),
             },
         ),
     ]
@@ -316,9 +294,10 @@ def test_parse_statement_verdict_accepts_and_rejects_appropriately() -> None:
     )
     assert verdict == {"contradicts": True, "explanation": "opposite delivery claims"}
     # Extra keys (echoed ids) reject the whole reply.
-    assert parse_statement_verdict(
-        '{"contradicts": true, "explanation": "x", "record_id": "abc"}'
-    ) is None
+    assert (
+        parse_statement_verdict('{"contradicts": true, "explanation": "x", "record_id": "abc"}')
+        is None
+    )
     assert parse_statement_verdict('{"contradicts": "definitely", "explanation": "x"}') is None
     assert parse_statement_verdict("not json") is None
 

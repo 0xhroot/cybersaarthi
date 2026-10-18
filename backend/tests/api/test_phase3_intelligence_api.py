@@ -207,9 +207,7 @@ async def _seed_job(
         return job.id
 
 
-async def _artifacts(
-    database: Database, case_id: uuid.UUID, *, kind: str
-) -> list[DerivedArtifact]:
+async def _artifacts(database: Database, case_id: uuid.UUID, *, kind: str) -> list[DerivedArtifact]:
     factory = database.session_factory()
     async with factory() as session:
         rows = await session.execute(
@@ -252,9 +250,7 @@ async def _audit_row(
         return rows.scalars().first()
 
 
-async def _submit(
-    client: httpx.AsyncClient, case_id: uuid.UUID, path: str
-) -> httpx.Response:
+async def _submit(client: httpx.AsyncClient, case_id: uuid.UUID, path: str) -> httpx.Response:
     return await client.post(
         f"{PREFIX}/cases/{case_id}/evidence-intelligence/{path}",
         json={},
@@ -368,9 +364,7 @@ async def test_entity_resolution_approval_adds_additive_aliases_never_merges(
         assert all(e.status == "active" for e in entities)
         assert all(e.merged_into_id is None for e in entities)
 
-    audit = await _audit_row(
-        database, action="derived_artifact.approved", resource_id=artifact.id
-    )
+    audit = await _audit_row(database, action="derived_artifact.approved", resource_id=artifact.id)
     assert audit is not None
     metadata = dict(audit.metadata_ or {})
     assert metadata.get("aliases_added") == 2
@@ -492,9 +486,7 @@ async def test_entity_resolution_llm_reply_with_echoed_ids_is_discarded(
     await _seed_person(database, _owned_case, AMBIGUOUS_D)
     # Extra key (an echoed id) breaks the strict schema -> reply discarded.
     phase2_fake_ai.pair_replies = [
-        json.dumps(
-            {"verdict": "same", "reason": "ok", "entity_a": str(uuid.uuid4())}
-        ),
+        json.dumps({"verdict": "same", "reason": "ok", "entity_a": str(uuid.uuid4())}),
     ]
 
     submit = await _submit(http_client, _owned_case, "entity-resolution")
@@ -880,16 +872,14 @@ async def test_contradiction_resolution_states_are_appended_child_artifacts(
         assert (current.payload or {}).get("type") == "contradiction"
 
     invalid = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/"
-        f"contradictions/{candidate.id}/resolve",
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/contradictions/{candidate.id}/resolve",
         json={"state": "rejected", "note": "not a valid state"},
     )
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == CODE_CONTRADICTION_STATE_INVALID
 
     empty_note = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/"
-        f"contradictions/{candidate.id}/resolve",
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/contradictions/{candidate.id}/resolve",
         json={"state": "deferred", "note": "   "},
     )
     assert empty_note.status_code == 422
@@ -902,8 +892,7 @@ async def test_contradiction_resolution_states_are_appended_child_artifacts(
     )
     assert approve.status_code == 200, approve.text
     after_approve = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/"
-        f"contradictions/{candidate.id}/resolve",
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/contradictions/{candidate.id}/resolve",
         json={"state": "deferred", "note": "too late"},
     )
     assert after_approve.status_code == 409
@@ -940,8 +929,7 @@ async def test_contradiction_resolve_typed_errors_and_kind_guard(
     candidate_id = candidates[0].id
 
     unknown = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/"
-        f"contradictions/{uuid.uuid4()}/resolve",
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/contradictions/{uuid.uuid4()}/resolve",
         json={"state": "deferred", "note": "ghost"},
     )
     assert unknown.status_code == 404
@@ -960,15 +948,13 @@ async def test_contradiction_resolve_typed_errors_and_kind_guard(
 
     # A resolution child is lineage, not a fresh candidate.
     first = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/"
-        f"contradictions/{candidate_id}/resolve",
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/contradictions/{candidate_id}/resolve",
         json={"state": "deferred", "note": "pending lab report"},
     )
     assert first.status_code == 200, first.text
     child_id = first.json()["id"]
     child_again = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/"
-        f"contradictions/{child_id}/resolve",
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/contradictions/{child_id}/resolve",
         json={"state": "deferred", "note": "again"},
     )
     assert child_again.status_code == 422
@@ -1076,9 +1062,9 @@ async def test_submissions_refuse_while_active_and_clear_stale_jobs(
         assert cleared.status_code == 202, cleared.text
         # Attempts are counted per (case, feature): the cleared seed is the
         # first attempt, so the retry is attempt 2 for this feature.
-        assert cleared.json()["job"]["idempotency_key"].endswith(
-            ":a2"
-        ), f"attempt key for {feature}"
+        assert cleared.json()["job"]["idempotency_key"].endswith(":a2"), (
+            f"attempt key for {feature}"
+        )
         row = await _job_row(database, active)
         assert row.status == "canceled"
 
@@ -1140,9 +1126,7 @@ async def test_canceled_jobs_never_succeed_and_write_no_artifacts(
 
         job = await _job_row(database, job_id)
         assert job.status == "canceled", feature
-        audit = await _audit_row(
-            database, action=f"{prefix}.canceled", resource_id=job_id
-        )
+        audit = await _audit_row(database, action=f"{prefix}.canceled", resource_id=job_id)
         assert audit is not None, feature
 
     # No proposals of any kind were left behind by the canceled runs.
@@ -1195,9 +1179,7 @@ async def test_cancel_route_requests_cancellation_for_each_phase3_feature(
         )
         assert response.status_code == 200, response.text
         assert response.json()["cancel_requested"] is True
-        audit = await _audit_row(
-            database, action=f"{prefix}.cancel_requested", resource_id=job_id
-        )
+        audit = await _audit_row(database, action=f"{prefix}.cancel_requested", resource_id=job_id)
         assert audit is not None
 
 
@@ -1266,9 +1248,7 @@ async def test_phase3_writes_require_role_permissions(
     viewer = await user_factory(role="VIEWER")
     factory = database.session_factory()
     async with factory() as session:
-        session.add(
-            CaseMember(case_id=_owned_case, user_id=viewer.id, role="collaborator")
-        )
+        session.add(CaseMember(case_id=_owned_case, user_id=viewer.id, role="collaborator"))
         await session.commit()
 
     transport = httpx.ASGITransport(app=shared_app)

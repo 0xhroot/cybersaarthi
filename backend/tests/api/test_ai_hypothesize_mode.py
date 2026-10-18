@@ -171,9 +171,7 @@ async def test_suggestion_runs_never_write_to_the_database(
     async with factory() as session:
         count = (
             await session.execute(
-                select(func.count(Hypothesis.id)).where(
-                    Hypothesis.case_id == str(_owned_case)
-                )
+                select(func.count(Hypothesis.id)).where(Hypothesis.case_id == str(_owned_case))
             )
         ).scalar_one()
     assert count == 0
@@ -214,9 +212,7 @@ async def test_hypothesize_context_has_records_but_no_analytics_scores(
             "case_id": str(_owned_case),
         },
     )
-    joined = "\n".join(
-        m["content"] for m in seen[-1] if "BEGIN DATA:" in m["content"]
-    )
+    joined = "\n".join(m["content"] for m in seen[-1] if "BEGIN DATA:" in m["content"])
     assert "BEGIN DATA: evidence metadata" in joined
     assert "BEGIN DATA: graph" in joined
     assert "BEGIN DATA: victims" in joined
@@ -251,7 +247,7 @@ async def test_stream_done_carries_drafts_and_errors(
         assert resp.status_code == 200
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
-                events.append(json.loads(line[len("data: "):]))
+                events.append(json.loads(line[len("data: ") :]))
 
     done = events[-1]
     assert done["type"] == "done"

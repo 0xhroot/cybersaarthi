@@ -42,8 +42,7 @@ from sqlalchemy import delete, select
 from tests.api.phase2_fakes import FakeAI, extraction_reply
 
 PARAGRAPHS = (
-    "Access granted to Officer Nanda at gate two\n\n"
-    "Boiler room inspection completed after hours"
+    "Access granted to Officer Nanda at gate two\n\nBoiler room inspection completed after hours"
 )
 
 
@@ -125,14 +124,10 @@ async def _run(
         return job
 
 
-async def _count(
-    database: Database, model: Any, case_id: uuid.UUID
-) -> int:
+async def _count(database: Database, model: Any, case_id: uuid.UUID) -> int:
     factory = database.session_factory()
     async with factory() as session:
-        rows = await session.execute(
-            select(model.id).where(model.case_id == str(case_id))
-        )
+        rows = await session.execute(select(model.id).where(model.case_id == str(case_id)))
         return len(list(rows.scalars()))
 
 
