@@ -1,36 +1,97 @@
 {
-  "description": "Phase 4 live end-to-end checks. The financial-flow live case uploads exactly the 23 records from financial_flow_checks.json (golden fixture, loaded by reference - one source of truth), so every aggregate, status split, pattern and network expectation carries over verbatim from the golden section except the victim rule (a real case has no seeded victims, so victim_loss_unmatched moves to not_fired). The cross-case live cases share one account reference and one phone number in deliberately different formats across two investigator-owned cases (case X and case Y) plus one admin-owned case (case Z) that repeats X's account and phone: this yields candidates for scope {X,Y} (investigator) and a separate scope {X,Z} candidate set (admin) used to prove read-time omission (the investigator's candidate list must never mention case Z) and the no-leak 404 (scope-denied probe with the inaccessible case id, and explain on the omitted artifact). Per-case decoy values (distinct txn ids, distinct email domains) must never form candidates. n_flow_records=23, n_crosscase_records=2 per accessible case.",
+  "description": "Phase 4 live end-to-end checks. The financial-flow live case uploads exactly the 23 records from financial_flow_checks.json (golden fixture, loaded by reference - one source of truth), so every aggregate, status split, pattern and network expectation carries over verbatim from the golden section except the victim rule (a real case has no seeded victims, so victim_loss_unmatched moves to not_fired). The cross-case live cases share one account reference and one phone number in deliberately different formats across two investigator-owned cases (case X and case Y) plus one admin-owned case (case Z) that repeats X's account and phone: this yields candidates for scope {X,Y} (investigator) and a separate scope {X,Z} candidate set (admin) used to prove read-time omission (the investigator's candidate list must never mention case Z) and the no-leak 404 (scope-denied probe with the inaccessible case id, and explain on the omitted artifact). Per-case decoy values (distinct txn ids, distinct email domains) must never form candidates. n_flow_records=23 in the flow case, n_crosscase_records=1 per case across 3 cases (X and Y owned by the investigator, Z by the admin).",
   "flow": {
     "fixture_reference": "financial_flow_checks.json",
     "comment": "records, aggregates, patterns and network expectations are the golden fixture's; expect_live inside it describes the only deltas (no victims)."
   },
   "cross_case": {
     "case_x_records": [
-      {"account_number": "ACC-PH4-77", "beneficiary_phone": "+91 98200 00077", "transaction_id": "TXN-PH4-91", "callback": "x-desk@alpha.test"}
+      {
+        "account_number": "ACC-PH4-77",
+        "beneficiary_phone": "+91 98200 00077",
+        "transaction_id": "TXN-PH4-91",
+        "callback": "x-desk@alpha.test"
+      }
     ],
     "case_y_records": [
-      {"account_number": "ACCPH477", "beneficiary_phone": "98200-00077", "transaction_id": "TXN-PH4-92", "callback": "y-desk@beta.test"}
+      {
+        "account_number": "ACCPH477",
+        "beneficiary_phone": "98200-00077",
+        "transaction_id": "TXN-PH4-92",
+        "callback": "y-desk@beta.test"
+      }
     ],
     "case_z_records": [
-      {"account_number": "ACC-PH4-77", "beneficiary_phone": "91 98200 00077", "transaction_id": "TXN-PH4-93", "callback": "z-desk@gamma.test"}
+      {
+        "account_number": "ACC-PH4-77",
+        "beneficiary_phone": "91 98200 00077",
+        "transaction_id": "TXN-PH4-93",
+        "callback": "z-desk@gamma.test"
+      }
     ],
     "expect_investigator_scope_xy": {
       "candidates": [
-        {"indicator_kind": "account_ref", "value_normalized": "ACCPH477", "classification": "normalized_identifier", "sides": 2},
-        {"indicator_kind": "phone", "value_normalized": "91982000077", "classification": "normalized_identifier", "sides": 2}
+        {
+          "indicator_kind": "account_ref",
+          "value_normalized": "ACCPH477",
+          "classification": "normalized_identifier",
+          "reviewable": true,
+          "sides": 2
+        },
+        {
+          "indicator_kind": "name",
+          "value_normalized": "txn",
+          "classification": "similarity_name_only",
+          "reviewable": false,
+          "sides": 2,
+          "comment": "Phase-1 ingest extracts an organization mention 'TXN' from the transaction-id prefix into every case, so the three cases share one name group. It is a legitimate deterministic candidate, and name-similarity-only must never be reviewable."
+        },
+        {
+          "indicator_kind": "phone",
+          "value_normalized": "919820000077",
+          "classification": "normalized_identifier",
+          "reviewable": true,
+          "sides": 2
+        }
       ],
       "decoys_absent": [
-        {"indicator_kind": "txn_id", "value_normalized": "TXNPH491"},
-        {"indicator_kind": "txn_id", "value_normalized": "TXNPH492"},
-        {"indicator_kind": "email", "value_normalized": "x-desk@alpha.test"},
-        {"indicator_kind": "domain", "value_normalized": "alpha.test"},
-        {"indicator_kind": "domain", "value_normalized": "beta.test"}
+        {
+          "indicator_kind": "txn_id",
+          "value_normalized": "TXNPH491"
+        },
+        {
+          "indicator_kind": "txn_id",
+          "value_normalized": "TXNPH492"
+        },
+        {
+          "indicator_kind": "email",
+          "value_normalized": "x-desk@alpha.test"
+        },
+        {
+          "indicator_kind": "domain",
+          "value_normalized": "alpha.test"
+        },
+        {
+          "indicator_kind": "domain",
+          "value_normalized": "beta.test"
+        }
       ]
     },
     "expect_admin_scope_xz": {
+      "comment": "Distinct key set the admin sees: the {X,Y} artifacts plus a separate {X,Z} scope with the same three keys (content-hash dedupe means one row per scope per key).",
       "candidate_keys": [
-        {"indicator_kind": "account_ref", "value_normalized": "ACCPH477"},
-        {"indicator_kind": "phone", "value_normalized": "91982000077"}
+        {
+          "indicator_kind": "account_ref",
+          "value_normalized": "ACCPH477"
+        },
+        {
+          "indicator_kind": "name",
+          "value_normalized": "txn"
+        },
+        {
+          "indicator_kind": "phone",
+          "value_normalized": "919820000077"
+        }
       ],
       "z_side_present": true
     }
@@ -38,16 +99,43 @@
   "probes": {
     "cancel": {
       "comment": "The cancel probe runs on the FIRST flow submission. If the cooperative cancel lands before the background run finishes, the job must reach canceled with zero financial_finding artifacts and an identical resubmission must then succeed; if the run finished first, the cancel is refused (409) and the completed artifacts are reused. Either branch is recorded; only the accepted branch carries the zero-artifact assertion, because completion timing is not deterministic.",
-      "accepted_statuses": [200, 202],
+      "accepted_statuses": [
+        200,
+        202
+      ],
       "refused_status": 409
     },
-    "scope_denied": {"status": 404, "code": "CROSS_CASE_SCOPE_DENIED", "investigator_scope_includes": "admin_case"},
-    "anon_discover": {"status": 401},
-    "anon_candidates": {"status": 401},
-    "viewer_discover": {"status": 403},
-    "viewer_candidates": {"status": 403},
-    "viewer_crosscase_explain": {"status": 403},
-    "viewer_artifacts_on_inaccessible_case": {"status": 404},
-    "hidden_artifact_explain": {"status": 404}
+    "scope_denied": {
+      "status": 404,
+      "code": "CROSS_CASE_SCOPE_DENIED",
+      "investigator_scope_includes": "admin_case"
+    },
+    "anon_discover": {
+      "status": 401
+    },
+    "anon_candidates": {
+      "status": 401
+    },
+    "viewer_discover": {
+      "status": 403
+    },
+    "viewer_candidates": {
+      "status": 403
+    },
+    "viewer_crosscase_explain": {
+      "status": 403,
+      "comment": "Existing case the viewer is not a member of: the documented IDOR guard (404 missing / 403 IDOR) answers before any artifact lookup, so no artifact id or payload is revealed."
+    },
+    "viewer_artifacts_on_inaccessible_case": {
+      "status": 403,
+      "comment": "Same IDOR guard on the generic artifact list: existing but inaccessible -> 403, content withheld."
+    },
+    "viewer_artifacts_on_missing_case": {
+      "status": 404,
+      "comment": "Missing case -> 404, documenting the 404-missing / 403-IDOR split."
+    },
+    "hidden_artifact_explain": {
+      "status": 404
+    }
   }
 }

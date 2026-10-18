@@ -216,8 +216,18 @@ class Phase4EvalRunner:
         return victims
 
     @staticmethod
-    def _check_aggregates(got: dict[str, Any], expect: dict[str, Any]) -> list[str]:
-        """Compare aggregates (JSON-normalized) against the golden expectation."""
+    def _check_aggregates(
+        got: dict[str, Any], expect: dict[str, Any], *, check_ids: bool = True
+    ) -> list[str]:
+        """Compare aggregates (JSON-normalized) against the golden expectation.
+
+        ``check_ids=False`` (live section only) skips supporting-record-id
+        equality: golden record ids are the fixture's deterministic hex scheme
+        while live ids are real PostgreSQL uuids, so id-level equality across
+        the two is meaningless there - it is gated instead by the live
+        independent-recompute check (payload vs fresh recomputation over the
+        same rows, identical ids on both sides).
+        """
         problems: list[str] = []
         if got.get("counts") != expect["counts"]:
             problems.append(
@@ -258,7 +268,9 @@ class Phase4EvalRunner:
                     )
             if len(bucket.get("conflicting_groups") or []) != want["conflicting_groups"]:
                 problems.append(f"bucket {want['currency']!r} conflicting_groups mismatch")
-            if _nos(bucket.get("supporting_source_record_ids")) != want["record_nos"]:
+            if check_ids and _nos(bucket.get("supporting_source_record_ids")) != want[
+                "record_nos"
+            ]:
                 problems.append(
                     f"bucket {want['currency']!r} supporting ids "
                     f"{_nos(bucket.get('supporting_source_record_ids'))} != {want['record_nos']}"
@@ -285,7 +297,9 @@ class Phase4EvalRunner:
                         f"{label} {want[fixture_key]} total_records "
                         f"{row['total_records']!r} != {want['total_records']!r}"
                     )
-                if _nos(row.get("supporting_source_record_ids")) != want["record_nos"]:
+                if check_ids and _nos(row.get("supporting_source_record_ids")) != want[
+                    "record_nos"
+                ]:
                     problems.append(f"{label} {want[fixture_key]} supporting ids mismatch")
 
         _check_grouped("by_status", got.get("by_status", []), "status")
@@ -987,22 +1001,29 @@ class Phase4EvalRunner:
         return response.json()["id"]
 
     async def _upload_json(
-        self, case_id: str, name: str, records: list[dict[str, Any]]
+        self,
+        case_id: str,
+        name: str,
+        records: list[dict[str, Any]],
+        *,
+        token: str | None = None,
     ) -> str:
         payload = json.dumps(records).encode()
         response = await self.api.post(
             f"/cases/{case_id}/evidence",
             files={"file": (name, payload, "application/json")},
-            headers=self._headers(),
+            headers=self._headers(token),
         )
         response.raise_for_status()
         return response.json()["id"]
 
-    async def _ingest(self, case_id: str, evidence_id: str) -> dict[str, Any]:
+    async def _ingest(
+        self, case_id: str, evidence_id: str, *, token: str | None = None
+    ) -> dict[str, Any]:
         response = await self.api.post(
             f"/cases/{case_id}/ingest",
             json={"evidence_file_id": evidence_id},
-            headers=self._headers(),
+            headers=self._headers(token),
         )
         response.raise_for_status()
         accepted = response.json()
@@ -1010,7 +1031,7 @@ class Phase4EvalRunner:
         deadline = time.monotonic() + JOB_POLL_TIMEOUT_SECONDS
         while job_id and time.monotonic() < deadline:
             listing = await self.api.get(
-                f"/cases/{case_id}/ingest-jobs", headers=self._headers()
+                f"/cases/{case_id}/ingest-jobs", headers=self._headers(token)
             )
             listing.raise_for_status()
             for item in listing.json()["items"]:
@@ -1106,19 +1127,22 @@ class Phase4EvalRunner:
             },
         }
         started = time.monotonic()
-        job = await self._poll_job(case_id, first_job_id, feature="financial_flow")
-        section["latency_ms"] = int((time.monotonic() - started) * 1000)
-        section["cancel"]["job_status"] = job["status"]
+        first_job = await self._poll_job(case_id, first_job_id, feature="financial_flow")
+        section["cancel"]["job_status"] = first_job["status"]
         if cancel.status_code in (200, 202):
             artifacts_after_cancel = await self._artifacts(case_id, "financial_finding")
             section["cancel"]["artifacts_after_cancel"] = len(artifacts_after_cancel)
             section["cancel"]["zero_artifacts"] = not artifacts_after_cancel
             # A canceled job can never succeed: resubmission must be accepted.
+            # This clean submit -> terminal window is the reported flow latency
+            # (the cancel probe above would have consumed the first run's time).
+            started = time.monotonic()
             rerun = await self._submit_feature(case_id, "financial-flow")
             section["cancel"]["rerun_job_id"] = rerun["job"]["id"]
             rerun_job = await self._poll_job(
                 case_id, rerun["job"]["id"], feature="financial_flow"
             )
+            section["latency_ms"] = int((time.monotonic() - started) * 1000)
             section["cancel"]["rerun_status"] = rerun_job["status"]
             job = rerun_job
         else:
@@ -1126,6 +1150,14 @@ class Phase4EvalRunner:
                 "run finished before the cooperative cancel landed; the "
                 "completed artifacts are reused"
             )
+            # Refused branch: the first run's timing window was consumed by
+            # the cancel round-trip, so one more clean submission is timed. It
+            # overwrites nothing: the payload is deterministic over the same
+            # records, so the artifact is content-hash deduplicated (reused).
+            started = time.monotonic()
+            timing = await self._submit_feature(case_id, "financial-flow")
+            job = await self._poll_job(case_id, timing["job"]["id"], feature="financial_flow")
+            section["latency_ms"] = int((time.monotonic() - started) * 1000)
         section["job_status"] = job["status"]
 
         artifacts = await self._artifacts(case_id, "financial_finding")
@@ -1137,8 +1169,10 @@ class Phase4EvalRunner:
         expect_live = live_fixture["flow_expect_live"]
 
         section["facts_total"] = payload.get("facts_total")
+        # check_ids=False: live record ids are real uuids, not the golden hex
+        # scheme; id-level equality is gated by db_recompute_exact below.
         section["aggregates_match_golden"] = self._check_aggregates(
-            payload.get("aggregates", {}), golden_expect
+            payload.get("aggregates", {}), golden_expect, check_ids=False
         )
         # Independent recomputation from PostgreSQL rows (never the self-report).
         db_rows = await self._db_case_records(case_id)
@@ -1306,10 +1340,18 @@ class Phase4EvalRunner:
             ("y", case_y, spec["case_y_records"]),
             ("z", case_z, spec["case_z_records"]),
         ):
+            admin_owned = label == "z"
             evidence_id = await self._upload_json(
-                case_id, f"phase4-cross-{label}.json", records
+                case_id,
+                f"phase4-cross-{label}.json",
+                records,
+                token=self.admin_token if admin_owned else None,
             )
-            ingest = await self._ingest(case_id, evidence_id)
+            ingest = await self._ingest(
+                case_id,
+                evidence_id,
+                token=self.admin_token if admin_owned else None,
+            )
             section[f"ingest_{label}"] = ingest.get("status")
 
         # Scope {X, Y} as the investigator.
@@ -1340,6 +1382,7 @@ class Phase4EvalRunner:
                 "value_normalized": item["payload"]["group"]["value_normalized"],
                 "classification": item["payload"]["classification"],
                 "score": item["payload"]["score"],
+                "reviewable": item["payload"]["reviewable"],
                 "sides": sorted(side["case_id"] for side in item["payload"]["sides"]),
             }
             for item in items
@@ -1352,19 +1395,19 @@ class Phase4EvalRunner:
             (c["indicator_kind"], c["value_normalized"]) for c in want_candidates
         )
         section["candidate_keys_match"] = got_keys == want_keys
-        section["classifications_match"] = all(
-            next(
-                (
-                    c["classification"]
-                    for c in section["candidates_xy"]
-                    if c["indicator_kind"] == want["indicator_kind"]
-                    and c["value_normalized"] == want["value_normalized"]
-                ),
-                None,
+        by_key = {
+            (c["indicator_kind"], c["value_normalized"]): c
+            for c in section["candidates_xy"]
+        }
+        per_want: list[bool] = []
+        for want in want_candidates:
+            got = by_key.get((want["indicator_kind"], want["value_normalized"]))
+            per_want.append(
+                got is not None
+                and got["classification"] == want["classification"]
+                and got["reviewable"] == want["reviewable"]
             )
-            == want["classification"]
-            for want in want_candidates
-        )
+        section["classifications_match"] = all(per_want)
         section["sides_are_xy"] = all(
             c["sides"] == sorted([case_x, case_y]) for c in section["candidates_xy"]
         )
@@ -1514,7 +1557,7 @@ class Phase4EvalRunner:
             headers=self._headers(),
         )
         approve.raise_for_status()
-        child = approve.json()
+        parent_review = approve.json()
 
         parent_after = await self.api.get(
             "/cross-case/candidates",
@@ -1530,11 +1573,13 @@ class Phase4EvalRunner:
             ),
             None,
         )
-        children = await self._artifacts(case_x, "cross_case_link")
-        child_row = next(
-            (item for item in children if item.get("parent_artifact_id") == artifact_id),
-            None,
-        )
+        # The generic artifact listing deliberately excludes cross_case_link
+        # rows entirely (no-leak: their payloads span several cases) - the
+        # recorded child is therefore verified against PostgreSQL directly,
+        # the harness's independent-verification convention.
+        generic_list = await self._artifacts(case_x, "cross_case_link")
+        from app.models import AuditLog, DerivedArtifact
+
         async with factory() as session:
             alias_count_after = (
                 await session.execute(
@@ -1543,8 +1588,21 @@ class Phase4EvalRunner:
                     .where(Entity.case_id.in_([case_x, case_y]))
                 )
             ).scalar() or 0
-            from app.models import AuditLog
 
+            children = list(
+                (
+                    await session.execute(
+                        select(DerivedArtifact).where(
+                            DerivedArtifact.case_id == uuid.UUID(case_x),
+                            DerivedArtifact.parent_artifact_id
+                            == uuid.UUID(artifact_id),
+                            DerivedArtifact.kind == "cross_case_link",
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
             audit_rows = (
                 (
                     await session.execute(
@@ -1557,32 +1615,51 @@ class Phase4EvalRunner:
                 .scalars()
                 .all()
             )
+        child = children[0] if len(children) == 1 else None
+        child_payload = dict(child.payload) if child is not None else {}
         audit_child_ids = [
             (row.metadata_ or {}).get("reviewed_child_artifact_id") for row in audit_rows
         ]
 
-        payload = (child_row or {}).get("payload") or {}
         return {
-            "child_status": child.get("status"),
-            "child_kind": child.get("kind"),
-            "child_origin": child.get("origin"),
+            "parent_status_after_review": parent_review.get("status"),
+            "parent_kind_after_review": parent_review.get("kind"),
+            "generic_list_omits_crosscase": generic_list == [],
             "child_recorded": (
-                child_row is not None
-                and child_row.get("status") == "recorded"
-                and child_row.get("origin") == "deterministic"
-                and payload.get("type") == "reviewed_cross_case_link"
-                and payload.get("decision") == "approved"
-                and payload.get("for_artifact_id") == artifact_id
+                child is not None
+                and child.status == "recorded"
+                and child.origin == "deterministic"
+                and child_payload.get("type") == "reviewed_cross_case_link"
+                and child_payload.get("decision") == "approved"
+                and child_payload.get("indicator_kind")
+                == target["payload"]["group"]["indicator_kind"]
+                and child_payload.get("value_normalized")
+                == target["payload"]["group"]["value_normalized"]
+                and child_payload.get("cases")
+                == sorted([case_x, case_y])
+                and child_payload.get("for_artifact_id") == artifact_id
             ),
             "parent_unrewritten": (
                 parent_row is not None and parent_row.get("content_hash") == before_hash
             ),
             "no_aliases_added": alias_count_before == alias_count_after,
-            "audit_row_recorded": str((child_row or {}).get("id")) in audit_child_ids,
+            "audit_row_recorded": (
+                child is not None and str(child.id) in audit_child_ids
+            ),
         }
 
-    async def _viewer_probe(self, case_x: str, flow_case: str) -> dict[str, Any]:
-        """Register a unique VIEWER, verify every denial, then suspend it."""
+    async def _viewer_probe(self, case_x: str, inaccessible_case: str) -> dict[str, Any]:
+        """Register a unique VIEWER, verify every denial, then suspend it.
+
+        Convention under test (documented in ``get_case_or_404``: "404 when
+        missing, 403 on IDOR"): the viewer holds ``case.read`` but is not a
+        member of any case, so an *existing* inaccessible case answers 403
+        CASE_ACCESS_DENIED while a *missing* case answers 404 - either way the
+        viewer receives no case content. ``crosscase.read`` is absent from
+        VIEWER, so discovery/candidates refuse 403 at the permission
+        dependency, before any case or identifier is evaluated.
+        """
+        investigator_token = self.token  # restored: login() swaps the token
         suffix = uuid.uuid4().hex[:8]
         username = f"ph4_viewer_{suffix}"
         register = await self.api.post(
@@ -1620,18 +1697,34 @@ class Phase4EvalRunner:
             headers=self._headers(viewer_token),
         )
         artifacts = await self.api.get(
-            f"/cases/{flow_case}/evidence-intelligence/artifacts",
+            f"/cases/{inaccessible_case}/evidence-intelligence/artifacts",
             headers=self._headers(viewer_token),
         )
+        missing_case = await self.api.get(
+            f"/cases/{uuid.uuid4()}/evidence-intelligence/artifacts",
+            headers=self._headers(viewer_token),
+        )
+        self.token = investigator_token
+
+        def _code(response: httpx.Response) -> str | None:
+            if response.status_code < 400:
+                return None
+            body = response.json()
+            if isinstance(body, dict) and isinstance(body.get("error"), dict):
+                return body["error"].get("code")
+            return None  # plain HTTPException body carries no typed code
+
         return {
             "username": username,
             "discover_status": discover.status_code,
-            "discover_code": discover.json().get("error", {}).get("code")
-            if discover.status_code >= 400
-            else None,
+            "discover_code": _code(discover),
             "candidates_status": candidates.status_code,
+            "candidates_code": _code(candidates),
             "explain_status": explain.status_code,
+            "explain_code": _code(explain),
             "artifacts_on_inaccessible_case_status": artifacts.status_code,
+            "artifacts_on_inaccessible_case_code": _code(artifacts),
+            "artifacts_on_missing_case_status": missing_case.status_code,
         }
 
     async def _live_section(self) -> dict[str, Any]:
@@ -1834,12 +1927,28 @@ class Phase4EvalRunner:
                     ),
                     "live_crosscase_viewer_denied": (
                         cross_live.get("viewer", {}).get("discover_status") == 403
+                        and cross_live.get("viewer", {}).get("discover_code")
+                        == "INSUFFICIENT_PERMISSION"
                         and cross_live.get("viewer", {}).get("candidates_status") == 403
-                        and cross_live.get("viewer", {}).get("explain_status") == 404
+                        # Existing case, no membership: IDOR guard 403 (the
+                        # viewer receives no case content either way).
+                        and cross_live.get("viewer", {}).get("explain_status") == 403
                         and cross_live.get("viewer", {}).get(
                             "artifacts_on_inaccessible_case_status"
                         )
+                        == 403
+                        # Missing case: 404 (documented 404-missing /
+                        # 403-IDOR split).
+                        and cross_live.get("viewer", {}).get(
+                            "artifacts_on_missing_case_status"
+                        )
                         == 404
+                    ),
+                    "live_crosscase_generic_list_omits_crosscase": (
+                        cross_live.get("approval", {}).get(
+                            "generic_list_omits_crosscase"
+                        )
+                        is True
                     ),
                     "live_crosscase_approval_recorded": all(
                         (cross_live.get("approval") or {}).get(key) is True
