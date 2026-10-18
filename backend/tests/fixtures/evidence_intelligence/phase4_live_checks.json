@@ -134,6 +134,11 @@
       "status": 404,
       "comment": "Missing case -> 404, documenting the 404-missing / 403-IDOR split."
     },
+    "name_only_approve": {
+      "status": 409,
+      "code": "ARTIFACT_NOT_REVIEWABLE",
+      "comment": "Approving the ingest-sourced name/txn (similarity_name_only) candidate must be refused by the server before any state change - not merely hidden by the UI."
+    },
     "hidden_artifact_explain": {
       "status": 404
     }

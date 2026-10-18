@@ -1428,9 +1428,17 @@ class Phase4EvalRunner:
             ),
             items[0] if items else None,
         )
+        name_target = next(
+            (
+                item
+                for item in items
+                if item["payload"]["group"]["indicator_kind"] == "name"
+            ),
+            None,
+        )
         if target is not None:
             section["approval"] = await self._approval_checks(
-                case_x=case_x, case_y=case_y, target=target
+                case_x=case_x, case_y=case_y, target=target, name_target=name_target
             )
 
         # Admin scope {X, Z} - a different scope, different candidate set.
@@ -1535,7 +1543,12 @@ class Phase4EvalRunner:
         return section
 
     async def _approval_checks(
-        self, *, case_x: str, case_y: str, target: dict[str, Any]
+        self,
+        *,
+        case_x: str,
+        case_y: str,
+        target: dict[str, Any],
+        name_target: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from sqlalchemy import func, select
 
@@ -1550,6 +1563,24 @@ class Phase4EvalRunner:
                     .where(Entity.case_id.in_([case_x, case_y]))
                 )
             ).scalar() or 0
+
+        # B3 live: approving a name-similarity-only candidate must be refused
+        # by the server outright (not merely hidden by the UI).
+        name_refusal: dict[str, Any] = {"attempted": False}
+        if name_target is not None:
+            refuse = await self.api.post(
+                f"/cases/{case_x}/evidence-intelligence/artifacts/"
+                f"{name_target['id']}/review",
+                json={"decision": "approved", "note": "eval harness (must refuse)"},
+                headers=self._headers(),
+            )
+            name_refusal = {
+                "attempted": True,
+                "status_code": refuse.status_code,
+                "code": refuse.json().get("error", {}).get("code")
+                if refuse.status_code >= 400
+                else None,
+            }
 
         approve = await self.api.post(
             f"/cases/{case_x}/evidence-intelligence/artifacts/{artifact_id}/review",
@@ -1622,6 +1653,7 @@ class Phase4EvalRunner:
         ]
 
         return {
+            "name_only_refusal": name_refusal,
             "parent_status_after_review": parent_review.get("status"),
             "parent_kind_after_review": parent_review.get("kind"),
             "generic_list_omits_crosscase": generic_list == [],
@@ -1943,6 +1975,20 @@ class Phase4EvalRunner:
                             "artifacts_on_missing_case_status"
                         )
                         == 404
+                    ),
+                    "live_crosscase_name_only_approve_refused": (
+                        cross_live.get("approval", {})
+                        .get("name_only_refusal", {})
+                        .get("attempted")
+                        is True
+                        and cross_live.get("approval", {})
+                        .get("name_only_refusal", {})
+                        .get("status_code")
+                        == 409
+                        and cross_live.get("approval", {})
+                        .get("name_only_refusal", {})
+                        .get("code")
+                        == "ARTIFACT_NOT_REVIEWABLE"
                     ),
                     "live_crosscase_generic_list_omits_crosscase": (
                         cross_live.get("approval", {}).get(
