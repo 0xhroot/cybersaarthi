@@ -332,6 +332,90 @@ def test_merged_or_rejected_entities_never_contribute() -> None:
     # in the API test below where only active entities are seeded.
 
 
+def _in_memory_evidence_file(sha256: str) -> EvidenceFile:
+    evidence = EvidenceFile(
+        case_id="case-a",
+        original_filename="seed.json",
+        stored_key="seed/seed.json",
+        content_type="application/json",
+        file_size=10,
+        sha256=sha256,
+        format="json",
+        encoding="utf-8",
+        record_count=0,
+        status="stored",
+    )
+    evidence.id = uuid.uuid4()
+    return evidence
+
+
+def test_evidence_hash_indicator_requires_a_real_sha256() -> None:
+    # A 64-character lowercase hex digest normalizes to itself (case-folded).
+    digest = "a" * 32 + "b" * 32
+    assert xc_svc._normalize_for("evidence_hash", digest) == digest
+    assert xc_svc._normalize_for("evidence_hash", digest.upper()) == digest
+    # Anything that is not a sha256 hex digest is skipped, never guessed at:
+    # a placeholder, a truncated digest or a mislabelled column value must not
+    # silently become a shared key (that would fabricate an exact match).
+    for invalid in ("", "none", "null", digest[:12], f"{digest}c", "SHA256-PENDING"):
+        assert xc_svc._normalize_for("evidence_hash", invalid) is None
+
+    counters = xc_svc.collect_case_indicators(
+        case_id="case-a",
+        records=[],
+        evidence_files=[_in_memory_evidence_file(digest), _in_memory_evidence_file("pending")],
+        entities=[],
+        aliases=[],
+        max_indicators=100,
+    )
+    hashes = [i for i in counters.indicators if i.kind == "evidence_hash"]
+    # Exactly the valid digest contributes; the placeholder is counted as an
+    # invalid value instead of being coerced.
+    assert [i.value_normalized for i in hashes] == [digest]
+    assert counters.values_skipped_invalid == 1
+
+
+def test_evidence_hash_match_is_an_exact_identifier_candidate() -> None:
+    # Two cases whose uploaded files share one sha256: an exact evidence match
+    # is a first-class identifier candidate (originals identical -> exact).
+    digest = "c" * 64
+    file_a, file_b = str(uuid.uuid4()), str(uuid.uuid4())
+    hash_a = xc_svc.Indicator(
+        kind="evidence_hash",
+        value_normalized=digest,
+        value_original=digest,
+        case_id="a",
+        evidence_file_id=file_a,
+    )
+    hash_b = xc_svc.Indicator(
+        kind="evidence_hash",
+        value_normalized=digest,
+        value_original=digest,
+        case_id="b",
+        evidence_file_id=file_b,
+    )
+    indicators = {"a": [hash_a], "b": [hash_b]}
+    payload = xc_svc.build_candidate(
+        kind="evidence_hash",
+        value_normalized=digest,
+        members={"a": [hash_a], "b": [hash_b]},
+        indicators_by_case=indicators,
+        indices_by_case={
+            "a": xc_svc._build_case_index(indicators["a"]),
+            "b": xc_svc._build_case_index(indicators["b"]),
+        },
+        scope_case_ids=["a", "b"],
+        scope_hash="h",
+        max_supporting_ids=10,
+    )
+    assert payload["classification"] == "exact_identifier"
+    assert payload["reviewable"] is True
+    assert [side["case_id"] for side in payload["sides"]] == ["a", "b"]
+    for side in payload["sides"]:
+        assert side["evidence_file_ids"]
+        assert side["value_originals"] == [digest]
+
+
 # -- classification -------------------------------------------------------------
 
 
@@ -573,7 +657,7 @@ async def test_discover_run_stores_reviewable_candidates(
     assert summary["scope_cases"] == 2
     assert summary["cases_scanned"] == 2
     assert summary["records_scanned"] == 2
-    assert summary["indicators_extracted"] == 10  # 5 per case (4 record + 1 name)
+    assert summary["indicators_extracted"] == 12  # 6 per case (4 record + 1 name + 1 evidence hash)
     assert summary["groups_shared"] == 5
     assert summary["candidates_expected"] == 5
     assert summary["artifacts_created"] == 5

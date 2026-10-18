@@ -130,6 +130,7 @@ LIMITATIONS: tuple[str, ...] = (
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 URL_RE = re.compile(r"^(?:https?://|www\.)\S+$", re.IGNORECASE)
 DOMAIN_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # First-hit-wins key rules over flattened ``raw_data`` keys (leaf key matched,
 # case-insensitively). Reading a key the source actually provided is not
@@ -245,6 +246,13 @@ def _normalize_for(kind: str, value: str) -> str | None:
         return normalize_domain(value)
     if kind == "device":
         return normalize_device(value)
+    if kind == "evidence_hash":
+        # An evidence file's sha256 is already a canonical lowercase hex digest
+        # when it came from the upload; accept only that exact form (trimmed,
+        # case-folded) so a placeholder or truncated value is skipped rather
+        # than guessed at.
+        canonical = value.strip().lower()
+        return canonical if SHA256_RE.fullmatch(canonical) else None
     if kind in (NAME_KIND, REVIEWED_ALIAS_KIND):
         return normalize_name(value) if kind == NAME_KIND else normalize_reviewed_alias(value)
     return None
