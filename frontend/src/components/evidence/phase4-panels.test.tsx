@@ -144,6 +144,9 @@ const flowPayload = {
         supporting_source_record_ids: ["rec-1", "rec-2", "rec-3", "rec-4"],
       },
     ],
+    by_status: [
+      { status: "unknown", count: 4, total_records: "25500.00", supporting_source_record_ids: ["rec-1", "rec-2", "rec-3", "rec-4"] },
+    ],
     by_account: [
       {
         account_normalized: "ACCSIH001",
@@ -328,6 +331,11 @@ describe("phase 4 financial flow panel", () => {
     expect(notComputable.textContent).toContain("never as zero");
     // The word "0" only ever appears as a refusal counter, never as a total.
     expect(screen.queryByText(/^0$/)).toBeNull();
+
+    // Status split: an unclassified status stays "unknown", never assumed completed.
+    const byStatus = screen.getByTestId("flow-by-status");
+    expect(byStatus.textContent).toContain("unknown: 25500.00 (4 records)");
+    expect(byStatus.textContent).toContain("never counts as completed flow");
   });
 
   it("renders facts, association-only structure and pattern rules with their reasons", () => {

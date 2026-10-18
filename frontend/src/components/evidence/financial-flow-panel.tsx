@@ -135,6 +135,12 @@ interface FlowPayload {
   aggregates?: {
     counts?: Record<string, number>;
     currency_buckets?: FlowBucket[];
+    by_status?: Array<{
+      status?: string;
+      count?: number;
+      total_records?: string;
+      supporting_source_record_ids?: string[];
+    }>;
     by_account?: FlowGrouped[];
     by_merchant?: FlowGrouped[];
     not_computable?: Record<string, string>;
@@ -638,6 +644,23 @@ export function FinancialFlowPanel({ caseId }: { caseId: string }) {
                 <p className="mt-0.5 text-[11px] leading-relaxed text-dim">
                   {payload.aggregates.not_computable.reason}
                 </p>
+              </div>
+            ) : null}
+            {(payload.aggregates?.by_status ?? []).length ? (
+              <div className="mt-2" data-testid="flow-by-status">
+                <p className="mb-1 text-[10px] uppercase tracking-wider text-dim">
+                  Amounts by transaction status — a reversed or pending transfer never counts as completed flow
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(payload.aggregates?.by_status ?? []).map((entry) => (
+                    <span
+                      key={entry.status}
+                      className="rounded border border-border bg-surface-3 px-2 py-1 font-mono text-[11px]"
+                    >
+                      {entry.status ?? "unknown"}: {entry.total_records ?? "—"} ({entry.count ?? 0} records)
+                    </span>
+                  ))}
+                </div>
               </div>
             ) : null}
           </section>

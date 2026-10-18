@@ -401,6 +401,32 @@ def test_conflicting_group_amounts_are_reported_instead_of_picked() -> None:
     assert bucket["total_records"] == "30.00"
 
 
+def test_status_split_separates_reversed_and_pending_from_completed() -> None:
+    records = [
+        _rec({"amount": "500.00", "account": "A-1", "status": "completed"}, 1),
+        _rec({"amount": "700.00", "account": "A-1", "status": "REFUNDED"}, 2),
+        _rec({"amount": "300.00", "account": "A-1", "status": "payment pending"}, 3),
+        _rec({"amount": "900.00", "account": "A-1"}, 4),  # no status word
+    ]
+    facts, _ = extract_facts(records)
+    agg = aggregate_facts(facts)
+
+    by_status = {entry["status"]: entry for entry in agg["by_status"]}
+    # Every classified status is a separate row: a reversed or pending amount
+    # never reads as completed flow, and an unclassified fact stays "unknown".
+    assert set(by_status) == {"completed", "pending", "reversed", "unknown"}
+    assert by_status["completed"]["total_records"] == "500.00"
+    assert by_status["reversed"]["total_records"] == "700.00"
+    assert by_status["pending"]["total_records"] == "300.00"
+    assert by_status["unknown"]["total_records"] == "900.00"
+    assert by_status["unknown"]["count"] == 1
+    # Supporting ids are exact and map back to the source records.
+    assert len(by_status["reversed"]["supporting_source_record_ids"]) == 1
+    # The record-sum currency bucket is unchanged by the split.
+    bucket = agg["currency_buckets"][0]
+    assert bucket["total_records"] == "2400.00"
+
+
 def test_structure_network_types_edges_and_never_asserts_a_transfer() -> None:
     records = [
         _rec({"amount": "4500.00", "account": "ACC-1", "merchant": "PhonePe"}, 1),

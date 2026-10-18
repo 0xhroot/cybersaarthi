@@ -625,9 +625,33 @@ def aggregate_facts(
             )
         return out
 
+    # Status separation: amounts are also reported per classified transaction
+    # status so a reversed or pending transfer never reads as completed flow.
+    # The currency buckets above remain the record sums (duplicates included);
+    # this split sits beside them, and an unclassified status stays "unknown"
+    # rather than being assumed completed.
+    status_groups: dict[str, list[TransactionFact]] = {}
+    for fact in with_amount:
+        status_groups.setdefault(fact.status, []).append(fact)
+    by_status: list[dict[str, Any]] = []
+    for status in sorted(status_groups):
+        group = status_groups[status]
+        amounts = [f.amount for f in group if f.amount is not None]
+        ids, capped = _capped_ids([f.source_record_id for f in group], max_supporting_ids)
+        by_status.append(
+            {
+                "status": status,
+                "count": len(group),
+                "total_records": str(sum(amounts, Decimal("0"))),
+                "supporting_source_record_ids": ids,
+                "supporting_ids_capped": capped,
+            }
+        )
+
     return {
         "counts": counts,
         "currency_buckets": currency_buckets,
+        "by_status": by_status,
         "by_account": _grouped("account_normalized"),
         "by_bank": _grouped("bank"),
         "by_merchant": _grouped("merchant"),
@@ -1047,6 +1071,13 @@ def build_payload(
             "currency_bucketing": (
                 "amounts are summed only within one currency value; records without "
                 "a currency fall into a null bucket flagged currency_unknown"
+            ),
+            "status_separation": (
+                "amount totals are additionally reported per classified transaction "
+                "status (by_status): a reversed, pending or rejected transfer never "
+                "counts inside a completed-status total, and a fact with no "
+                "recognized status word is reported as unknown rather than assumed "
+                "completed"
             ),
             "net_flow": "not computed: direction is absent from the ingest",
             "structure_edge": (

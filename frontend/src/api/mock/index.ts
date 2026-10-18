@@ -4372,6 +4372,15 @@ function mockFlowPayload(caseId: string): Record<string, unknown> {
           supporting_ids_capped: false,
         },
       ],
+      by_status: [
+        {
+          status: "unknown",
+          count: 4,
+          total_records: "25500.00",
+          supporting_source_record_ids: ["mock-rec-1", "mock-rec-2", "mock-rec-3", "mock-rec-4"],
+          supporting_ids_capped: false,
+        },
+      ],
       by_account: [
         {
           account_normalized: "ACCSIH001",
