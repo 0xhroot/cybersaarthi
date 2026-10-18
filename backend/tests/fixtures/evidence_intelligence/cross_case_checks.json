@@ -1,0 +1,181 @@
+{
+  "description": "Phase 4 feature B (cross-case pattern discovery) golden fixture: three synthetic cases (alpha/beta/gamma) hand-computed against docs/ai/PHASE_4_DESIGN.md §7. Design elements: an exact-identifier match (evidence files of alpha and beta carry one identical sha256), normalized identifier matches that differ only in formatting ('ACC-SIH-001' vs 'ACCSIH001'; '+91 98200 00001' vs '98200-00001'), reviewed-alias reuse (both alpha and beta hold the Phase-3-resolved alias 'P. Sharma' for their Priya Sharma person entity - emitted twice: once as reviewed_alias, once as the natural name kind), a name-similarity-only group spanning all three cases that must be non-reviewable (gamma shares the name but no identifier), a conflicting-attribute group (account_ref group where every side carries email, domain and txn_id with no shared value - flagged, never hidden), and decoy near-misses that are single-case groups and must never become candidates (Sunil Verma, sky/horizon domains, per-case txn ids, gamma's account/phone/hash, Ramesh Gupta). All expectations were computed by hand from the documented grouping, classification and score-band rules and cross-checked against the pure services. Records cite a shared evidence file per case, so record indicators and the evidence-hash indicator share provenance by design.",
+  "limitations": [
+    "synthetic fixture; a shared identifier is a candidate signal, never proof of one actor behind the cases",
+    "the score is a 0-100 signal-strength band within one rules version; it is not a probability and is never compared across versions",
+    "golden replay exercises the pure extraction and candidate construction; authorization, scope rechecks and read-time omission are gated in the live section and in the API test suite",
+    "alias 'P. Sharma' keeps its internal period under name normalization (only edge punctuation is stripped), so the name and reviewed_alias groups coexist deliberately"
+  ],
+  "cases": [
+    {
+      "label": "alpha",
+      "case_id": "00000000-0000-4000-8000-0000000000aa",
+      "records": [
+        {"id": "00000000-0000-4000-8000-00000000a001", "evidence_file_id": "00000000-0000-4000-8000-00000000e0a1", "record_no": 1, "raw_data": {"account_number": "ACC-SIH-001", "beneficiary_phone": "+91 98200 00001", "callback": "ops@skyline.test", "name": "Priya Sharma", "transaction_id": "TXN-A-01"}},
+        {"id": "00000000-0000-4000-8000-00000000a002", "evidence_file_id": "00000000-0000-4000-8000-00000000e0a1", "record_no": 2, "raw_data": {"name": "Sunil Verma"}}
+      ],
+      "entities": [
+        {"id": "00000000-0000-4000-8000-00000000ea01", "entity_type": "person", "canonical_value": "Priya Sharma"},
+        {"id": "00000000-0000-4000-8000-00000000ea02", "entity_type": "account", "canonical_value": "ACC-SIH-001"}
+      ],
+      "aliases": [
+        {"id": "00000000-0000-4000-8000-00000000ea11", "entity_id": "00000000-0000-4000-8000-00000000ea01", "alias_value": "P. Sharma", "alias_type": "resolution"}
+      ],
+      "evidence_files": [
+        {"id": "00000000-0000-4000-8000-00000000e0a1", "sha256": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"}
+      ],
+      "expect": {"indicators": 12, "records_scanned": 2, "evidence_files_scanned": 1, "entity_rows": 2, "alias_rows": 1, "values_skipped_invalid": 0}
+    },
+    {
+      "label": "beta",
+      "case_id": "00000000-0000-4000-8000-0000000000bb",
+      "records": [
+        {"id": "00000000-0000-4000-8000-00000000b001", "evidence_file_id": "00000000-0000-4000-8000-00000000e0b1", "record_no": 1, "raw_data": {"account_number": "ACCSIH001", "beneficiary_phone": "98200-00001", "callback": "billing@horizon.test", "name": "Priya Sharma", "transaction_id": "TXN-B-01"}}
+      ],
+      "entities": [
+        {"id": "00000000-0000-4000-8000-00000000eb01", "entity_type": "person", "canonical_value": "Priya Sharma"},
+        {"id": "00000000-0000-4000-8000-00000000eb02", "entity_type": "account", "canonical_value": "ACCSIH001"}
+      ],
+      "aliases": [
+        {"id": "00000000-0000-4000-8000-00000000eb11", "entity_id": "00000000-0000-4000-8000-00000000eb01", "alias_value": "P. Sharma", "alias_type": "resolution"}
+      ],
+      "evidence_files": [
+        {"id": "00000000-0000-4000-8000-00000000e0b1", "sha256": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"}
+      ],
+      "expect": {"indicators": 11, "records_scanned": 1, "evidence_files_scanned": 1, "entity_rows": 2, "alias_rows": 1, "values_skipped_invalid": 0}
+    },
+    {
+      "label": "gamma",
+      "case_id": "00000000-0000-4000-8000-0000000000cc",
+      "records": [
+        {"id": "00000000-0000-4000-8000-00000000c001", "evidence_file_id": "00000000-0000-4000-8000-00000000e0c1", "record_no": 1, "raw_data": {"account_number": "ACC-OTHER-9", "beneficiary_phone": "98111 11111", "name": "Priya Sharma"}}
+      ],
+      "entities": [
+        {"id": "00000000-0000-4000-8000-00000000ec01", "entity_type": "person", "canonical_value": "Priya Sharma"},
+        {"id": "00000000-0000-4000-8000-00000000ec02", "entity_type": "person", "canonical_value": "Ramesh Gupta"}
+      ],
+      "aliases": [],
+      "evidence_files": [
+        {"id": "00000000-0000-4000-8000-00000000e0c1", "sha256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}
+      ],
+      "expect": {"indicators": 6, "records_scanned": 1, "evidence_files_scanned": 1, "entity_rows": 2, "alias_rows": 0, "values_skipped_invalid": 0}
+    }
+  ],
+  "scope_case_ids": [
+    "00000000-0000-4000-8000-0000000000aa",
+    "00000000-0000-4000-8000-0000000000bb",
+    "00000000-0000-4000-8000-0000000000cc"
+  ],
+  "expect": {
+    "groups_total": 17,
+    "groups_shared": 6,
+    "candidates_bounded": false,
+    "candidates": [
+      {
+        "indicator_kind": "account_ref",
+        "value_normalized": "ACCSIH001",
+        "classification": "normalized_identifier",
+        "score": 64,
+        "reviewable": true,
+        "additional_shared_kinds": ["evidence_hash", "phone"],
+        "conflicts": ["domain", "email", "txn_id"],
+        "sides": [
+          {"label": "alpha", "value_originals": ["ACC-SIH-001"], "entity_ids": ["00000000-0000-4000-8000-00000000ea02"], "source_record_ids": ["00000000-0000-4000-8000-00000000a001", "00000000-0000-4000-8000-00000000a002"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0a1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "domain", "email", "evidence_hash", "name", "phone", "txn_id"], "supporting_ids_capped": false},
+          {"label": "beta", "value_originals": ["ACCSIH001"], "entity_ids": ["00000000-0000-4000-8000-00000000eb02"], "source_record_ids": ["00000000-0000-4000-8000-00000000b001"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0b1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "domain", "email", "evidence_hash", "name", "phone", "txn_id"], "supporting_ids_capped": false}
+        ]
+      },
+      {
+        "indicator_kind": "evidence_hash",
+        "value_normalized": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+        "classification": "exact_identifier",
+        "score": 79,
+        "reviewable": true,
+        "additional_shared_kinds": ["account_ref", "phone"],
+        "conflicts": ["domain", "email", "txn_id"],
+        "sides": [
+          {"label": "alpha", "value_originals": ["a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"], "entity_ids": [], "source_record_ids": ["00000000-0000-4000-8000-00000000a001", "00000000-0000-4000-8000-00000000a002"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0a1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "domain", "email", "evidence_hash", "name", "phone", "txn_id"], "supporting_ids_capped": false},
+          {"label": "beta", "value_originals": ["a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"], "entity_ids": [], "source_record_ids": ["00000000-0000-4000-8000-00000000b001"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0b1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "domain", "email", "evidence_hash", "name", "phone", "txn_id"], "supporting_ids_capped": false}
+        ]
+      },
+      {
+        "indicator_kind": "name",
+        "value_normalized": "p. sharma",
+        "classification": "reviewed_alias",
+        "score": 55,
+        "reviewable": true,
+        "additional_shared_kinds": [],
+        "conflicts": [],
+        "sides": [
+          {"label": "alpha", "value_originals": ["P. Sharma"], "entity_ids": ["00000000-0000-4000-8000-00000000ea01"], "source_record_ids": [], "evidence_file_ids": [], "reviewed_alias": true, "contributing_kinds": ["name", "reviewed_alias"], "supporting_ids_capped": false},
+          {"label": "beta", "value_originals": ["P. Sharma"], "entity_ids": ["00000000-0000-4000-8000-00000000eb01"], "source_record_ids": [], "evidence_file_ids": [], "reviewed_alias": true, "contributing_kinds": ["name", "reviewed_alias"], "supporting_ids_capped": false}
+        ]
+      },
+      {
+        "indicator_kind": "name",
+        "value_normalized": "priya sharma",
+        "classification": "similarity_name_only",
+        "score": 27,
+        "reviewable": false,
+        "review_disabled_reason_non_null": true,
+        "additional_shared_kinds": [],
+        "conflicts": ["account_ref", "evidence_hash", "phone"],
+        "sides": [
+          {"label": "alpha", "value_originals": ["Priya Sharma"], "entity_ids": ["00000000-0000-4000-8000-00000000ea01"], "source_record_ids": ["00000000-0000-4000-8000-00000000a001", "00000000-0000-4000-8000-00000000a002"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0a1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "domain", "email", "evidence_hash", "name", "phone", "reviewed_alias", "txn_id"], "supporting_ids_capped": false},
+          {"label": "beta", "value_originals": ["Priya Sharma"], "entity_ids": ["00000000-0000-4000-8000-00000000eb01"], "source_record_ids": ["00000000-0000-4000-8000-00000000b001"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0b1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "domain", "email", "evidence_hash", "name", "phone", "reviewed_alias", "txn_id"], "supporting_ids_capped": false},
+          {"label": "gamma", "value_originals": ["Priya Sharma"], "entity_ids": ["00000000-0000-4000-8000-00000000ec01"], "source_record_ids": ["00000000-0000-4000-8000-00000000c001"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0c1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "evidence_hash", "name", "phone"], "supporting_ids_capped": false}
+        ]
+      },
+      {
+        "indicator_kind": "phone",
+        "value_normalized": "919820000001",
+        "classification": "normalized_identifier",
+        "score": 64,
+        "reviewable": true,
+        "additional_shared_kinds": ["account_ref", "evidence_hash"],
+        "conflicts": ["domain", "email", "txn_id"],
+        "sides": [
+          {"label": "alpha", "value_originals": ["+91 98200 00001"], "entity_ids": [], "source_record_ids": ["00000000-0000-4000-8000-00000000a001", "00000000-0000-4000-8000-00000000a002"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0a1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "domain", "email", "evidence_hash", "name", "phone", "txn_id"], "supporting_ids_capped": false},
+          {"label": "beta", "value_originals": ["98200-00001"], "entity_ids": [], "source_record_ids": ["00000000-0000-4000-8000-00000000b001"], "evidence_file_ids": ["00000000-0000-4000-8000-00000000e0b1"], "reviewed_alias": false, "contributing_kinds": ["account_ref", "domain", "email", "evidence_hash", "name", "phone", "txn_id"], "supporting_ids_capped": false}
+        ]
+      },
+      {
+        "indicator_kind": "reviewed_alias",
+        "value_normalized": "p. sharma",
+        "classification": "reviewed_alias",
+        "score": 55,
+        "reviewable": true,
+        "additional_shared_kinds": [],
+        "conflicts": [],
+        "sides": [
+          {"label": "alpha", "value_originals": ["P. Sharma"], "entity_ids": ["00000000-0000-4000-8000-00000000ea01"], "source_record_ids": [], "evidence_file_ids": [], "reviewed_alias": true, "contributing_kinds": ["name", "reviewed_alias"], "supporting_ids_capped": false},
+          {"label": "beta", "value_originals": ["P. Sharma"], "entity_ids": ["00000000-0000-4000-8000-00000000eb01"], "source_record_ids": [], "evidence_file_ids": [], "reviewed_alias": true, "contributing_kinds": ["name", "reviewed_alias"], "supporting_ids_capped": false}
+        ]
+      }
+    ],
+    "decoys_never_candidates": [
+      {"indicator_kind": "name", "value_normalized": "sunil verma"},
+      {"indicator_kind": "email", "value_normalized": "ops@skyline.test"},
+      {"indicator_kind": "email", "value_normalized": "billing@horizon.test"},
+      {"indicator_kind": "domain", "value_normalized": "skyline.test"},
+      {"indicator_kind": "domain", "value_normalized": "horizon.test"},
+      {"indicator_kind": "txn_id", "value_normalized": "TXNA01"},
+      {"indicator_kind": "txn_id", "value_normalized": "TXNB01"},
+      {"indicator_kind": "account_ref", "value_normalized": "ACCOTHER9"},
+      {"indicator_kind": "phone", "value_normalized": "919811111111"},
+      {"indicator_kind": "name", "value_normalized": "ramesh gupta"},
+      {"indicator_kind": "evidence_hash", "value_normalized": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}
+    ],
+    "limits": {
+      "max_candidates": 3,
+      "bounded_first_three_keys": [
+        {"indicator_kind": "account_ref", "value_normalized": "ACCSIH001"},
+        {"indicator_kind": "evidence_hash", "value_normalized": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"},
+        {"indicator_kind": "name", "value_normalized": "p. sharma"}
+      ],
+      "max_indicators_alpha": 5,
+      "max_supporting_ids": 1,
+      "capped_side_with_records": "alpha",
+      "capped_side_kept_record_ids": ["00000000-0000-4000-8000-00000000a001"]
+    }
+  }
+}

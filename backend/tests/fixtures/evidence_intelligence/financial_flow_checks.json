@@ -1,0 +1,188 @@
+{
+  "description": "Phase 4 feature A (financial flow) golden fixture: a synthetic 23-record ledger hand-computed against docs/ai/PHASE_4_DESIGN.md §7. Design elements: two currencies (INR + USD, incl. a '$1,250.00' amount-hint record), a reversal (status REFUNDED), a pending/rejected pair ('payment pending' / 'declined'), a 3-hop association path (ACC-U1 -First National- ACC-U2 -Coastal Trust), an association cycle (ACC-A1 -Ravi Kumar- ACC-A2 -First National- ACC-A1), a split pattern (two identical 875.00 transfers from ACC-A6 to distinct beneficiaries), a rapid-succession cluster (three same-source ACC-A11 transfers, adjacent in record order), every transfer one-sided (no payer key exists anywhere), an unparseable-timestamp record ('last Tuesday'), duplicate-looking records with distinct txn ids (TXN-1001/TXN-1099, same 1500.00 from ACC-A1), an invalid amount ('not-a-number'), a currency-less record, an account+bank-only record (fact_class account_reference) and a record with no financial fields. All expectations were computed by hand from the documented rules and cross-checked against the pure services. n_records=23, n_victims=2, one schema 'owns' edge (person Ananya Sirohi -> ACC-A1).",
+  "limitations": [
+    "synthetic fixture; the dev corpus has no parseable transaction timestamps, so the fixture mirrors that (one unparseable date value, no parseable occurred_at anywhere) and rapid_succession stays not_evaluable",
+    "amounts are unlabelled currency unless a currency field or '$' hint exists; nothing here asserts INR for the null bucket",
+    "victim matching is exact Decimal string equality against transaction amounts; the float 60.5 victim matches record 12's '60.5' only because their string forms coincide - a documented limitation of the float victim columns, not a claim of identity",
+    "the network is association-only: confirmed_transfer_edges is 0 and trace never reports a transfer"
+  ],
+  "case_id": "00000000-0000-4000-8000-00000000c001",
+  "evidence_file_id": "00000000-0000-4000-8000-0000000000ee",
+  "amount_threshold": "5000",
+  "records": [
+    {"transaction_id": "TXN-1001", "amount": "1500.00", "currency": "INR", "account_number": "ACC-A1", "beneficiary_name": "Ravi Kumar", "status": "completed"},
+    {"transaction_id": "TXN-1002", "amount": "250.50", "currency": "INR", "account_number": "ACC-A1", "beneficiary_name": "Meena Devi", "status": "success"},
+    {"transaction_id": "TXN-1003", "amount": "6000.00", "currency": "INR", "account_number": "ACC-A2", "status": "completed"},
+    {"transaction_id": "TXN-1004", "amount": "700.00", "currency": "INR", "account_number": "ACC-A3", "status": "REFUNDED"},
+    {"transaction_id": "TXN-1005", "amount": "320.00", "currency": "INR", "account_number": "ACC-A4", "status": "payment pending"},
+    {"transaction_id": "TXN-1006", "amount": "180.00", "currency": "INR", "account_number": "ACC-A5", "status": "declined"},
+    {"transaction_id": "TXN-1007", "amount": "99.99", "currency": "USD", "account_number": "ACC-U1", "bank_name": "First National"},
+    {"transaction_id": "TXN-1008", "amount": "$1,250.00", "account_number": "ACC-U2", "bank_name": "First National"},
+    {"amount": "450.00", "account_number": "ACC-A6"},
+    {"transaction_id": "TXN-1009", "amount": "not-a-number", "account_number": "ACC-A7"},
+    {"account_number": "ACC-A8", "bank_name": "SecureBank"},
+    {"transaction_id": "TXN-1011", "amount": "60.5", "currency": "INR", "account_number": "ACC-A10", "date": "last Tuesday"},
+    {"transaction_id": "TXN-1099", "amount": "1500.00", "currency": "INR", "account_number": "ACC-A1", "beneficiary_name": "Ravi Kumar"},
+    {"text": "just a note about the case meeting"},
+    {"transaction_id": "TXN-1012", "amount": "75.00", "currency": "USD", "account_number": "ACC-U2", "bank_name": "Coastal Trust"},
+    {"transaction_id": "TXN-1013", "amount": "220.00", "currency": "INR", "account_number": "ACC-A1", "bank_name": "First National"},
+    {"transaction_id": "TXN-1014", "amount": "210.00", "currency": "INR", "account_number": "ACC-A2", "bank_name": "First National"},
+    {"transaction_id": "TXN-1015", "amount": "190.00", "currency": "INR", "account_number": "ACC-A2", "beneficiary_name": "Ravi Kumar"},
+    {"transaction_id": "TXN-1016", "amount": "875.00", "currency": "INR", "account_number": "ACC-A6", "beneficiary_name": "Sunil Bose"},
+    {"transaction_id": "TXN-1017", "amount": "875.00", "currency": "INR", "account_number": "ACC-A6", "beneficiary_name": "Geeta Rao"},
+    {"transaction_id": "TXN-1018", "amount": "55.00", "currency": "INR", "account_number": "ACC-A11", "beneficiary_name": "Kiran Joshi"},
+    {"transaction_id": "TXN-1019", "amount": "65.00", "currency": "INR", "account_number": "ACC-A11", "beneficiary_name": "Kiran Joshi"},
+    {"transaction_id": "TXN-1020", "amount": "85.00", "currency": "INR", "account_number": "ACC-A11", "beneficiary_name": "Kiran Joshi"}
+  ],
+  "victims": [
+    {"id": "00000000-0000-4000-8000-000000000f01", "name": "Loss Without Matching Transfer", "reported_amount": 8000.0, "currency": "INR"},
+    {"id": "00000000-0000-4000-8000-000000000f02", "name": "Loss Matching A Transaction", "reported_amount": 60.5, "currency": "INR"}
+  ],
+  "owns_edges": [
+    {"source_type": "person", "source_value": "Ananya Sirohi", "target_type": "account", "target_value": "ACC-A1", "relationship_type": "owns", "confidence": 0.9, "source_record_id": null}
+  ],
+  "expect": {
+    "warnings": {"records_without_financial_fields": 1, "amount_invalid": 1, "amounts_parsed": 20},
+    "counts": {
+      "facts_total": 22,
+      "fact_class_transaction": 21,
+      "fact_class_account_reference": 1,
+      "transaction_with_amount": 20,
+      "transaction_without_amount": 1,
+      "with_currency": 19,
+      "without_currency": 1,
+      "with_timestamp": 0,
+      "without_timestamp": 20,
+      "with_txn_ref": 20,
+      "without_txn_ref": 1
+    },
+    "currency_buckets": [
+      {"currency": "INR", "currency_unknown": false, "count": 16, "distinct_groups": 16, "distinct_amounts": 14, "conflicting_groups": 0, "min": "55.00", "max": "6000.00", "total_records": "13086.00", "total_distinct": "13086.00", "record_nos": [1, 2, 3, 4, 5, 6, 12, 13, 16, 17, 18, 19, 20, 21, 22, 23]},
+      {"currency": "USD", "currency_unknown": false, "count": 3, "distinct_groups": 3, "distinct_amounts": 3, "conflicting_groups": 0, "min": "75.00", "max": "1250.00", "total_records": "1424.99", "total_distinct": "1424.99", "record_nos": [7, 8, 15]},
+      {"currency": null, "currency_unknown": true, "count": 1, "distinct_groups": 1, "distinct_amounts": 1, "conflicting_groups": 0, "min": "450.00", "max": "450.00", "total_records": "450.00", "total_distinct": "450.00", "record_nos": [9]}
+    ],
+    "by_status": [
+      {"status": "completed", "count": 3, "total_records": "7750.50", "record_nos": [1, 2, 3]},
+      {"status": "pending", "count": 1, "total_records": "320.00", "record_nos": [5]},
+      {"status": "rejected", "count": 1, "total_records": "180.00", "record_nos": [6]},
+      {"status": "reversed", "count": 1, "total_records": "700.00", "record_nos": [4]},
+      {"status": "unknown", "count": 14, "total_records": "6010.49", "record_nos": [7, 8, 9, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23]}
+    ],
+    "by_account": [
+      {"account": "ACCA1", "count": 4, "total_records": "3470.50", "record_nos": [1, 2, 13, 16]},
+      {"account": "ACCA10", "count": 1, "total_records": "60.5", "record_nos": [12]},
+      {"account": "ACCA11", "count": 3, "total_records": "205.00", "record_nos": [21, 22, 23]},
+      {"account": "ACCA2", "count": 3, "total_records": "6400.00", "record_nos": [3, 17, 18]},
+      {"account": "ACCA3", "count": 1, "total_records": "700.00", "record_nos": [4]},
+      {"account": "ACCA4", "count": 1, "total_records": "320.00", "record_nos": [5]},
+      {"account": "ACCA5", "count": 1, "total_records": "180.00", "record_nos": [6]},
+      {"account": "ACCA6", "count": 3, "total_records": "2200.00", "record_nos": [9, 19, 20]},
+      {"account": "ACCU1", "count": 1, "total_records": "99.99", "record_nos": [7]},
+      {"account": "ACCU2", "count": 2, "total_records": "1325.00", "record_nos": [8, 15]}
+    ],
+    "by_bank": [
+      {"bank": "Coastal Trust", "count": 1, "total_records": "75.00", "record_nos": [15]},
+      {"bank": "First National", "count": 4, "total_records": "1779.99", "record_nos": [7, 8, 16, 17]}
+    ],
+    "by_merchant": [],
+    "not_computable": {"inflow": "not_computable_no_direction", "outflow": "not_computable_no_direction", "net": "not_computable_no_direction"},
+    "patterns": {
+      "firing": [
+        {"rule": "duplicate_amount", "evidence": {"amount": "1500.00", "record_count": 2, "distinct_dedupe_keys": 2}, "record_nos": [1, 13]},
+        {"rule": "duplicate_amount", "evidence": {"amount": "875.00", "record_count": 2, "distinct_dedupe_keys": 2}, "record_nos": [19, 20]},
+        {"rule": "amount_threshold", "evidence": {"threshold": "5000", "matched_count": 1, "amounts": ["6000.00"]}, "record_nos": [3]},
+        {"rule": "missing_currency", "evidence": {"matched_count": 1}, "record_nos": [9]},
+        {"rule": "missing_timestamp", "evidence": {"matched_count": 20}, "record_nos": [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23]},
+        {"rule": "victim_loss_unmatched", "evidence": {"victim_id": "00000000-0000-4000-8000-000000000f01", "amount": "8000.0", "currency": "INR", "incident_date": null, "transaction_amounts_in_case_count": 18}, "record_nos": [], "supporting_victim_ids": ["00000000-0000-4000-8000-000000000f01"]}
+      ],
+      "not_fired": [],
+      "not_evaluable": {
+        "rapid_succession": "missing_timestamp",
+        "repeated_pair": "missing_direction",
+        "circular_path": "no_transfer_edges",
+        "amount_splitting": "missing_direction",
+        "concentration": "missing_direction"
+      },
+      "rule_count": 10
+    },
+    "victim_financials": [
+      {"victim_id": "00000000-0000-4000-8000-000000000f01", "reported_amount": "8000.0", "missing": ["amount_lost", "recovery_amount", "incident_date"], "limitations": ["float_source"]},
+      {"victim_id": "00000000-0000-4000-8000-000000000f02", "reported_amount": "60.5", "missing": ["amount_lost", "recovery_amount", "incident_date"], "limitations": ["float_source"]}
+    ],
+    "invalid_amount_fact": {"record_no": 10, "amount": null, "amount_original": "not-a-number", "fact_class": "transaction"},
+    "no_direction_fact": {"every_transaction_missing_includes": "source_direction"},
+    "network": {
+      "nodes_total": 21,
+      "edges_total": 13,
+      "confirmed_transfer_edges": 0,
+      "node_ids": [
+        "account:ACCA1", "account:ACCA10", "account:ACCA11", "account:ACCA2", "account:ACCA3", "account:ACCA4", "account:ACCA5", "account:ACCA6", "account:ACCA7", "account:ACCA8", "account:ACCU1", "account:ACCU2",
+        "bank:coastal trust", "bank:first national", "bank:securebank",
+        "beneficiary:geeta rao", "beneficiary:kiran joshi", "beneficiary:meena devi", "beneficiary:ravi kumar", "beneficiary:sunil bose",
+        "person:ananya sirohi"
+      ],
+      "association_edges": [
+        {"source": "account:ACCA1", "target": "beneficiary:ravi kumar", "supporting_record_nos": [1, 13]},
+        {"source": "account:ACCA1", "target": "beneficiary:meena devi", "supporting_record_nos": [2]},
+        {"source": "account:ACCA1", "target": "bank:first national", "supporting_record_nos": [16]},
+        {"source": "account:ACCA2", "target": "bank:first national", "supporting_record_nos": [17]},
+        {"source": "account:ACCA2", "target": "beneficiary:ravi kumar", "supporting_record_nos": [18]},
+        {"source": "account:ACCA6", "target": "beneficiary:sunil bose", "supporting_record_nos": [19]},
+        {"source": "account:ACCA6", "target": "beneficiary:geeta rao", "supporting_record_nos": [20]},
+        {"source": "account:ACCA8", "target": "bank:securebank", "supporting_record_nos": [11]},
+        {"source": "account:ACCA11", "target": "beneficiary:kiran joshi", "supporting_record_nos": [21, 22, 23]},
+        {"source": "account:ACCU1", "target": "bank:first national", "supporting_record_nos": [7]},
+        {"source": "account:ACCU2", "target": "bank:first national", "supporting_record_nos": [8]},
+        {"source": "account:ACCU2", "target": "bank:coastal trust", "supporting_record_nos": [15]}
+      ],
+      "relationship_edges": [
+        {"source": "person:ananya sirohi", "target": "account:ACCA1", "relationship_type": "owns", "schema_confidence": 0.9}
+      ]
+    },
+    "trace": {
+      "start": "account:ACCU1",
+      "max_depth": 4,
+      "truncated": false,
+      "paths": [
+        {"nodes": ["account:ACCU1", "bank:first national", "account:ACCA1", "beneficiary:meena devi"], "depth": 3, "end_state": "dead_end"},
+        {"nodes": ["account:ACCU1", "bank:first national", "account:ACCA1", "beneficiary:ravi kumar", "account:ACCA2"], "depth": 4, "end_state": "dead_end"},
+        {"nodes": ["account:ACCU1", "bank:first national", "account:ACCA1", "person:ananya sirohi"], "depth": 3, "end_state": "dead_end"},
+        {"nodes": ["account:ACCU1", "bank:first national", "account:ACCA2", "beneficiary:ravi kumar", "account:ACCA1"], "depth": 4, "end_state": "depth_limit"},
+        {"nodes": ["account:ACCU1", "bank:first national", "account:ACCU2", "bank:coastal trust"], "depth": 3, "end_state": "dead_end"}
+      ],
+      "depth_cap": {
+        "max_depth": 2,
+        "truncated": false,
+        "paths": [
+          {"nodes": ["account:ACCU1", "bank:first national", "account:ACCA1"], "depth": 2, "end_state": "depth_limit"},
+          {"nodes": ["account:ACCU1", "bank:first national", "account:ACCA2"], "depth": 2, "end_state": "depth_limit"},
+          {"nodes": ["account:ACCU1", "bank:first national", "account:ACCU2"], "depth": 2, "end_state": "depth_limit"}
+        ]
+      },
+      "isolated_node": {"start": "account:ACCA3", "paths": []},
+      "hops_for_path_5": [
+        {"source": "account:ACCU1", "target": "bank:first national", "supporting_record_nos": [7]},
+        {"source": "bank:first national", "target": "account:ACCU2", "supporting_record_nos": [8]},
+        {"source": "account:ACCU2", "target": "bank:coastal trust", "supporting_record_nos": [15]}
+      ]
+    },
+    "limits": {"max_facts": 5, "facts_bounded": true, "kept_facts": 5, "max_edges": 5, "edges_bounded": true, "kept_edges": 5, "max_supporting_ids": 2, "capped_bucket": "INR"}
+  },
+  "expect_live": {
+    "comment": "Same records uploaded and ingested into a real case (no victims, no schema relationships), so every aggregate/pattern expectation is identical except the victim rule: victim_loss_unmatched moves to not_fired.",
+    "patterns": {
+      "firing_rules": ["duplicate_amount", "duplicate_amount", "amount_threshold", "missing_currency", "missing_timestamp"],
+      "not_fired": ["victim_loss_unmatched"],
+      "not_evaluable": {
+        "rapid_succession": "missing_timestamp",
+        "repeated_pair": "missing_direction",
+        "circular_path": "no_transfer_edges",
+        "amount_splitting": "missing_direction",
+        "concentration": "missing_direction"
+      },
+      "rule_count": 10
+    },
+    "victim_financials_count": 0,
+    "facts_total": 22
+  }
+}
