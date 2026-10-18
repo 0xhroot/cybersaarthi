@@ -96,6 +96,8 @@ import type {
   ReviewDecisionResponse,
   ReviewList,
   SearchResponse,
+  SourceRecordList,
+  SourceRecordOut,
   TimelineCommitResponse,
   TimelineEvent,
   TimelineEventList,
@@ -521,6 +523,118 @@ function mockExtractionArtifact(caseId: string, item: EvidenceListItem, jobId: s
     created_at: isoNow(),
     updated_at: isoNow(),
   };
+}
+
+/** Original complaint snapshot shared by the mock records + artifacts. */
+export const MOCK_COMPLAINT_SOURCE =
+  "मैंने राहुल शर्मा को ५,००० रुपये नहीं दिए। खाता संख्या ACC-7781 से भुगतान हुआ।";
+
+function mockMultilingualArtifacts(
+  caseId: string,
+  item: EvidenceListItem,
+  jobId: string,
+  translate: boolean,
+): [DerivedArtifactOut, DerivedArtifactOut | null] {
+  const now = isoNow();
+  const extraction: DerivedArtifactOut = {
+    id: nextIntelId(),
+    case_id: caseId,
+    kind: "extraction",
+    origin: "llm",
+    status: "pending_review",
+    validation_status: "valid",
+    evidence_file_id: item.id,
+    source_record_id: null,
+    source_locator: { record_no: 1, field: "text" },
+    payload: {
+      multilingual: true,
+      language: "hindi",
+      script_profile: {
+        devanagari_letters: 62,
+        latin_letters: 8,
+        devanagari_digits: 5,
+        ascii_digits: 4,
+        other_letters: 0,
+        total_letters: 70,
+        devanagari_ratio: 0.8857,
+        latin_ratio: 0.1143,
+        other_ratio: 0,
+        candidate: "devanagari",
+      },
+      language_consistent: true,
+      fields: {
+        person_names: ["राहुल शर्मा"],
+        organization_names: [],
+        account_references: ["ACC-7781"],
+        phone_numbers: [],
+        email_addresses: [],
+        amounts: ["५,०००"],
+        dates: [],
+        referenced_identifiers: ["ACC-7781"],
+        event_statements: ["भुगतान हुआ"],
+        negations: ["नहीं दिए"],
+      },
+      ambiguity_flags: [
+        {
+          flag: "devanagari_digits",
+          detail: "amount/date written in Devanagari digits; verify the exact figure",
+        },
+      ],
+      record_no: 1,
+      rules_version: "1.0.0",
+    },
+    content_hash: `multilingual-${jobId}-${item.id}`,
+    parser_version: "mock:1",
+    prompt_version: "1.0.0",
+    model_profile: "mock",
+    analysis_job_id: jobId,
+    validation_errors: [],
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: now,
+    updated_at: now,
+  };
+  if (!translate) return [extraction, null];
+  const translation: DerivedArtifactOut = {
+    id: nextIntelId(),
+    case_id: caseId,
+    kind: "translation",
+    origin: "llm",
+    status: "pending_review",
+    validation_status: "flagged",
+    evidence_file_id: item.id,
+    source_record_id: null,
+    source_locator: { record_no: 1, field: "text" },
+    payload: {
+      source_language: "hindi",
+      translated_text:
+        "I did not give Rahul Sharma any rupees. The payment was made from account ACC-7781.",
+      material_check: {
+        material_total: 2,
+        material_preserved: 1,
+        material_missing: ["5,000"],
+        preserved: false,
+      },
+      negation_preserved: true,
+      record_no: 1,
+      rules_version: "1.0.0",
+    },
+    content_hash: `translation-${jobId}-${item.id}`,
+    parser_version: "mock:1",
+    prompt_version: "1.0.0",
+    model_profile: "mock",
+    analysis_job_id: jobId,
+    validation_errors: [{ code: "material_value_missing", value: "5,000" }],
+    review_note: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    parent_artifact_id: null,
+    created_at: now,
+    updated_at: now,
+  };
+  return [extraction, translation];
 }
 
 /* ------------------------------ AI threads ------------------------------- */
@@ -1673,6 +1787,93 @@ export const mockApi: Api = {
       return { job, duplicate: false };
     },
 
+    async multilingual(caseId: string, evidenceFileId: string, translate = false): Promise<JobSubmitResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("ingestion.run");
+      assertCaseAccess(caseId);
+      const item = mockEvidenceFor(caseId, evidenceFileId);
+      const active = intelJobsState.find(
+        (j) =>
+          j.case_id === caseId &&
+          j.feature === "multilingual" &&
+          j.evidence_file_id === evidenceFileId &&
+          (j.status === "pending" || j.status === "running"),
+      );
+      if (active) {
+        throw new ApiError({ status: 409, code: "MULTILINGUAL_ACTIVE", message: "a multilingual run is already active for this evidence" });
+      }
+      const attempts = intelJobsState.filter(
+        (j) => j.case_id === caseId && j.feature === "multilingual" && j.evidence_file_id === evidenceFileId,
+      ).length;
+      const job: AnalysisJobOut = {
+        id: nextIntelId(),
+        case_id: caseId,
+        feature: "multilingual",
+        status: "succeeded",
+        idempotency_key: `multilingual:${evidenceFileId}:attempt:${attempts + 1}`,
+        progress: 100,
+        total_records: 1,
+        processed_records: 1,
+        attempts: attempts + 1,
+        timeout_seconds: 300,
+        cancel_requested: false,
+        error: null,
+        result_summary: {
+          units_total: 1,
+          units_skipped_empty: 0,
+          units_failed: 0,
+          artifacts_created: 1,
+          artifacts_reused: 0,
+          artifacts_flagged: translate ? 1 : 0,
+          artifacts_invalid: 0,
+          translations_created: translate ? 1 : 0,
+          language_ambiguous: 0,
+          values_total: 4,
+          values_verified: 4,
+          values_withheld_injected: 0,
+        },
+        evidence_file_id: evidenceFileId,
+        actor_id: currentUser().record?.id ?? null,
+        started_at: isoNow(),
+        completed_at: isoNow(),
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      intelJobsState.unshift(job);
+      // Deterministic mock analysis: script profile + verified fields from the
+      // original snapshot; a lossy translation (when requested) is honestly
+      // flagged with the material value it dropped.
+      const [extraction, translation] = mockMultilingualArtifacts(caseId, item, job.id, translate);
+      extractionSourceTexts.set(extraction.id, MOCK_COMPLAINT_SOURCE);
+      artifactsState.unshift(extraction);
+      if (translation) {
+        artifactsState.unshift(translation);
+      }
+      pushAudit("multilingual.submitted", "analysis_job", caseId, { evidence_file_id: evidenceFileId });
+      pushAudit("multilingual.completed", "analysis_job", caseId, {
+        status: "succeeded",
+        artifacts_created: 1,
+        translations_created: translate ? 1 : 0,
+      });
+      return { job, duplicate: false };
+    },
+
+    async sourceRecords(caseId: string, evidenceId: string, params: PageParams = {}): Promise<SourceRecordList> {
+      await delay(MOCK_LATENCY);
+      requirePermission("evidence.read");
+      assertCaseAccess(caseId);
+      const item = mockEvidenceFor(caseId, evidenceId);
+      const limit = params.limit ?? 50;
+      const offset = params.offset ?? 0;
+      const record: SourceRecordOut = {
+        id: `srec-${item.id}-1`,
+        evidence_file_id: item.id,
+        record_no: 1,
+        raw_data: { text: MOCK_COMPLAINT_SOURCE },
+      };
+      return { items: offset === 0 ? [record] : [], total: 1, limit, offset };
+    },
+
     async evidenceJobs(caseId: string, params: PageParams & { feature?: string; status?: string } = {}): Promise<AnalysisJobList> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
@@ -1694,7 +1895,13 @@ export const mockApi: Api = {
         job?.feature === "timeline" ||
         job?.feature === "contradiction" ||
         job?.feature === "financial_flow";
-      if (!job || (job.feature !== "ingestion" && job.feature !== "custody" && !analysisRun)) {
+      if (
+        !job ||
+        (job.feature !== "ingestion" &&
+          job.feature !== "custody" &&
+          job.feature !== "multilingual" &&
+          !analysisRun)
+      ) {
         throw notFound(`job ${jobId} not found`);
       }
       if (job.status !== "pending" && job.status !== "running") {

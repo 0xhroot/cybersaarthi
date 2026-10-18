@@ -16,6 +16,7 @@ import {
   useFieldDevices,
 } from "@/hooks/queries";
 import { ExtractionPanel } from "@/components/evidence/extraction-panel";
+import { MultilingualPanel } from "@/components/evidence/multilingual-panel";
 import { IntegrityPanel } from "@/components/evidence/integrity-panel";
 import { useCan } from "@/lib/permissions";
 import { PageContainer } from "@/components/layout/page";
@@ -390,6 +391,9 @@ export default function EvidencePage() {
 
                 <div className="border-t border-border pt-4">
                   <ExtractionPanel caseId={caseId} evidenceId={selectedDetail.id} />
+                  <div className="border-t border-border pt-4">
+                    <MultilingualPanel caseId={caseId} evidenceId={selectedDetail.id} />
+                  </div>
                 </div>
                 <div className="border-t border-border pt-4">
                   <IntegrityPanel caseId={caseId} evidenceId={selectedDetail.id} />

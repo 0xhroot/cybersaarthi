@@ -85,6 +85,29 @@ class Settings(BaseSettings):
     EXTRACTION_MAX_OUTPUT_TOKENS: int = 768  # room for a full JSON reply
     EXTRACTION_TIMEOUT_SECONDS: int = 600  # AnalysisJob timeout for one extraction run
 
+    # Multilingual complaint intelligence (phase 5A): bounded complaint runs.
+    MULTILINGUAL_MAX_UNITS: int = 10  # complaint paragraphs/pages analyzed per run
+    MULTILINGUAL_CONTEXT_MAX_CHARS: int = 4000  # bounded context per model call
+    MULTILINGUAL_MAX_OUTPUT_TOKENS: int = 1024  # room for extraction JSON
+    MULTILINGUAL_TIMEOUT_SECONDS: int = 300  # AnalysisJob timeout for one run
+
+    # Digital forensics triage (phase 5B): deterministic parsing only; the
+    # model never executes, fetches or resolves anything it sees.
+    TRIAGE_MAX_RECORDS: int = 500  # source records parsed per run
+    TRIAGE_MAX_URLS: int = 100  # URLs structurally analyzed per run
+    TRIAGE_MANIFEST_MAX_ENTRIES: int = 100  # manifest rows verified per run
+    TRIAGE_CONTEXT_MAX_CHARS: int = 4000
+    TRIAGE_MAX_OUTPUT_TOKENS: int = 768
+    TRIAGE_TIMEOUT_SECONDS: int = 300
+
+    # AI report auditor (phase 6): audits draft TEXT (a report-mode message
+    # or investigator-supplied text); deterministic exports are out of scope.
+    REPORT_AUDIT_MAX_DRAFT_CHARS: int = 20000
+    REPORT_AUDIT_MAX_CLAIMS: int = 30  # claims extracted and validated per run
+    REPORT_AUDIT_CONTEXT_MAX_CHARS: int = 4000
+    REPORT_AUDIT_MAX_OUTPUT_TOKENS: int = 1280
+    REPORT_AUDIT_TIMEOUT_SECONDS: int = 300
+
     # Chain-of-custody auditor (feature 9): bounded, deterministic audit runs.
     CUSTODY_AUDIT_MAX_EVIDENCE: int = 50  # evidence items per case-wide audit
     CUSTODY_FUTURE_SKEW_SECONDS: int = 300  # tolerated clock skew for occurred_at
@@ -200,6 +223,9 @@ class Settings(BaseSettings):
     AI_FEATURE_CONTRADICTION: bool = True  # semantic statement comparison (phase 3 C)
     AI_FEATURE_FLOW_EXPLAIN: bool = True  # financial-flow AI explanations (phase 4 A)
     AI_FEATURE_CROSSCASE_EXPLAIN: bool = True  # cross-case AI explanations (phase 4 B)
+    AI_FEATURE_MULTILINGUAL: bool = True  # multilingual complaint analysis (phase 5A)
+    AI_FEATURE_TRIAGE: bool = True  # digital forensics triage (phase 5B)
+    AI_FEATURE_REPORT_AUDIT: bool = True  # AI report auditor (phase 6)
     AI_LOG_PROMPTS: bool = False  # prompt/answer content is never logged by default
 
     # Security

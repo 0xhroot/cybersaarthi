@@ -22,6 +22,7 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -34,7 +35,14 @@ from app.api.dependencies import (
 from app.core import rbac
 from app.core.config import Settings, get_settings
 from app.db.postgres import get_db_session
-from app.models import DataSource, EvidenceFile, FieldDevice, IngestionJob, User
+from app.models import (
+    DataSource,
+    EvidenceFile,
+    FieldDevice,
+    IngestionJob,
+    SourceRecord,
+    User,
+)
 from app.repositories.evidence_repository import EvidenceRepository
 from app.schemas.evidence import (
     EvidenceCreateResponse,
@@ -47,6 +55,8 @@ from app.schemas.evidence import (
     IngestJobListResponse,
     IngestJobResponse,
     IngestRequest,
+    SourceRecordListResponse,
+    SourceRecordOut,
 )
 from app.services.audit import record_audit
 from app.services.ingestion import IngestionService
@@ -428,6 +438,67 @@ async def get_evidence_detail(
     await get_case_or_404(case_id, request, session)
     evidence = await get_evidence_or_404(case_id, evidence_id, evidence_repository)
     return _evidence_detail(evidence, await _data_source_name(session, evidence.data_source_id))
+
+
+@router.get(
+    "/{case_id}/evidence/{evidence_id}/records",
+    response_model=SourceRecordListResponse,
+)
+async def list_evidence_records(
+    case_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_db_session),
+    evidence_repository: EvidenceRepository = Depends(get_evidence_repository),
+    _user: User = Depends(require_permission(rbac.PERM_EVIDENCE_READ)),
+) -> SourceRecordListResponse:
+    """Original parsed source records for one evidence file, verbatim.
+
+    Bounded and paginated; authorization runs first (case access + evidence
+    read), deleted/foreign evidence 404s exactly like the detail route. This
+    is the original text reviewers compare model output against - the
+    multilingual panel renders it beside (never merged with) translations.
+    """
+    await get_case_or_404(case_id, request, session)
+    evidence = await get_evidence_or_404(case_id, evidence_id, evidence_repository)
+    total = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(SourceRecord)
+                .where(SourceRecord.evidence_file_id == str(evidence.id))
+            )
+        ).scalar_one()
+    )
+    rows = (
+        (
+            await session.execute(
+                select(SourceRecord)
+                .where(SourceRecord.evidence_file_id == str(evidence.id))
+                .order_by(SourceRecord.record_no)
+                .limit(limit)
+                .offset(offset)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return SourceRecordListResponse(
+        items=[
+            SourceRecordOut(
+                id=uuid.UUID(str(row.id)),
+                evidence_file_id=uuid.UUID(str(row.evidence_file_id)),
+                record_no=row.record_no,
+                raw_data=dict(row.raw_data),
+            )
+            for row in rows
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 async def _data_source_name(session: AsyncSession, data_source_id: str | None) -> str | None:

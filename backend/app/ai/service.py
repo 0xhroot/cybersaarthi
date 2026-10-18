@@ -48,8 +48,13 @@ from app.ai.prompts import (
     CUSTODY_EXPLAIN_SYSTEM_PROMPT,
     EXTRACTION_SYSTEM_PROMPT,
     FINANCIAL_EXPLAIN_SYSTEM_PROMPT,
+    MULTILINGUAL_SYSTEM_PROMPT,
+    MULTILINGUAL_TRANSLATE_SYSTEM_PROMPT,
     PROMPT_VERSION,
+    REPORT_AUDIT_CLAIM_SYSTEM_PROMPT,
+    REPORT_AUDIT_SUPPORT_SYSTEM_PROMPT,
     RESOLUTION_SYSTEM_PROMPT,
+    TRIAGE_EXPLAIN_SYSTEM_PROMPT,
     build_system_prompt,
     fence_data,
 )
@@ -231,6 +236,120 @@ class AIService:
                 messages, max_tokens=self.settings.EXTRACTION_MAX_OUTPUT_TOKENS
             )
 
+    async def analyze_complaint(self, *, label: str, text: str) -> CompletionResult:
+        """Language identification + field extraction for ONE complaint excerpt.
+
+        Server-owned prompt, untrusted text fenced, context bounded, shares the
+        generation semaphore. Deterministic language-script profiling and
+        per-value validation happen in the multilingual service, not here; the
+        caller must never trust this reply without them.
+        """
+        if not self.settings.AI_FEATURE_MULTILINGUAL:
+            raise _disabled_error()
+        await self.ensure_ready()
+        safe_label = re.sub(r"[\r\n\t]+", " ", label).strip()[:120]
+        bounded = text[: self.settings.MULTILINGUAL_CONTEXT_MAX_CHARS]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": MULTILINGUAL_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("COMPLAINT", bounded)},
+            {
+                "role": "user",
+                "content": "Analyze this complaint excerpt: " + safe_label,
+            },
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.MULTILINGUAL_MAX_OUTPUT_TOKENS
+            )
+
+    async def translate_complaint(self, *, label: str, text: str) -> CompletionResult:
+        """Faithful English translation of ONE complaint excerpt.
+
+        Translation runs only when requested or required by the workflow; the
+        original text is preserved separately and material values are checked
+        deterministically against it by the calling service.
+        """
+        if not self.settings.AI_FEATURE_MULTILINGUAL:
+            raise _disabled_error()
+        await self.ensure_ready()
+        safe_label = re.sub(r"[\r\n\t]+", " ", label).strip()[:120]
+        bounded = text[: self.settings.MULTILINGUAL_CONTEXT_MAX_CHARS]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": MULTILINGUAL_TRANSLATE_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("COMPLAINT", bounded)},
+            {
+                "role": "user",
+                "content": "Translate this complaint excerpt: " + safe_label,
+            },
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.MULTILINGUAL_MAX_OUTPUT_TOKENS
+            )
+
+    async def explain_triage(self, *, observations: dict[str, Any]) -> CompletionResult:
+        """Explain deterministic triage observations from recorded facts only.
+
+        The payload contains only system-computed observations and bounded
+        excerpts; the model cannot add indicators or declare anything malicious.
+        """
+        if not self.settings.AI_FEATURE_TRIAGE:
+            raise _disabled_error()
+        await self.ensure_ready()
+        facts = json.dumps(observations, sort_keys=True, ensure_ascii=False, default=str)
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": TRIAGE_EXPLAIN_SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": fence_data(
+                    "OBSERVATIONS", facts[: self.settings.TRIAGE_CONTEXT_MAX_CHARS]
+                ),
+            },
+            {"role": "user", "content": "Explain these triage observations for the investigator."},
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.TRIAGE_MAX_OUTPUT_TOKENS
+            )
+
+    async def extract_report_claims(self, *, draft: str, max_claims: int) -> CompletionResult:
+        """Split a report draft into reviewable factual claims (bounded)."""
+        if not self.settings.AI_FEATURE_REPORT_AUDIT:
+            raise _disabled_error()
+        await self.ensure_ready()
+        bounded = draft[: self.settings.REPORT_AUDIT_MAX_DRAFT_CHARS]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": REPORT_AUDIT_CLAIM_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("REPORT DRAFT", bounded)},
+            {
+                "role": "user",
+                "content": (
+                    f"Split this draft into at most {max_claims} factual claims, "
+                    "most consequential first."
+                ),
+            },
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.REPORT_AUDIT_MAX_OUTPUT_TOKENS
+            )
+
+    async def assess_claim_support(self, *, claim: str, sources: str) -> CompletionResult:
+        """Assess one claim against its authorized source excerpts."""
+        if not self.settings.AI_FEATURE_REPORT_AUDIT:
+            raise _disabled_error()
+        await self.ensure_ready()
+        bounded = sources[: self.settings.REPORT_AUDIT_CONTEXT_MAX_CHARS]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": REPORT_AUDIT_SUPPORT_SYSTEM_PROMPT},
+            {"role": "system", "content": fence_data("SOURCES", bounded)},
+            {"role": "user", "content": "Claim to assess: " + claim[:2000]},
+        ]
+        async with self._generation_semaphore:
+            return await self.client.chat(
+                messages, max_tokens=self.settings.REPORT_AUDIT_MAX_OUTPUT_TOKENS
+            )
+
     async def explain_integrity_finding(self, *, finding: dict[str, Any]) -> str:
         """Explain one custody/integrity finding from its recorded facts only.
 
@@ -250,9 +369,7 @@ class AIService:
             {"role": "user", "content": "Explain this finding for the investigator."},
         ]
         async with self._generation_semaphore:
-            result = await self.client.chat(
-                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
-            )
+            result = await self.client.chat(messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS)
         return result.text.strip()
 
     async def explain_financial_flow(self, *, summary: dict[str, Any]) -> CompletionResult:
@@ -275,9 +392,7 @@ class AIService:
             {"role": "user", "content": "Explain this financial-flow analysis."},
         ]
         async with self._generation_semaphore:
-            return await self.client.chat(
-                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
-            )
+            return await self.client.chat(messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS)
 
     async def explain_cross_case_candidate(
         self, *, candidate_facts: dict[str, Any]
@@ -299,9 +414,7 @@ class AIService:
             {"role": "user", "content": "Explain this cross-case candidate."},
         ]
         async with self._generation_semaphore:
-            return await self.client.chat(
-                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
-            )
+            return await self.client.chat(messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS)
 
     async def compare_entity_pair(
         self, *, entity_a: dict[str, Any], entity_b: dict[str, Any], features: dict[str, Any]
@@ -329,13 +442,9 @@ class AIService:
             {"role": "user", "content": "Compare this entity pair for the investigator."},
         ]
         async with self._generation_semaphore:
-            return await self.client.chat(
-                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
-            )
+            return await self.client.chat(messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS)
 
-    async def compare_statements(
-        self, *, first: str, second: str, anchor: str
-    ) -> CompletionResult:
+    async def compare_statements(self, *, first: str, second: str, anchor: str) -> CompletionResult:
         """Semantic statement comparison for phase-3 contradiction proposals.
 
         Both statements come from authorized same-anchor records and are fenced
@@ -363,9 +472,7 @@ class AIService:
             },
         ]
         async with self._generation_semaphore:
-            return await self.client.chat(
-                messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS
-            )
+            return await self.client.chat(messages, max_tokens=self.settings.AI_MAX_OUTPUT_TOKENS)
 
     # -- rate limiting ---------------------------------------------------
 
@@ -534,8 +641,15 @@ class AIService:
             raise ApiHTTPException(400, CODE_AI_MESSAGE_INVALID, "question is empty")
         try:
             outcome = await self._run(
-                request, session, user, question=question, mode=mode, case=case,
-                conversation=conversation, stream_events=None, profile=profile,
+                request,
+                session,
+                user,
+                question=question,
+                mode=mode,
+                case=case,
+                conversation=conversation,
+                stream_events=None,
+                profile=profile,
             )
         except (InferenceUnavailableError, InferenceProtocolError) as exc:
             # Model runtime failures are graceful 503s, never internal errors.
@@ -583,8 +697,15 @@ class AIService:
         async def produce() -> None:
             try:
                 outcome = await self._run(
-                    request, session, user, question=question, mode=mode, case=case,
-                    conversation=conversation, stream_events=sink, profile=profile,
+                    request,
+                    session,
+                    user,
+                    question=question,
+                    mode=mode,
+                    case=case,
+                    conversation=conversation,
+                    stream_events=sink,
+                    profile=profile,
                 )
                 persisted = await self._persist(
                     session, user, question, outcome, case=case, conversation=conversation
@@ -651,7 +772,12 @@ class AIService:
             "human review."
         )
         return await self.ask(
-            request, session, user, question=question, mode="report", case=case,
+            request,
+            session,
+            user,
+            question=question,
+            mode="report",
+            case=case,
             profile="deep",
         )
 
@@ -681,7 +807,12 @@ class AIService:
             # hypothesize mode deliberately excludes analytics so candidate
             # hypotheses are grounded in records, never laundered scores.
             include_graph = mode in {
-                "case", "graph", "copilot", "report", "analysis", "hypothesize",
+                "case",
+                "graph",
+                "copilot",
+                "report",
+                "analysis",
+                "hypothesize",
             }
             include_victims = mode in {"case", "copilot", "report", "hypothesize"}
             include_analytics = mode in {"graph", "report", "analysis"}
@@ -726,9 +857,13 @@ class AIService:
             # untouched.
             max_tokens = max(max_tokens, ANALYSIS_MIN_MAX_TOKENS)
 
-        history = await load_history_messages(
-            session, conversation, self.settings.AI_MAX_HISTORY_MESSAGES
-        ) if conversation else []
+        history = (
+            await load_history_messages(
+                session, conversation, self.settings.AI_MAX_HISTORY_MESSAGES
+            )
+            if conversation
+            else []
+        )
         history = self._clamp_history_to_budget(
             system_prompt, data_block, question, history, max_tokens
         )
@@ -762,9 +897,7 @@ class AIService:
                     first_token_ms: int | None = None
                     token_started = time.monotonic()
                     answer_parts: list[str] = []
-                    async for delta in self.client.chat_stream(
-                        messages, max_tokens=max_tokens
-                    ):
+                    async for delta in self.client.chat_stream(messages, max_tokens=max_tokens):
                         if first_token_ms is None:
                             first_token_ms = int((time.monotonic() - token_started) * 1000)
                         answer_parts.append(delta)
@@ -898,9 +1031,7 @@ class AIService:
                     # counted, never repaired) and flag evidence ids retrieval
                     # could not confirm. Nothing here writes to the database.
                     hypothesis_drafts, draft_errors = parse_hypothesis_drafts(answer)
-                    mark_unverified_ids(
-                        hypothesis_drafts, known_uuids(data_block, sources)
-                    )
+                    mark_unverified_ids(hypothesis_drafts, known_uuids(data_block, sources))
                 if stream_events is not None:
                     await stream_events(
                         {
@@ -977,9 +1108,7 @@ class AIService:
         fixed = self._estimate_tokens(system_prompt + data_block + question)
 
         def total(msgs: list[dict[str, str]]) -> int:
-            return fixed + sum(
-                self._estimate_tokens(m.get("content", "")) for m in msgs
-            )
+            return fixed + sum(self._estimate_tokens(m.get("content", "")) for m in msgs)
 
         trimmed = list(history)
         while trimmed and total(trimmed) > prompt_budget:

@@ -95,6 +95,17 @@ class ExtractionSubmitRequest(BaseModel):
     evidence_file_id: UUID
 
 
+class MultilingualSubmitRequest(BaseModel):
+    """Queue one multilingual complaint analysis run for an evidence file.
+
+    ``translate`` additionally forces translation of English text (translation
+    always runs for non-English text; the original is preserved either way).
+    """
+
+    evidence_file_id: UUID
+    translate: bool = False
+
+
 class CaseAnalysisSubmitRequest(BaseModel):
     """Queue one case-level phase-3 analysis run (features A, B, C).
 

@@ -19,6 +19,8 @@ export const queryKeys = {
   /* Phase 2 keys nest under ["evidence", caseId] so evidence invalidations cover them. */
   intelJobs: (caseId: string, feature?: string) => ["evidence", caseId, "intel-jobs", feature] as const,
   artifacts: (caseId: string, kind?: string) => ["evidence", caseId, "artifacts", kind] as const,
+  sourceRecords: (caseId: string, evidenceId: string) =>
+    ["evidence", caseId, "source-records", evidenceId] as const,
   crossCaseCandidates: (anchorCaseId: string) => ["evidence", anchorCaseId, "cross-case-candidates"] as const,
   custody: (caseId: string, evidenceId: string) => ["evidence", caseId, "custody", evidenceId] as const,
   graph: (caseId: string) => ["graph", caseId] as const,
@@ -836,6 +838,28 @@ export function useExtractEvidence(caseId: string) {
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
     },
+  });
+}
+
+export function useMultilingual(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ evidenceFileId, translate }: { evidenceFileId: string; translate?: boolean }) =>
+      api.evidence.multilingual(caseId, evidenceFileId, translate),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/** Original parsed source records (verbatim) for the original-vs-translation viewer. */
+export function useSourceRecords(caseId: string, evidenceId: string | null | undefined) {
+  return useQuery({
+    queryKey: queryKeys.sourceRecords(caseId, evidenceId ?? "none"),
+    queryFn: () => api.evidence.sourceRecords(caseId, evidenceId as string),
+    enabled: Boolean(evidenceId),
+    staleTime: 60 * 1000,
   });
 }
 

@@ -554,6 +554,21 @@ export interface EvidenceDetail {
   created_at: string;
 }
 
+export interface SourceRecordOut {
+  /** One original parsed source record, verbatim (never model output). */
+  id: string;
+  evidence_file_id: string;
+  record_no: number;
+  raw_data: Record<string, unknown>;
+}
+
+export interface SourceRecordList {
+  items: SourceRecordOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface EvidenceCreateResponse {
   id: string;
   case_id: string;

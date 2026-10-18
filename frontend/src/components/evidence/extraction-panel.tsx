@@ -119,7 +119,10 @@ export function ExtractionPanel({ caseId, evidenceId }: { caseId: string; eviden
   const [noteOpen, setNoteOpen] = useState<{ artifact: DerivedArtifactOut; decision: "approved" | "rejected" } | null>(null);
   const [note, setNote] = useState("");
 
-  const forEvidence = (artifact: DerivedArtifactOut) => artifact.evidence_file_id === evidenceId;
+  const forEvidence = (artifact: DerivedArtifactOut) =>
+    artifact.evidence_file_id === evidenceId &&
+    // Multilingual analyses are extraction-kind too but belong to their own panel.
+    (artifact.payload as { multilingual?: boolean }).multilingual !== true;
   const evidenceArtifacts = (artifacts.data?.items ?? []).filter(forEvidence);
   const evidenceJobs = (jobs.data?.items ?? []).filter((j) => j.evidence_file_id === evidenceId);
   const activeJob = evidenceJobs.find((j) => j.status === "pending" || j.status === "running");

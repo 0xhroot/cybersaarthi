@@ -92,6 +92,7 @@ import type {
   ReviewDecisionResponse,
   ReviewList,
   SearchResponse,
+  SourceRecordList,
   TimelineCommitResponse,
   TimelineEvent,
   TimelineEventCreateRequest,
@@ -224,6 +225,28 @@ export interface ApiEvidenceService {
    * that reuses already-reviewed-eligible records instead of re-extracting.
    */
   extract(caseId: string, evidenceFileId: string): Promise<JobSubmitResponse>;
+  /**
+   * Submit one bounded multilingual complaint analysis (202 + background job).
+   * Deterministic script profiling cross-checks the model's language label;
+   * every extracted value is validated against the original text and
+   * instruction-planted values are withheld. `translate` also renders English
+   * text; originals are never rewritten.
+   */
+  multilingual(
+    caseId: string,
+    evidenceFileId: string,
+    translate?: boolean,
+  ): Promise<JobSubmitResponse>;
+  /**
+   * Original parsed source records for one evidence file, verbatim and
+   * bounded (pagination 1..200). This is the text reviewers compare model
+   * output against — never a generated rendering.
+   */
+  sourceRecords(
+    caseId: string,
+    evidenceId: string,
+    params?: PageParams,
+  ): Promise<SourceRecordList>;
   /** Analysis jobs (`feature`: ingestion | custody, …) for progress/lifecycle. */
   evidenceJobs(
     caseId: string,

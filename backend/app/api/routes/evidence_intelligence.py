@@ -37,6 +37,7 @@ from app.core.codes import (
     CODE_INVALID_PAYLOAD,
     CODE_JOB_NOT_FOUND,
     CODE_JOB_TERMINAL,
+    CODE_MULTILINGUAL_ACTIVE,
     CODE_UNSUPPORTED_FORMAT,
 )
 from app.core.config import Settings, get_settings
@@ -56,6 +57,7 @@ from app.schemas.evidence_intelligence import (
     DerivedArtifactOut,
     ExtractionSubmitRequest,
     JobListResponse,
+    MultilingualSubmitRequest,
 )
 from app.services import analysis_jobs as jobs_svc
 from app.services import artifacts as artifacts_svc
@@ -63,6 +65,7 @@ from app.services import audit as audit_svc
 from app.services import cross_case as cross_case_svc
 from app.services import entity_matching as resolution_svc
 from app.services import evidence_extraction as extraction_svc
+from app.services import multilingual as multilingual_svc
 from app.services.graph_sync import GraphSyncService
 
 logger = logging.getLogger(__name__)
@@ -74,6 +77,7 @@ _REJECTION_HTTP: dict[str, int] = {
     CODE_EVIDENCE_NOT_FOUND: 404,
     CODE_EVIDENCE_UNAVAILABLE: 409,
     CODE_EXTRACTION_ACTIVE: 409,
+    CODE_MULTILINGUAL_ACTIVE: 409,
     CODE_JOB_NOT_FOUND: 404,
     CODE_JOB_TERMINAL: 409,
     CODE_UNSUPPORTED_FORMAT: 422,
@@ -131,9 +135,7 @@ def _job_out(job: AnalysisJob) -> AnalysisJobOut:
         cancel_requested=job.cancel_requested,
         error=job.error,
         result_summary=job.result_summary,
-        evidence_file_id=(
-            uuid.UUID(str(job.evidence_file_id)) if job.evidence_file_id else None
-        ),
+        evidence_file_id=(uuid.UUID(str(job.evidence_file_id)) if job.evidence_file_id else None),
         actor_id=uuid.UUID(str(job.actor_id)) if job.actor_id else None,
         started_at=job.started_at,
         completed_at=job.completed_at,
@@ -160,6 +162,7 @@ _CANCELABLE_FEATURES = (
     "contradiction",
     "financial_flow",
     "cross_case",
+    "multilingual",
 )
 _AUDIT_PREFIX = {
     "ingestion": "extraction",
@@ -169,6 +172,7 @@ _AUDIT_PREFIX = {
     "contradiction": "contradiction",
     "financial_flow": "flow",
     "cross_case": "cross_case",
+    "multilingual": "multilingual",
 }
 
 
@@ -217,6 +221,59 @@ async def submit_evidence_extraction(
         session,
         actor_id=user.id,
         action="extraction.submitted",
+        resource_type="analysis_job",
+        resource_id=job.id,
+        case_id=case_id,
+        metadata={"evidence_file_id": str(body.evidence_file_id), "duplicate": not created},
+    )
+    await session.commit()
+    return JobSubmitResponse(job=_job_out(job), duplicate=not created)
+
+
+@router.post(
+    "/{case_id}/evidence-intelligence/multilingual",
+    response_model=JobSubmitResponse,
+    status_code=202,
+)
+async def submit_multilingual_analysis(
+    case_id: uuid.UUID,
+    body: MultilingualSubmitRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_INGESTION_RUN)),
+) -> JobSubmitResponse:
+    """Queue one bounded multilingual complaint analysis for an evidence file.
+
+    Rechecks authorization in the background per unit, hash-verifies the stored
+    bytes before parsing, and records everything as reviewable derived
+    artifacts (the original text is never modified). Unsupported formats and
+    scripts are typed 422 refusals, never empty successes.
+    """
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
+    if not settings.AI_FEATURE_MULTILINGUAL:
+        raise ApiHTTPException(403, CODE_AI_DISABLED, "multilingual feature is disabled")
+    try:
+        job, created = await multilingual_svc.submit_multilingual(
+            session,
+            case_id=case_id,
+            evidence_id=body.evidence_file_id,
+            actor_id=user.id,
+            settings=settings,
+            translate=body.translate,
+        )
+    except multilingual_svc.MultilingualRejected as exc:
+        raise ApiHTTPException(_REJECTION_HTTP.get(exc.code, 422), exc.code, exc.message) from exc
+    if created:
+        background_tasks.add_task(
+            multilingual_svc.run_multilingual_job, request.app, uuid.UUID(str(job.id))
+        )
+    await audit_svc.record_audit(
+        session,
+        actor_id=user.id,
+        action="multilingual.submitted",
         resource_type="analysis_job",
         resource_id=job.id,
         case_id=case_id,

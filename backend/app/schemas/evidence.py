@@ -63,6 +63,22 @@ class EvidenceListResponse(BaseModel):
     offset: int
 
 
+class SourceRecordOut(BaseModel):
+    """One original parsed source record, verbatim (never model output)."""
+
+    id: UUID
+    evidence_file_id: UUID
+    record_no: int
+    raw_data: dict[str, Any]
+
+
+class SourceRecordListResponse(BaseModel):
+    items: list[SourceRecordOut]
+    total: int
+    limit: int
+    offset: int
+
+
 class EvidenceProvenanceResponse(BaseModel):
     evidence: EvidenceDetailResponse
     record_count: int

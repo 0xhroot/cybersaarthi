@@ -111,6 +111,7 @@ import type {
   ReviewDecisionResponse,
   ReviewList,
   SearchResponse,
+  SourceRecordList,
   TimelineCommitResponse,
   TimelineEvent,
   TimelineEventList,
@@ -344,6 +345,20 @@ const evidenceService: ApiEvidenceService = {
     return request<JobSubmitResponse>(
       `/cases/${caseId}/evidence-intelligence/extract`,
       { method: "POST", body: { evidence_file_id: evidenceFileId } },
+    );
+  },
+  multilingual(caseId, evidenceFileId, translate = false) {
+    return request<JobSubmitResponse>(
+      `/cases/${caseId}/evidence-intelligence/multilingual`,
+      { method: "POST", body: { evidence_file_id: evidenceFileId, translate } },
+    );
+  },
+  sourceRecords(caseId, evidenceId, params = {}) {
+    return request<SourceRecordList>(
+      `/cases/${caseId}/evidence/${evidenceId}/records${buildQuery({
+        limit: params.limit ?? 50,
+        offset: params.offset ?? 0,
+      })}`,
     );
   },
   evidenceJobs(caseId, params = {}) {

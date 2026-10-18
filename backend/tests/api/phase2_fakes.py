@@ -11,6 +11,7 @@ statement verdict.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from app.ai.client import CompletionResult
@@ -30,6 +31,19 @@ EXTRACTION_FIELDS: tuple[str, ...] = (
     "events",
 )
 
+MULTILINGUAL_FIELDS: tuple[str, ...] = (
+    "person_names",
+    "organization_names",
+    "account_references",
+    "phone_numbers",
+    "email_addresses",
+    "amounts",
+    "dates",
+    "referenced_identifiers",
+    "event_statements",
+    "negations",
+)
+
 
 def extraction_reply(**claims: list[str]) -> str:
     """Schema-valid JSON reply: empty claims by default, overridden per test."""
@@ -40,7 +54,118 @@ def extraction_reply(**claims: list[str]) -> str:
     return json.dumps(payload)
 
 
-class FakeAI:
+def multilingual_reply(language: str = "english", **fields: list[str]) -> str:
+    """Schema-valid multilingual analysis reply; empty fields by default."""
+    payload: dict[str, Any] = {"language": language}
+    for key in MULTILINGUAL_FIELDS:
+        payload[key] = list(fields.get(key, []))
+    unknown = set(fields) - set(MULTILINGUAL_FIELDS)
+    assert not unknown, f"unknown multilingual fields: {sorted(unknown)}"
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def triage_reply(
+    summary: str = "deterministic fake: observations listed",
+    **sections: list[str],
+) -> str:
+    payload = {
+        "summary": summary,
+        "explanations": list(sections.get("explanations", [])),
+        "not_established": list(sections.get("not_established", [])),
+        "verification_steps": list(sections.get("verification_steps", [])),
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def claims_reply(*claims: dict[str, Any]) -> str:
+    return json.dumps({"claims": list(claims)})
+
+
+def support_reply(
+    assessment: str = "not_established",
+    explanation: str = "the supplied sources do not establish the claim",
+    quoted_spans: list[str] | None = None,
+) -> str:
+    return json.dumps(
+        {
+            "assessment": assessment,
+            "explanation": explanation,
+            "quoted_spans": list(quoted_spans or []),
+        },
+        ensure_ascii=False,
+    )
+
+
+class _FakeCompletionMixin:
+    """Phase 5A/5B/6 scripted surfaces mixed into FakeAI (below)."""
+
+    multilingual_replies: list[str]
+    translate_replies: list[str]
+    triage_explain_replies: list[str]
+    claim_replies: list[str]
+    support_replies: list[str]
+    multilingual_calls: list[dict[str, str]]
+    translate_calls: list[dict[str, str]]
+    triage_explain_calls: list[dict[str, Any]]
+    claim_calls: list[dict[str, Any]]
+    support_calls: list[dict[str, Any]]
+    error: Exception | None
+    fail_after: int | None
+
+    def _maybe_fail(self, calls: Sequence[object]) -> None:
+        """Honor the shared scripted-error knobs (mirrors extract_page)."""
+        if self.error is not None and (self.fail_after is None or len(calls) > self.fail_after):
+            raise self.error
+
+    async def analyze_complaint(self, *, label: str, text: str) -> CompletionResult:
+        self.multilingual_calls.append({"label": label, "text": text})
+        self._maybe_fail(self.multilingual_calls)
+        reply = (
+            self.multilingual_replies.pop(0)
+            if self.multilingual_replies
+            else (multilingual_reply())
+        )
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+    async def translate_complaint(self, *, label: str, text: str) -> CompletionResult:
+        self.translate_calls.append({"label": label, "text": text})
+        self._maybe_fail(self.translate_calls)
+        reply = (
+            self.translate_replies.pop(0)
+            if self.translate_replies
+            else json.dumps(
+                {
+                    "translated_text": text,
+                    "preserved_values": [],
+                    "uncertain_terms": [],
+                },
+                ensure_ascii=False,
+            )
+        )
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+    async def explain_triage(self, *, observations: dict[str, Any]) -> CompletionResult:
+        self.triage_explain_calls.append(dict(observations))
+        self._maybe_fail(self.triage_explain_calls)
+        reply = (
+            self.triage_explain_replies.pop(0) if self.triage_explain_replies else triage_reply()
+        )
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+    async def extract_report_claims(self, *, draft: str, max_claims: int) -> CompletionResult:
+        self.claim_calls.append({"draft": draft, "max_claims": max_claims})
+        self._maybe_fail(self.claim_calls)
+        reply = self.claim_replies.pop(0) if self.claim_replies else claims_reply()
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+    async def assess_claim_support(self, *, claim: str, sources: str) -> CompletionResult:
+        self.support_calls.append({"claim": claim, "sources": sources})
+        self._maybe_fail(self.support_calls)
+        reply = self.support_replies.pop(0) if self.support_replies else support_reply()
+        return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
+
+
+class FakeAI(_FakeCompletionMixin):
     """Scripted PageExtractor + integrity-explanation surface.
 
     - ``replies``: extraction replies consumed in order; when exhausted (or
@@ -75,6 +200,16 @@ class FakeAI:
         self.crosscase_explain_replies: list[str] = []
         self.flow_explain_calls: list[dict[str, Any]] = []
         self.crosscase_explain_calls: list[dict[str, Any]] = []
+        self.multilingual_replies: list[str] = []
+        self.translate_replies: list[str] = []
+        self.triage_explain_replies: list[str] = []
+        self.claim_replies: list[str] = []
+        self.support_replies: list[str] = []
+        self.multilingual_calls: list[dict[str, str]] = []
+        self.translate_calls: list[dict[str, str]] = []
+        self.triage_explain_calls: list[dict[str, Any]] = []
+        self.claim_calls: list[dict[str, Any]] = []
+        self.support_calls: list[dict[str, Any]] = []
 
     async def extract_page(self, *, label: str, text: str) -> CompletionResult:
         self.extract_calls.append({"label": label, "text": text})
@@ -108,9 +243,7 @@ class FakeAI:
         )
         return CompletionResult(text=reply, prompt_tokens=8, completion_tokens=8, duration_ms=1)
 
-    async def compare_statements(
-        self, *, first: str, second: str, anchor: str
-    ) -> CompletionResult:
+    async def compare_statements(self, *, first: str, second: str, anchor: str) -> CompletionResult:
         """Scripted advisory verdict for one phase-3 C comparison."""
         self.statement_calls.append({"first": first, "second": second, "anchor": anchor})
         reply = (
