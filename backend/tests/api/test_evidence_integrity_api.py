@@ -540,10 +540,12 @@ async def test_custody_job_cancellation_contract(
     assert again.status_code == 409
     assert again.json()["error"]["code"] == CODE_JOB_TERMINAL
 
-    # Phase 3 made entity_resolution/timeline/contradiction cancelable too, and
-    # phase 4 added financial_flow and cross_case; a genuinely uncovered
-    # feature (triage) still drives the 404 contract check.
-    wrong_feature = await _seed("pending", feature="triage")
+    # Phase 3 made entity_resolution/timeline/contradiction cancelable too,
+    # phase 4 added financial_flow and cross_case, and phase 5B added
+    # multilingual and triage; report_audit stays pre-registered in the DB
+    # CHECK but has no live cancel contract until phase 6 wires the feature,
+    # so it drives the 404 contract check.
+    wrong_feature = await _seed("pending", feature="report_audit")
     refused = await http_client.post(
         f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/jobs/{wrong_feature}/cancel"
     )

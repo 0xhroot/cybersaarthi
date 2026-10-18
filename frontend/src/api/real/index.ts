@@ -259,9 +259,7 @@ const entityService: ApiEntityService = {
     return request<EntityDetail>(`/cases/${caseId}/entities/${entityId}`);
   },
   relationships(caseId, limit = 500) {
-    return request<RelationshipList>(
-      `/cases/${caseId}/relationships${buildQuery({ limit })}`,
-    );
+    return request<RelationshipList>(`/cases/${caseId}/relationships${buildQuery({ limit })}`);
   },
   reviewResolution(caseId) {
     return request<ReviewList>(`/cases/${caseId}/resolution/review`);
@@ -329,10 +327,10 @@ const evidenceService: ApiEvidenceService = {
     });
   },
   restore(caseId, evidenceId) {
-    return request<EvidenceRestoreResponse>(
-      `/cases/${caseId}/evidence/${evidenceId}/restore`,
-      { method: "POST", body: {} },
-    );
+    return request<EvidenceRestoreResponse>(`/cases/${caseId}/evidence/${evidenceId}/restore`, {
+      method: "POST",
+      body: {},
+    });
   },
   retryGraphSync(caseId, jobId) {
     return request<GraphSyncResult>(`/cases/${caseId}/ingest/${jobId}/retry-graph-sync`, {
@@ -342,16 +340,22 @@ const evidenceService: ApiEvidenceService = {
   },
 
   extract(caseId, evidenceFileId) {
-    return request<JobSubmitResponse>(
-      `/cases/${caseId}/evidence-intelligence/extract`,
-      { method: "POST", body: { evidence_file_id: evidenceFileId } },
-    );
+    return request<JobSubmitResponse>(`/cases/${caseId}/evidence-intelligence/extract`, {
+      method: "POST",
+      body: { evidence_file_id: evidenceFileId },
+    });
   },
   multilingual(caseId, evidenceFileId, translate = false) {
-    return request<JobSubmitResponse>(
-      `/cases/${caseId}/evidence-intelligence/multilingual`,
-      { method: "POST", body: { evidence_file_id: evidenceFileId, translate } },
-    );
+    return request<JobSubmitResponse>(`/cases/${caseId}/evidence-intelligence/multilingual`, {
+      method: "POST",
+      body: { evidence_file_id: evidenceFileId, translate },
+    });
+  },
+  triage(caseId, evidenceFileId) {
+    return request<JobSubmitResponse>(`/cases/${caseId}/evidence-intelligence/triage`, {
+      method: "POST",
+      body: { evidence_file_id: evidenceFileId },
+    });
   },
   sourceRecords(caseId, evidenceId, params = {}) {
     return request<SourceRecordList>(
@@ -372,10 +376,10 @@ const evidenceService: ApiEvidenceService = {
     );
   },
   cancelJob(caseId, jobId) {
-    return request<AnalysisJobOut>(
-      `/cases/${caseId}/evidence-intelligence/jobs/${jobId}/cancel`,
-      { method: "POST", body: {} },
-    );
+    return request<AnalysisJobOut>(`/cases/${caseId}/evidence-intelligence/jobs/${jobId}/cancel`, {
+      method: "POST",
+      body: {},
+    });
   },
   artifacts(caseId, params = {}) {
     return request<ArtifactList>(
@@ -393,27 +397,25 @@ const evidenceService: ApiEvidenceService = {
     );
   },
   verifyIntegrity(caseId, evidenceFileId) {
-    return request<IntegrityVerificationResponse>(
-      `/cases/${caseId}/evidence-integrity/verify`,
-      { method: "POST", body: { evidence_file_id: evidenceFileId } },
-    );
+    return request<IntegrityVerificationResponse>(`/cases/${caseId}/evidence-integrity/verify`, {
+      method: "POST",
+      body: { evidence_file_id: evidenceFileId },
+    });
   },
   custodyAudit(caseId, evidenceFileId) {
-    return request<JobSubmitResponse>(
-      `/cases/${caseId}/evidence-integrity/custody-audit`,
-      { method: "POST", body: evidenceFileId ? { evidence_file_id: evidenceFileId } : {} },
-    );
+    return request<JobSubmitResponse>(`/cases/${caseId}/evidence-integrity/custody-audit`, {
+      method: "POST",
+      body: evidenceFileId ? { evidence_file_id: evidenceFileId } : {},
+    });
   },
   custodyChronology(caseId, evidenceId) {
-    return request<CustodyChronologyResponse>(
-      `/cases/${caseId}/evidence/${evidenceId}/custody`,
-    );
+    return request<CustodyChronologyResponse>(`/cases/${caseId}/evidence/${evidenceId}/custody`);
   },
   recordCustodyEvent(caseId, evidenceId, input) {
-    return request<CustodyEventOut>(
-      `/cases/${caseId}/evidence/${evidenceId}/custody-events`,
-      { method: "POST", body: input },
-    );
+    return request<CustodyEventOut>(`/cases/${caseId}/evidence/${evidenceId}/custody-events`, {
+      method: "POST",
+      body: input,
+    });
   },
   explainFinding(caseId, artifactId) {
     return request<CustodyExplainResponse>(
@@ -425,10 +427,10 @@ const evidenceService: ApiEvidenceService = {
   /* ------------------ Case intelligence (phase 3) ------------------ */
 
   submitEntityResolution(caseId) {
-    return request<JobSubmitResponse>(
-      `/cases/${caseId}/evidence-intelligence/entity-resolution`,
-      { method: "POST", body: {} },
-    );
+    return request<JobSubmitResponse>(`/cases/${caseId}/evidence-intelligence/entity-resolution`, {
+      method: "POST",
+      body: {},
+    });
   },
   submitTimelineReconstruction(caseId) {
     return request<JobSubmitResponse>(
@@ -458,10 +460,10 @@ const evidenceService: ApiEvidenceService = {
   /* ------------------ Financial flow (phase 4, feature A) ------------------ */
 
   submitFinancialFlow(caseId) {
-    return request<JobSubmitResponse>(
-      `/cases/${caseId}/evidence-intelligence/financial-flow`,
-      { method: "POST", body: {} },
-    );
+    return request<JobSubmitResponse>(`/cases/${caseId}/evidence-intelligence/financial-flow`, {
+      method: "POST",
+      body: {},
+    });
   },
   traceFinancialFlow(caseId, input) {
     return request<FlowTraceResponse>(
@@ -515,9 +517,7 @@ const analyticsService: ApiAnalyticsService = {
     );
   },
   priorities(caseId, limit = 50) {
-    return request<Priority[]>(
-      `/cases/${caseId}/analytics/priorities${buildQuery({ limit })}`,
-    );
+    return request<Priority[]>(`/cases/${caseId}/analytics/priorities${buildQuery({ limit })}`);
   },
   strength(caseId, limit = 100) {
     return request<RelationshipStrength[]>(
@@ -525,14 +525,10 @@ const analyticsService: ApiAnalyticsService = {
     );
   },
   patterns(caseId, limit = 50) {
-    return request<Pattern[]>(
-      `/cases/${caseId}/analytics/patterns${buildQuery({ limit })}`,
-    );
+    return request<Pattern[]>(`/cases/${caseId}/analytics/patterns${buildQuery({ limit })}`);
   },
   hypotheses(caseId, limit = 25) {
-    return request<Hypothesis[]>(
-      `/cases/${caseId}/analytics/hypotheses${buildQuery({ limit })}`,
-    );
+    return request<Hypothesis[]>(`/cases/${caseId}/analytics/hypotheses${buildQuery({ limit })}`);
   },
   run(caseId) {
     return request<AnalyticsRun>(`/cases/${caseId}/analytics/run`, {
@@ -557,15 +553,13 @@ const findingService: ApiFindingService = {
     return request<Finding>(`/cases/${caseId}/findings/${findingId}`);
   },
   stats(caseId, runId) {
-    return request<FindingStats>(
-      `/cases/${caseId}/findings/stats${buildQuery({ run_id: runId })}`,
-    );
+    return request<FindingStats>(`/cases/${caseId}/findings/stats${buildQuery({ run_id: runId })}`);
   },
   updateStatus(caseId, findingId, input) {
-    return request<FindingStatusOut>(
-      `/cases/${caseId}/findings/${findingId}/status`,
-      { method: "PATCH", body: input },
-    );
+    return request<FindingStatusOut>(`/cases/${caseId}/findings/${findingId}/status`, {
+      method: "PATCH",
+      body: input,
+    });
   },
 };
 
@@ -734,10 +728,10 @@ const hypothesisService: ApiHypothesisService = {
     });
   },
   updateStatus(caseId, hypothesisId, status) {
-    return request<InvestigationHypothesis>(
-      `/cases/${caseId}/hypotheses/${hypothesisId}/status`,
-      { method: "PATCH", body: { status } },
-    );
+    return request<InvestigationHypothesis>(`/cases/${caseId}/hypotheses/${hypothesisId}/status`, {
+      method: "PATCH",
+      body: { status },
+    });
   },
   linkEvidence(caseId, hypothesisId, input) {
     return request<InvestigationHypothesis>(
@@ -767,8 +761,14 @@ const searchService: ApiSearchService = {
 const importService: ApiImportService = {
   submitPackage(caseId, payload) {
     const formData = new FormData();
-    formData.append("manifest", new File([payload.manifest], payload.manifest.name, { type: payload.manifest.type }));
-    formData.append("manifest_signature", new File([payload.signature], payload.signature.name, { type: payload.signature.type }));
+    formData.append(
+      "manifest",
+      new File([payload.manifest], payload.manifest.name, { type: payload.manifest.type }),
+    );
+    formData.append(
+      "manifest_signature",
+      new File([payload.signature], payload.signature.name, { type: payload.signature.type }),
+    );
     for (const file of payload.files) {
       formData.append("files", new File([file], file.name, { type: file.type }));
     }

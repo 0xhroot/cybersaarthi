@@ -106,6 +106,16 @@ class MultilingualSubmitRequest(BaseModel):
     translate: bool = False
 
 
+class TriageSubmitRequest(BaseModel):
+    """Queue one digital-forensics triage run for an evidence file.
+
+    Deterministic parsing and structural rules run regardless; the single
+    model call only explains the recorded observations.
+    """
+
+    evidence_file_id: UUID
+
+
 class CaseAnalysisSubmitRequest(BaseModel):
     """Queue one case-level phase-3 analysis run (features A, B, C).
 

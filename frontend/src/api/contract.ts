@@ -238,15 +238,19 @@ export interface ApiEvidenceService {
     translate?: boolean,
   ): Promise<JobSubmitResponse>;
   /**
+   * Submit one bounded digital-forensics triage run (202 + background job).
+   * Deterministic parsers and structural rules run first and stand alone;
+   * the model only explains the recorded observations and can never add an
+   * indicator. Evidence without parseable forensic structure is refused with
+   * `TRIAGE_UNSUPPORTED_CONTENT`, never an empty success.
+   */
+  triage(caseId: string, evidenceFileId: string): Promise<JobSubmitResponse>;
+  /**
    * Original parsed source records for one evidence file, verbatim and
    * bounded (pagination 1..200). This is the text reviewers compare model
    * output against — never a generated rendering.
    */
-  sourceRecords(
-    caseId: string,
-    evidenceId: string,
-    params?: PageParams,
-  ): Promise<SourceRecordList>;
+  sourceRecords(caseId: string, evidenceId: string, params?: PageParams): Promise<SourceRecordList>;
   /** Analysis jobs (`feature`: ingestion | custody, …) for progress/lifecycle. */
   evidenceJobs(
     caseId: string,
@@ -261,7 +265,11 @@ export interface ApiEvidenceService {
    * `payload.fields` re-validates the edited values against the artifact's own
    * source record and stores a superseding child artifact.
    */
-  reviewArtifact(caseId: string, artifactId: string, input: ArtifactReviewRequest): Promise<DerivedArtifactOut>;
+  reviewArtifact(
+    caseId: string,
+    artifactId: string,
+    input: ArtifactReviewRequest,
+  ): Promise<DerivedArtifactOut>;
   /** Deterministic hash verification against the stored object bytes. */
   verifyIntegrity(caseId: string, evidenceFileId: string): Promise<IntegrityVerificationResponse>;
   /** Case-wide (or single-evidence) custody audit job. */
@@ -457,7 +465,11 @@ export interface ApiFieldDeviceService {
   register(caseId: string, input: DeviceRegisterRequest): Promise<FieldDevice>;
   approve(caseId: string, deviceId: string): Promise<FieldDevice>;
   revoke(caseId: string, deviceId: string): Promise<FieldDevice>;
-  verifyKey(caseId: string, deviceId: string, input: DeviceVerifyRequest): Promise<DeviceVerifyResponse>;
+  verifyKey(
+    caseId: string,
+    deviceId: string,
+    input: DeviceVerifyRequest,
+  ): Promise<DeviceVerifyResponse>;
 }
 
 /* --------------------------------- Reports -------------------------------- */
@@ -481,10 +493,20 @@ export interface InvestigationHypothesisListParams extends PageParams {
 }
 
 export interface ApiHypothesisService {
-  list(caseId: string, params?: InvestigationHypothesisListParams): Promise<InvestigationHypothesisList>;
+  list(
+    caseId: string,
+    params?: InvestigationHypothesisListParams,
+  ): Promise<InvestigationHypothesisList>;
   get(caseId: string, hypothesisId: string): Promise<InvestigationHypothesis>;
-  create(caseId: string, input: InvestigationHypothesisCreateRequest): Promise<InvestigationHypothesis>;
-  updateStatus(caseId: string, hypothesisId: string, status: string): Promise<InvestigationHypothesis>;
+  create(
+    caseId: string,
+    input: InvestigationHypothesisCreateRequest,
+  ): Promise<InvestigationHypothesis>;
+  updateStatus(
+    caseId: string,
+    hypothesisId: string,
+    status: string,
+  ): Promise<InvestigationHypothesis>;
   linkEvidence(
     caseId: string,
     hypothesisId: string,
@@ -715,7 +737,10 @@ export interface ApiAiService {
   /** POST /ai/chat/stream over SSE; resolves when the stream completes. */
   chatStream(input: AiChatInput, callbacks: AiStreamCallbacks, signal?: AbortSignal): Promise<void>;
   reportDraft(caseId: string, signal?: AbortSignal): Promise<AiReportDraft>;
-  listConversations(params?: { case_id?: string; limit?: number }): Promise<{ items: AiConversation[]; total: number }>;
+  listConversations(params?: {
+    case_id?: string;
+    limit?: number;
+  }): Promise<{ items: AiConversation[]; total: number }>;
   listMessages(conversationId: string): Promise<{ items: AiMessage[] }>;
   /** PATCH /ai/conversations/{id} with `{ title }` — renames a stored thread. */
   renameConversation(conversationId: string, title: string): Promise<AiConversation>;

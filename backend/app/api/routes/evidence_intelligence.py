@@ -38,6 +38,7 @@ from app.core.codes import (
     CODE_JOB_NOT_FOUND,
     CODE_JOB_TERMINAL,
     CODE_MULTILINGUAL_ACTIVE,
+    CODE_TRIAGE_ACTIVE,
     CODE_UNSUPPORTED_FORMAT,
 )
 from app.core.config import Settings, get_settings
@@ -58,6 +59,7 @@ from app.schemas.evidence_intelligence import (
     ExtractionSubmitRequest,
     JobListResponse,
     MultilingualSubmitRequest,
+    TriageSubmitRequest,
 )
 from app.services import analysis_jobs as jobs_svc
 from app.services import artifacts as artifacts_svc
@@ -65,6 +67,7 @@ from app.services import audit as audit_svc
 from app.services import cross_case as cross_case_svc
 from app.services import entity_matching as resolution_svc
 from app.services import evidence_extraction as extraction_svc
+from app.services import forensic_triage as triage_svc
 from app.services import multilingual as multilingual_svc
 from app.services.graph_sync import GraphSyncService
 
@@ -78,6 +81,7 @@ _REJECTION_HTTP: dict[str, int] = {
     CODE_EVIDENCE_UNAVAILABLE: 409,
     CODE_EXTRACTION_ACTIVE: 409,
     CODE_MULTILINGUAL_ACTIVE: 409,
+    CODE_TRIAGE_ACTIVE: 409,
     CODE_JOB_NOT_FOUND: 404,
     CODE_JOB_TERMINAL: 409,
     CODE_UNSUPPORTED_FORMAT: 422,
@@ -163,6 +167,7 @@ _CANCELABLE_FEATURES = (
     "financial_flow",
     "cross_case",
     "multilingual",
+    "triage",
 )
 _AUDIT_PREFIX = {
     "ingestion": "extraction",
@@ -173,6 +178,7 @@ _AUDIT_PREFIX = {
     "financial_flow": "flow",
     "cross_case": "cross_case",
     "multilingual": "multilingual",
+    "triage": "triage",
 }
 
 
@@ -274,6 +280,58 @@ async def submit_multilingual_analysis(
         session,
         actor_id=user.id,
         action="multilingual.submitted",
+        resource_type="analysis_job",
+        resource_id=job.id,
+        case_id=case_id,
+        metadata={"evidence_file_id": str(body.evidence_file_id), "duplicate": not created},
+    )
+    await session.commit()
+    return JobSubmitResponse(job=_job_out(job), duplicate=not created)
+
+
+@router.post(
+    "/{case_id}/evidence-intelligence/triage",
+    response_model=JobSubmitResponse,
+    status_code=202,
+)
+async def submit_triage_analysis(
+    case_id: uuid.UUID,
+    body: TriageSubmitRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_db_session),
+    user: User = Depends(require_permission(rbac.PERM_INGESTION_RUN)),
+) -> JobSubmitResponse:
+    """Queue one bounded digital-forensics triage run for an evidence file.
+
+    Deterministic parsers and structural rules run first and stand on their
+    own; the local model explains only the recorded observations and can
+    never add an indicator or a verdict. Evidence with no parseable forensic
+    structure is a typed run failure (``TRIAGE_UNSUPPORTED_CONTENT``) - never
+    an empty success. The background task re-checks authorization and
+    cancellation itself; this endpoint only validates, records and schedules.
+    """
+    case = await get_case_or_404(case_id, request, session)
+    assert_case_investigation_mutable(case)
+    if not settings.AI_FEATURE_TRIAGE:
+        raise ApiHTTPException(403, CODE_AI_DISABLED, "triage feature is disabled")
+    try:
+        job, created = await triage_svc.submit_triage(
+            session,
+            case_id=case_id,
+            evidence_id=body.evidence_file_id,
+            actor_id=user.id,
+            settings=settings,
+        )
+    except triage_svc.TriageRejected as exc:
+        raise ApiHTTPException(_REJECTION_HTTP.get(exc.code, 422), exc.code, exc.message) from exc
+    if created:
+        background_tasks.add_task(triage_svc.run_triage_job, request.app, uuid.UUID(str(job.id)))
+    await audit_svc.record_audit(
+        session,
+        actor_id=user.id,
+        action="triage.submitted",
         resource_type="analysis_job",
         resource_id=job.id,
         case_id=case_id,

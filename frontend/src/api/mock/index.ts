@@ -319,9 +319,10 @@ const membersState: Record<string, CaseMember[]> = seedMembers();
 
 function seedMembers(): Record<string, CaseMember[]> {
   return Object.fromEntries(
-    MOCK_CASES
-      .filter((c) => c.owner_id)
-      .map((c) => [c.id, [{ user_id: c.owner_id!, role: "collaborator" as const, created_at: c.created_at }]]),
+    MOCK_CASES.filter((c) => c.owner_id).map((c) => [
+      c.id,
+      [{ user_id: c.owner_id!, role: "collaborator" as const, created_at: c.created_at }],
+    ]),
   );
 }
 const auditState: AuditEvent[] = [...MAIN_AUDIT];
@@ -467,7 +468,11 @@ seedCustodyState();
 function mockEvidenceFor(caseId: string, evidenceId: string): EvidenceListItem {
   const recycled = recycleState.find((e) => e.id === evidenceId && e.case_id === caseId);
   if (recycled) {
-    throw new ApiError({ status: 409, code: "EVIDENCE_UNAVAILABLE", message: "evidence is deleted; restore it first" });
+    throw new ApiError({
+      status: 409,
+      code: "EVIDENCE_UNAVAILABLE",
+      message: "evidence is deleted; restore it first",
+    });
   }
   const item = evidenceState.find((e) => e.id === evidenceId);
   if (!item || (caseId !== CASE_ID_MAIN && caseId !== CASE_ID_SECONDARY)) {
@@ -476,7 +481,11 @@ function mockEvidenceFor(caseId: string, evidenceId: string): EvidenceListItem {
   return item;
 }
 
-function mockExtractionArtifact(caseId: string, item: EvidenceListItem, jobId: string): DerivedArtifactOut {
+function mockExtractionArtifact(
+  caseId: string,
+  item: EvidenceListItem,
+  jobId: string,
+): DerivedArtifactOut {
   return {
     id: nextIntelId(),
     case_id: caseId,
@@ -722,7 +731,8 @@ function buildAiSeeds(): AiThreadSeed[] {
         {
           id: "ai-seed-general-msg-2",
           role: "assistant",
-          content: "Administrators invite analysts from **Admin → Users**; new accounts stay pending until approved.",
+          content:
+            "Administrators invite analysts from **Admin → Users**; new accounts stay pending until approved.",
           sources: [{ type: "knowledge", id: "docs/access.md#invites", label: "access control" }],
           tool_events: [],
           grounded: false,
@@ -765,7 +775,8 @@ const victimState: Victim[] = [
     incident_date: iso(45, 10),
     incident_type: "Investment fraud",
     fraud_category: "Ponzi scheme",
-    description: "Victim transferred funds to a fraudulent investment platform promoted over WhatsApp.",
+    description:
+      "Victim transferred funds to a fraudulent investment platform promoted over WhatsApp.",
     reported_amount: 1850000,
     currency: "INR",
     amount_lost: 1850000,
@@ -774,7 +785,8 @@ const victimState: Victim[] = [
     devices: [],
     wallet_addresses: null,
     status: "evidence_collected",
-    statement: "I was contacted on WhatsApp by 'Sharma Ji' offering guaranteed 30% monthly returns.",
+    statement:
+      "I was contacted on WhatsApp by 'Sharma Ji' offering guaranteed 30% monthly returns.",
     investigator_notes: "Transfers traced to HDFC account of shell firm. Call records corroborate.",
     recovery_status: null,
     created_by: null,
@@ -864,27 +876,56 @@ function requirePermission(permission: string): MockUserRecord {
   const user = requireAuth();
   const permissions = resolvedPermissions(user.roles);
   if (!permissions.includes(permission)) {
-    throw new ApiError({ status: 403, code: "FORBIDDEN", message: `permission '${permission}' required` });
+    throw new ApiError({
+      status: 403,
+      code: "FORBIDDEN",
+      message: `permission '${permission}' required`,
+    });
   }
   return user;
 }
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   ADMIN: [
-    "case.read", "case.create", "case.update", "case.archive", "evidence.read",
-    "evidence.upload", "evidence.delete", "evidence.restore", "ingestion.run", "analytics.run", "findings.read",
-    "findings.review", "findings.confirm", "findings.dismiss", "entity.merge", "users.manage", "audit.read",
+    "case.read",
+    "case.create",
+    "case.update",
+    "case.archive",
+    "evidence.read",
+    "evidence.upload",
+    "evidence.delete",
+    "evidence.restore",
+    "ingestion.run",
+    "analytics.run",
+    "findings.read",
+    "findings.review",
+    "findings.confirm",
+    "findings.dismiss",
+    "entity.merge",
+    "users.manage",
+    "audit.read",
     "crosscase.read",
   ],
   INVESTIGATOR: [
-    "case.read", "case.create", "case.update", "case.archive", "evidence.read",
-    "evidence.upload", "evidence.delete", "evidence.restore", "ingestion.run", "analytics.run", "findings.read",
-    "findings.review", "findings.confirm", "findings.dismiss", "entity.merge", "audit.read",
+    "case.read",
+    "case.create",
+    "case.update",
+    "case.archive",
+    "evidence.read",
+    "evidence.upload",
+    "evidence.delete",
+    "evidence.restore",
+    "ingestion.run",
+    "analytics.run",
+    "findings.read",
+    "findings.review",
+    "findings.confirm",
+    "findings.dismiss",
+    "entity.merge",
+    "audit.read",
     "crosscase.read",
   ],
-  ANALYST: [
-    "case.read", "evidence.read", "analytics.run", "findings.read", "findings.review",
-  ],
+  ANALYST: ["case.read", "evidence.read", "analytics.run", "findings.read", "findings.review"],
   VIEWER: ["case.read", "evidence.read", "findings.read"],
 };
 
@@ -912,7 +953,11 @@ function assertCaseAccess(caseId: string): Case {
   if (!isAdmin && caze.owner_id !== record.id) {
     const isMember = (membersState[caseId] ?? []).some((m) => m.user_id === record.id);
     if (!isMember) {
-      throw new ApiError({ status: 403, code: "FORBIDDEN", message: "You do not have access to this case" });
+      throw new ApiError({
+        status: 403,
+        code: "FORBIDDEN",
+        message: "You do not have access to this case",
+      });
     }
   }
   return caze;
@@ -924,7 +969,11 @@ function requireOwnerOrAdmin(caseId: string): void {
   const { roles, record } = currentUser();
   const isAdmin = roles.includes("ADMIN");
   if (!isAdmin && caze.owner_id !== record?.id) {
-    throw new ApiError({ status: 403, code: "FORBIDDEN", message: "Only the case owner or an admin can manage members" });
+    throw new ApiError({
+      status: 403,
+      code: "FORBIDDEN",
+      message: "Only the case owner or an admin can manage members",
+    });
   }
 }
 
@@ -939,7 +988,12 @@ function canAccessCase(caseId: string): boolean {
   return (membersState[caseId] ?? []).some((m) => m.user_id === record.id);
 }
 
-function pushAudit(action: string, resourceType: string, caseId: string | null, meta: Record<string, unknown> | null): void {
+function pushAudit(
+  action: string,
+  resourceType: string,
+  caseId: string | null,
+  meta: Record<string, unknown> | null,
+): void {
   const { record } = currentUser();
   auditState.unshift({
     id: uid(4200 + auditState.length),
@@ -1007,16 +1061,32 @@ export const mockApi: Api = {
         MOCK_USERS.find((u) => u.username === username || u.email === username) ??
         registeredState.find((u) => u.username === username || u.email === username);
       if (!user || user.password !== input.password) {
-        throw new ApiError({ status: 401, code: "UNAUTHORIZED", message: "invalid username or password" });
+        throw new ApiError({
+          status: 401,
+          code: "UNAUTHORIZED",
+          message: "invalid username or password",
+        });
       }
       if (user.status === "PENDING") {
-        throw new ApiError({ status: 403, code: "ACCOUNT_PENDING", message: "account is pending administrator approval" });
+        throw new ApiError({
+          status: 403,
+          code: "ACCOUNT_PENDING",
+          message: "account is pending administrator approval",
+        });
       }
       if (user.status === "SUSPENDED") {
-        throw new ApiError({ status: 403, code: "ACCOUNT_SUSPENDED", message: "account is suspended" });
+        throw new ApiError({
+          status: 403,
+          code: "ACCOUNT_SUSPENDED",
+          message: "account is suspended",
+        });
       }
       if (user.status === "REJECTED") {
-        throw new ApiError({ status: 403, code: "ACCOUNT_REJECTED", message: "account was rejected" });
+        throw new ApiError({
+          status: 403,
+          code: "ACCOUNT_REJECTED",
+          message: "account was rejected",
+        });
       }
       currentUserId = user.id;
       currentRoles = user.roles;
@@ -1026,7 +1096,13 @@ export const mockApi: Api = {
         access_token: `mock-token-${user.id}`,
         token_type: "bearer",
         expires_in: 1800,
-        user: { id: user.id, username: user.username, email: user.email, status: user.status, is_active: active(user) },
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          status: user.status,
+          is_active: active(user),
+        },
       };
     },
 
@@ -1038,7 +1114,13 @@ export const mockApi: Api = {
       const permissions = resolvedPermissions(roleList);
       authSession.setPermissions(permissions);
       return {
-        user: { id: record.id, username: record.username, email: record.email, status: record.status, is_active: active(record) },
+        user: {
+          id: record.id,
+          username: record.username,
+          email: record.email,
+          status: record.status,
+          is_active: active(record),
+        },
         roles: roleList,
         permissions,
       };
@@ -1046,11 +1128,22 @@ export const mockApi: Api = {
 
     async register(input: RegisterInput): Promise<RegisteredUserOut> {
       await delay(MOCK_LATENCY);
-      if (MOCK_USERS.some((u) => u.username === input.username) || registeredState.some((u) => u.username === input.username)) {
-        throw new ApiError({ status: 409, code: "CONFLICT", message: `username '${input.username}' is taken` });
+      if (
+        MOCK_USERS.some((u) => u.username === input.username) ||
+        registeredState.some((u) => u.username === input.username)
+      ) {
+        throw new ApiError({
+          status: 409,
+          code: "CONFLICT",
+          message: `username '${input.username}' is taken`,
+        });
       }
       if (MOCK_USERS.some((u) => u.email === input.email)) {
-        throw new ApiError({ status: 409, code: "CONFLICT", message: `email '${input.email}' is registered` });
+        throw new ApiError({
+          status: 409,
+          code: "CONFLICT",
+          message: `email '${input.email}' is registered`,
+        });
       }
       const record: MockUserRecord & { created_at: string } = {
         id: uid(4300 + registeredState.length),
@@ -1064,7 +1157,13 @@ export const mockApi: Api = {
       registeredState.push(record);
       pushAudit("auth.registration_requested", "user", null, { username: input.username });
       return {
-        user: { id: record.id, username: record.username, email: record.email, status: "PENDING", is_active: false },
+        user: {
+          id: record.id,
+          username: record.username,
+          email: record.email,
+          status: "PENDING",
+          is_active: false,
+        },
         roles: [],
         created_at: record.created_at,
       };
@@ -1096,7 +1195,12 @@ export const mockApi: Api = {
       const offset = params.offset ?? 0;
       const sorted = [...items].sort((a, b) => a.username.localeCompare(b.username));
       const page = sorted.slice(offset, offset + limit);
-      return { items: page.map((u) => adminUserOut(u, userStamp(u.id))), total: sorted.length, limit, offset };
+      return {
+        items: page.map((u) => adminUserOut(u, userStamp(u.id))),
+        total: sorted.length,
+        limit,
+        offset,
+      };
     },
 
     async listPending(params: AdminUserListParams = {}) {
@@ -1107,7 +1211,14 @@ export const mockApi: Api = {
       const pending = [...registeredState]
         .filter((u) => u.status === "PENDING")
         .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
-      return { items: pending.slice(offset, offset + limit).map((u) => adminUserOut(u, u.created_at ?? "")), total: pending.length, limit, offset };
+      return {
+        items: pending
+          .slice(offset, offset + limit)
+          .map((u) => adminUserOut(u, u.created_at ?? "")),
+        total: pending.length,
+        limit,
+        offset,
+      };
     },
 
     async get(userId: string): Promise<AdminUserOut> {
@@ -1135,10 +1246,18 @@ export const mockApi: Api = {
       requirePermission("users.manage");
       const user = findUser(userId);
       if (user.status === "REJECTED") {
-        throw new ApiError({ status: 409, code: "CONFLICT", message: "account is already rejected" });
+        throw new ApiError({
+          status: 409,
+          code: "CONFLICT",
+          message: "account is already rejected",
+        });
       }
       if (user.status === "ACTIVE" && user.roles.includes("ADMIN")) {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "cannot reject an active administrator" });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "cannot reject an active administrator",
+        });
       }
       user.status = "REJECTED";
       pushAudit("user.rejected", "user", null, { user_id: userId });
@@ -1150,7 +1269,11 @@ export const mockApi: Api = {
       requirePermission("users.manage");
       const user = findUser(userId);
       if (user.roles.includes("ADMIN") && user.status === "ACTIVE") {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "cannot suspend an active administrator" });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "cannot suspend an active administrator",
+        });
       }
       user.status = "SUSPENDED";
       pushAudit("user.suspended", "user", null, { user_id: userId });
@@ -1205,12 +1328,18 @@ export const mockApi: Api = {
       return assertCaseAccess(caseId);
     },
 
-    async create(input: { title: string; description?: string | null; case_number?: string | null; status?: Case["status"] }) {
+    async create(input: {
+      title: string;
+      description?: string | null;
+      case_number?: string | null;
+      status?: Case["status"];
+    }) {
       await delay(MOCK_LATENCY);
       const user = requirePermission("case.create");
       const caze: Case = {
         id: uid(Math.floor(900000 + Math.random() * 10000)),
-        case_number: input.case_number ?? `CS-${Math.random().toString(16).slice(2, 10).toUpperCase()}`,
+        case_number:
+          input.case_number ?? `CS-${Math.random().toString(16).slice(2, 10).toUpperCase()}`,
         title: input.title,
         description: input.description ?? null,
         status: input.status ?? "open",
@@ -1219,7 +1348,10 @@ export const mockApi: Api = {
         updated_at: new Date().toISOString(),
       };
       casesState.unshift(caze);
-      pushAudit("case.created", "case", caze.id, { title: caze.title, case_number: caze.case_number });
+      pushAudit("case.created", "case", caze.id, {
+        title: caze.title,
+        case_number: caze.case_number,
+      });
       return caze;
     },
 
@@ -1228,7 +1360,11 @@ export const mockApi: Api = {
       const user = requirePermission("case.update");
       const caze = assertCaseAccess(caseId);
       if ((input.status as string) === "archived") {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "use the archive endpoint" });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "use the archive endpoint",
+        });
       }
       const changes: Record<string, unknown> = {};
       if (input.title !== undefined && input.title !== null && input.title !== caze.title) {
@@ -1275,12 +1411,22 @@ export const mockApi: Api = {
       requireOwnerOrAdmin(caseId);
       const rows = (membersState[caseId] ??= []);
       if (rows.some((m) => m.user_id === input.user_id)) {
-        throw new ApiError({ status: 409, code: "CONFLICT", message: "user is already a member of this case" });
+        throw new ApiError({
+          status: 409,
+          code: "CONFLICT",
+          message: "user is already a member of this case",
+        });
       }
-      const known = MOCK_USERS.some((u) => u.id === input.user_id) || registeredState.some((u) => u.id === input.user_id);
+      const known =
+        MOCK_USERS.some((u) => u.id === input.user_id) ||
+        registeredState.some((u) => u.id === input.user_id);
       if (!known) throw notFound(`user ${input.user_id} not found`);
       rows.push({ user_id: input.user_id, role: input.role, created_at: new Date().toISOString() });
-      pushAudit("case.member_added", "case", caseId, { member_id: input.user_id, role: input.role, member_count: rows.length });
+      pushAudit("case.member_added", "case", caseId, {
+        member_id: input.user_id,
+        role: input.role,
+        member_count: rows.length,
+      });
       return { items: [...rows], case_id: caseId };
     },
 
@@ -1325,7 +1471,8 @@ export const mockApi: Api = {
       assertCaseAccess(caseId);
       const entity = entitiesFor(caseId).find((e) => e.id === entityId);
       if (!entity) throw notFound("entity not found");
-      const detail = MAIN_ENTITY_DETAILS[entity.display_value] ?? MAIN_ENTITY_DETAILS[entity.canonical_value];
+      const detail =
+        MAIN_ENTITY_DETAILS[entity.display_value] ?? MAIN_ENTITY_DETAILS[entity.canonical_value];
       return {
         ...entity,
         aliases: [...(detail?.aliases ?? []), ...(resolutionAliasState[entity.id] ?? [])],
@@ -1337,7 +1484,11 @@ export const mockApi: Api = {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
       const items =
-        caseId === CASE_ID_MAIN ? MAIN_RELATIONSHIPS : caseId === CASE_ID_SECONDARY ? SECONDARY_CASE_DATA.relationships : [];
+        caseId === CASE_ID_MAIN
+          ? MAIN_RELATIONSHIPS
+          : caseId === CASE_ID_SECONDARY
+            ? SECONDARY_CASE_DATA.relationships
+            : [];
       return { items: items.slice(0, limit), total: items.length };
     },
 
@@ -1381,7 +1532,10 @@ export const mockApi: Api = {
       const user = requirePermission("findings.review");
       assertCaseAccess(caseId);
       if (caseId !== CASE_ID_MAIN) throw notFound("match not found");
-      const known = ["a1000000-0000-4000-8000-000000000001", "a1000000-0000-4000-8000-000000000004"];
+      const known = [
+        "a1000000-0000-4000-8000-000000000001",
+        "a1000000-0000-4000-8000-000000000004",
+      ];
       if (!known.includes(matchId)) throw notFound("match not found");
       pushAudit("match.accepted", "entity_match", caseId, { score: 0.9 });
       timelineState.unshift({
@@ -1407,7 +1561,10 @@ export const mockApi: Api = {
       const user = requirePermission("findings.review");
       assertCaseAccess(caseId);
       if (caseId !== CASE_ID_MAIN) throw notFound("match not found");
-      const known = ["a1000000-0000-4000-8000-000000000001", "a1000000-0000-4000-8000-000000000004"];
+      const known = [
+        "a1000000-0000-4000-8000-000000000001",
+        "a1000000-0000-4000-8000-000000000004",
+      ];
       if (!known.includes(matchId)) throw notFound("match not found");
       pushAudit("match.rejected", "entity_match", caseId, { score: 0.62 });
       timelineState.unshift({
@@ -1438,7 +1595,11 @@ export const mockApi: Api = {
       const duplicate = entities.find((e) => e.id === input.merge_entity_id);
       if (!duplicate) throw notFound("merge entity not found");
       if (input.primary_entity_id === input.merge_entity_id) {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "cannot merge an entity into itself" });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "cannot merge an entity into itself",
+        });
       }
       pushAudit("entity.merged", "entity", caseId, {
         primary_id: input.primary_entity_id,
@@ -1462,7 +1623,8 @@ export const mockApi: Api = {
         payload: null,
         created_at: new Date().toISOString(),
       });
-      const detail = MAIN_ENTITY_DETAILS[primary.display_value] ?? MAIN_ENTITY_DETAILS[primary.canonical_value];
+      const detail =
+        MAIN_ENTITY_DETAILS[primary.display_value] ?? MAIN_ENTITY_DETAILS[primary.canonical_value];
       return {
         ...primary,
         status: "active",
@@ -1476,7 +1638,12 @@ export const mockApi: Api = {
     async list(caseId: string, params = {}) {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
-      const items = caseId === CASE_ID_MAIN ? evidenceState : caseId === CASE_ID_SECONDARY ? SECONDARY_CASE_DATA.evidence : [];
+      const items =
+        caseId === CASE_ID_MAIN
+          ? evidenceState
+          : caseId === CASE_ID_SECONDARY
+            ? SECONDARY_CASE_DATA.evidence
+            : [];
       const limit = params.limit ?? 50;
       const offset = params.offset ?? 0;
       const sorted = [...items].sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -1490,15 +1657,14 @@ export const mockApi: Api = {
       if (!item) throw notFound("evidence not found");
       const seedIndex = MAIN_EVIDENCE.findIndex((e) => e.id === evidenceId);
       const detail =
-        EVIDENCE_DETAILS[
-          Object.keys(EVIDENCE_DETAILS)[Math.max(0, seedIndex)] ?? "demo_cdr"
-        ];
+        EVIDENCE_DETAILS[Object.keys(EVIDENCE_DETAILS)[Math.max(0, seedIndex)] ?? "demo_cdr"];
       return {
         id: item.id,
         case_id: caseId,
         data_source: detail?.data_source ?? "csv",
         original_filename: item.original_filename,
-        stored_key: detail?.stored_key ?? `cases/${caseId}/evidence/${item.id}/${item.original_filename}`,
+        stored_key:
+          detail?.stored_key ?? `cases/${caseId}/evidence/${item.id}/${item.original_filename}`,
         content_type: detail?.content_type ?? "text/plain",
         file_size: item.file_size,
         sha256: item.sha256,
@@ -1513,7 +1679,12 @@ export const mockApi: Api = {
       };
     },
 
-    async upload(caseId: string, file: UploadFile, _dataSource = "csv", _options?: { collectionId?: string }) {
+    async upload(
+      caseId: string,
+      file: UploadFile,
+      _dataSource = "csv",
+      _options?: { collectionId?: string },
+    ) {
       void _dataSource;
       await delay(MOCK_LATENCY * 2);
       requirePermission("evidence.upload");
@@ -1589,15 +1760,43 @@ export const mockApi: Api = {
       const index = MAIN_EVIDENCE.findIndex((e) => e.id === evidenceId);
       const relatedEntityIds =
         index === 0
-          ? ["Rajesh Kumar", "Sunita Sharma", "Arjun Mehta", "Kavita Rao", "+91-98765-43210", "+91-91234-56789", "+91-90000-11111", "+91-98111-22233", "TechSecure Pvt Ltd"]
+          ? [
+              "Rajesh Kumar",
+              "Sunita Sharma",
+              "Arjun Mehta",
+              "Kavita Rao",
+              "+91-98765-43210",
+              "+91-91234-56789",
+              "+91-90000-11111",
+              "+91-98111-22233",
+              "TechSecure Pvt Ltd",
+            ]
           : index === 1
-            ? ["Rajesh Kumar", "Arjun Mehta", "Mumbai", "Pune", "Delhi", "Noida", "MH12AB1234", "MH12AB2345"]
+            ? [
+                "Rajesh Kumar",
+                "Arjun Mehta",
+                "Mumbai",
+                "Pune",
+                "Delhi",
+                "Noida",
+                "MH12AB1234",
+                "MH12AB2345",
+              ]
             : index === 2
               ? ["Rajesh Kumar", "Arjun Mehta", "1100220011", "5500667788", "2244660088"]
               : index === 3
                 ? ["Rajesh Kumar", "Sunita Sharma", "Mehul Desai", "3300445566", "9900112233"]
-                : ["Rajesh Kumar", "Arjun Mehta", "Varun Joshi", "MH12AB1234", "DL01EF9012", "UP32GH3456"];
-      const findingIds = MAIN_FINDINGS.filter((f) => f.evidence_ids.includes(evidenceId)).map((f) => f.id);
+                : [
+                    "Rajesh Kumar",
+                    "Arjun Mehta",
+                    "Varun Joshi",
+                    "MH12AB1234",
+                    "DL01EF9012",
+                    "UP32GH3456",
+                  ];
+      const findingIds = MAIN_FINDINGS.filter((f) => f.evidence_ids.includes(evidenceId)).map(
+        (f) => f.id,
+      );
       const detail = await this.get(caseId, evidenceId).catch(() => null);
       return {
         evidence: (detail ?? {}) as EvidenceDetail,
@@ -1606,7 +1805,9 @@ export const mockApi: Api = {
         entity_count: relatedEntityIds.length,
         relationship_count: Math.max(1, Math.floor(relatedEntityIds.length / 2)),
         finding_count: findingIds.length,
-        related_entity_ids: relatedEntityIds.map((k) => KEY_ENTITY_IDS[k] ?? relatedEntityId(k, caseId)),
+        related_entity_ids: relatedEntityIds.map(
+          (k) => KEY_ENTITY_IDS[k] ?? relatedEntityId(k, caseId),
+        ),
         related_relationship_ids: [],
         finding_ids: findingIds,
       };
@@ -1630,7 +1831,12 @@ export const mockApi: Api = {
         graph_sync_status: "synced" as const,
         error: null,
         graph_error: null,
-        summary: { records: item.record_count ?? 40, created_records: item.record_count ?? 40, entities: 14, relationships: 18 },
+        summary: {
+          records: item.record_count ?? 40,
+          created_records: item.record_count ?? 40,
+          entities: 14,
+          relationships: 18,
+        },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -1645,7 +1851,12 @@ export const mockApi: Api = {
     async jobs(caseId: string, params = {}): Promise<IngestJobList> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
-      const items = caseId === CASE_ID_MAIN ? jobsState : caseId === CASE_ID_SECONDARY ? SECONDARY_CASE_DATA.jobsList : [];
+      const items =
+        caseId === CASE_ID_MAIN
+          ? jobsState
+          : caseId === CASE_ID_SECONDARY
+            ? SECONDARY_CASE_DATA.jobsList
+            : [];
       const limit = params.limit ?? 50;
       const offset = params.offset ?? 0;
       return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
@@ -1706,7 +1917,11 @@ export const mockApi: Api = {
       requirePermission("ingestion.run");
       assertCaseAccess(caseId);
       const candidates =
-        caseId === CASE_ID_MAIN ? jobsState : caseId === CASE_ID_SECONDARY ? SECONDARY_CASE_DATA.jobsList : [];
+        caseId === CASE_ID_MAIN
+          ? jobsState
+          : caseId === CASE_ID_SECONDARY
+            ? SECONDARY_CASE_DATA.jobsList
+            : [];
       const job = candidates.find((j) => j.id === jobId);
       // IDOR guard: the job must belong to *this* case.
       if (!job || job.case_id !== caseId) throw notFound(`job ${jobId} not found`);
@@ -1741,10 +1956,17 @@ export const mockApi: Api = {
           (j.status === "pending" || j.status === "running"),
       );
       if (active) {
-        throw new ApiError({ status: 409, code: "EXTRACTION_ACTIVE", message: "an extraction is already active for this evidence" });
+        throw new ApiError({
+          status: 409,
+          code: "EXTRACTION_ACTIVE",
+          message: "an extraction is already active for this evidence",
+        });
       }
       const attempts = intelJobsState.filter(
-        (j) => j.case_id === caseId && j.feature === "ingestion" && j.evidence_file_id === evidenceFileId,
+        (j) =>
+          j.case_id === caseId &&
+          j.feature === "ingestion" &&
+          j.evidence_file_id === evidenceFileId,
       ).length;
       const job: AnalysisJobOut = {
         id: nextIntelId(),
@@ -1782,12 +2004,21 @@ export const mockApi: Api = {
       const artifact = mockExtractionArtifact(caseId, item, job.id);
       extractionSourceTexts.set(artifact.id, source);
       artifactsState.unshift(artifact);
-      pushAudit("extraction.submitted", "analysis_job", caseId, { evidence_file_id: evidenceFileId });
-      pushAudit("extraction.completed", "analysis_job", caseId, { status: "succeeded", artifacts_created: 1 });
+      pushAudit("extraction.submitted", "analysis_job", caseId, {
+        evidence_file_id: evidenceFileId,
+      });
+      pushAudit("extraction.completed", "analysis_job", caseId, {
+        status: "succeeded",
+        artifacts_created: 1,
+      });
       return { job, duplicate: false };
     },
 
-    async multilingual(caseId: string, evidenceFileId: string, translate = false): Promise<JobSubmitResponse> {
+    async multilingual(
+      caseId: string,
+      evidenceFileId: string,
+      translate = false,
+    ): Promise<JobSubmitResponse> {
       await delay(MOCK_LATENCY * 2);
       requirePermission("ingestion.run");
       assertCaseAccess(caseId);
@@ -1800,10 +2031,17 @@ export const mockApi: Api = {
           (j.status === "pending" || j.status === "running"),
       );
       if (active) {
-        throw new ApiError({ status: 409, code: "MULTILINGUAL_ACTIVE", message: "a multilingual run is already active for this evidence" });
+        throw new ApiError({
+          status: 409,
+          code: "MULTILINGUAL_ACTIVE",
+          message: "a multilingual run is already active for this evidence",
+        });
       }
       const attempts = intelJobsState.filter(
-        (j) => j.case_id === caseId && j.feature === "multilingual" && j.evidence_file_id === evidenceFileId,
+        (j) =>
+          j.case_id === caseId &&
+          j.feature === "multilingual" &&
+          j.evidence_file_id === evidenceFileId,
       ).length;
       const job: AnalysisJobOut = {
         id: nextIntelId(),
@@ -1849,7 +2087,9 @@ export const mockApi: Api = {
       if (translation) {
         artifactsState.unshift(translation);
       }
-      pushAudit("multilingual.submitted", "analysis_job", caseId, { evidence_file_id: evidenceFileId });
+      pushAudit("multilingual.submitted", "analysis_job", caseId, {
+        evidence_file_id: evidenceFileId,
+      });
       pushAudit("multilingual.completed", "analysis_job", caseId, {
         status: "succeeded",
         artifacts_created: 1,
@@ -1858,7 +2098,179 @@ export const mockApi: Api = {
       return { job, duplicate: false };
     },
 
-    async sourceRecords(caseId: string, evidenceId: string, params: PageParams = {}): Promise<SourceRecordList> {
+    async triage(caseId: string, evidenceFileId: string): Promise<JobSubmitResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("ingestion.run");
+      assertCaseAccess(caseId);
+      mockEvidenceFor(caseId, evidenceFileId);
+      const active = intelJobsState.find(
+        (j) =>
+          j.case_id === caseId &&
+          j.feature === "triage" &&
+          j.evidence_file_id === evidenceFileId &&
+          (j.status === "pending" || j.status === "running"),
+      );
+      if (active) {
+        throw new ApiError({
+          status: 409,
+          code: "TRIAGE_ACTIVE",
+          message: "a triage run is already active for this evidence",
+        });
+      }
+      const attempts = intelJobsState.filter(
+        (j) =>
+          j.case_id === caseId && j.feature === "triage" && j.evidence_file_id === evidenceFileId,
+      ).length;
+      const job: AnalysisJobOut = {
+        id: nextIntelId(),
+        case_id: caseId,
+        feature: "triage",
+        status: "succeeded",
+        idempotency_key: `triage:${evidenceFileId}:attempt:${attempts + 1}`,
+        progress: 100,
+        total_records: 1,
+        processed_records: 1,
+        attempts: attempts + 1,
+        timeout_seconds: 300,
+        cancel_requested: false,
+        error: null,
+        result_summary: {
+          records_total: 1,
+          records_scanned: 1,
+          urls_analyzed: 2,
+          observations_total: 2,
+          manifest_entries_verified: 0,
+          artifacts_created: 1,
+          artifacts_reused: 0,
+          artifacts_flagged: 0,
+          explanation_failed: 0,
+          units_failed: 0,
+        },
+        evidence_file_id: evidenceFileId,
+        actor_id: currentUser().record?.id ?? null,
+        started_at: isoNow(),
+        completed_at: isoNow(),
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      intelJobsState.unshift(job);
+      const artifactId = nextIntelId();
+      const triageArtifact: DerivedArtifactOut = {
+        id: artifactId,
+        case_id: caseId,
+        kind: "triage_observation",
+        origin: "llm",
+        status: "pending_review",
+        validation_status: "valid",
+        evidence_file_id: evidenceFileId,
+        source_record_id: null,
+        source_locator: { scope: "evidence_file", records_scanned: 1 },
+        payload: {
+          triage: true,
+          evidence_file_id: evidenceFileId,
+          format_profile: {
+            records_scanned: 1,
+            urls_found: 2,
+            manifest_entries: 0,
+            log_lines: 0,
+            email_header_records: 0,
+            history_rows: 0,
+            observations_truncated: false,
+          },
+          fields: {
+            urls: [
+              {
+                url: "http://paypal.com@evil.test/login",
+                host: "evil.test",
+                userinfo: true,
+                ip_host: false,
+                punycode: false,
+                nonstandard_port: false,
+                port: null,
+                record_no: 1,
+              },
+              {
+                url: "https://cdn.example.org:8080/asset.js",
+                host: "cdn.example.org",
+                userinfo: false,
+                ip_host: false,
+                punycode: false,
+                nonstandard_port: true,
+                port: 8080,
+                record_no: 1,
+              },
+            ],
+            email_headers: [],
+            auth_results: [],
+            manifest: null,
+            history: null,
+            logs: null,
+          },
+          observations: [
+            {
+              rule: "triage.url.userinfo",
+              severity: "high",
+              locator: { record_no: 1 },
+              detail: { url: "http://paypal.com@evil.test/login", host: "evil.test" },
+            },
+            {
+              rule: "triage.url.nonstandard_port",
+              severity: "low",
+              locator: { record_no: 1 },
+              detail: {
+                url: "https://cdn.example.org:8080/asset.js",
+                host: "cdn.example.org",
+                port: 8080,
+              },
+            },
+          ],
+          missing_information: [],
+          explanation: {
+            summary:
+              "One URL hides its real host behind userinfo; one uses a non-standard port. Both are structural observations only.",
+            explanations: [
+              "The userinfo URL shows paypal.com before the @, but the parsed host is evil.test.",
+            ],
+            not_established: ["No malicious intent or payload is established by structure alone."],
+            verification_steps: [
+              "Compare the recorded hosts against known indicators.",
+              "Confirm who operates the non-standard port.",
+            ],
+          },
+          explanation_failed: false,
+          explanation_error: null,
+          analysis_scope:
+            "structural observations only: no file was executed, opened or resolved, and no URL was fetched",
+          rules_version: "1.0.0",
+        },
+        content_hash: `triage-${artifactId}`,
+        parser_version: "mock:1",
+        prompt_version: "1.0.0",
+        model_profile: "mock",
+        analysis_job_id: job.id,
+        validation_errors: [],
+        review_note: null,
+        reviewed_by: null,
+        reviewed_at: null,
+        parent_artifact_id: null,
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      artifactsState.unshift(triageArtifact);
+      pushAudit("triage.submitted", "analysis_job", caseId, { evidence_file_id: evidenceFileId });
+      pushAudit("triage.completed", "analysis_job", caseId, {
+        status: "succeeded",
+        observations_total: 2,
+        artifacts_created: 1,
+      });
+      return { job, duplicate: false };
+    },
+
+    async sourceRecords(
+      caseId: string,
+      evidenceId: string,
+      params: PageParams = {},
+    ): Promise<SourceRecordList> {
       await delay(MOCK_LATENCY);
       requirePermission("evidence.read");
       assertCaseAccess(caseId);
@@ -1874,7 +2286,10 @@ export const mockApi: Api = {
       return { items: offset === 0 ? [record] : [], total: 1, limit, offset };
     },
 
-    async evidenceJobs(caseId: string, params: PageParams & { feature?: string; status?: string } = {}): Promise<AnalysisJobList> {
+    async evidenceJobs(
+      caseId: string,
+      params: PageParams & { feature?: string; status?: string } = {},
+    ): Promise<AnalysisJobList> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
       let items = intelJobsState.filter((j) => j.case_id === caseId);
@@ -1900,12 +2315,17 @@ export const mockApi: Api = {
         (job.feature !== "ingestion" &&
           job.feature !== "custody" &&
           job.feature !== "multilingual" &&
+          job.feature !== "triage" &&
           !analysisRun)
       ) {
         throw notFound(`job ${jobId} not found`);
       }
       if (job.status !== "pending" && job.status !== "running") {
-        throw new ApiError({ status: 409, code: "JOB_TERMINAL", message: "job already reached a terminal state" });
+        throw new ApiError({
+          status: 409,
+          code: "JOB_TERMINAL",
+          message: "job already reached a terminal state",
+        });
       }
       job.cancel_requested = true;
       job.status = "canceled";
@@ -1914,15 +2334,24 @@ export const mockApi: Api = {
       if (analysisRun) {
         // Route flag + terminal transition (the mock runner observes it instantly).
         const prefix = ANALYSIS_FEATURES[job.feature as AnalysisFeature].audit;
-        pushAudit(`${prefix}.cancel_requested`, "analysis_job", caseId, { job_id: job.id, feature: job.feature });
-        pushAudit(`${prefix}.canceled`, "analysis_job", caseId, { job_id: job.id, feature: job.feature });
+        pushAudit(`${prefix}.cancel_requested`, "analysis_job", caseId, {
+          job_id: job.id,
+          feature: job.feature,
+        });
+        pushAudit(`${prefix}.canceled`, "analysis_job", caseId, {
+          job_id: job.id,
+          feature: job.feature,
+        });
       } else {
         pushAudit("job.canceled", "analysis_job", caseId, { job_id: job.id, feature: job.feature });
       }
       return job;
     },
 
-    async artifacts(caseId: string, params: PageParams & { kind?: string } = {}): Promise<ArtifactList> {
+    async artifacts(
+      caseId: string,
+      params: PageParams & { kind?: string } = {},
+    ): Promise<ArtifactList> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
       let items = artifactsState.filter((a) => a.case_id === caseId);
@@ -1933,37 +2362,65 @@ export const mockApi: Api = {
       return { items: sorted.slice(offset, offset + limit), total: items.length, limit, offset };
     },
 
-    async reviewArtifact(caseId: string, artifactId: string, input: ArtifactReviewRequest): Promise<DerivedArtifactOut> {
+    async reviewArtifact(
+      caseId: string,
+      artifactId: string,
+      input: ArtifactReviewRequest,
+    ): Promise<DerivedArtifactOut> {
       await delay(MOCK_LATENCY * 2);
       requirePermission("findings.review");
       assertCaseAccess(caseId);
       const artifact = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
       if (!artifact) throw notFound("artifact not found");
       if (input.note && input.note.length > 2000) {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "note must be 2000 characters or fewer" });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "note must be 2000 characters or fewer",
+        });
       }
       if (input.payload?.fields) {
         // Edited payloads mirror the server: extraction only, approval only,
         // one-shot from pending_review, original never rewritten.
         if (artifact.status !== "pending_review") {
-          throw new ApiError({ status: 409, code: "ARTIFACT_NOT_REVIEWABLE", message: "artifact already left pending_review" });
+          throw new ApiError({
+            status: 409,
+            code: "ARTIFACT_NOT_REVIEWABLE",
+            message: "artifact already left pending_review",
+          });
         }
         if (artifact.kind !== "extraction") {
-          throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "payload edits apply only to extraction artifacts" });
+          throw new ApiError({
+            status: 422,
+            code: "ARTIFACT_KIND_UNSUPPORTED",
+            message: "payload edits apply only to extraction artifacts",
+          });
         }
         if (input.decision !== "approved") {
-          throw new ApiError({ status: 422, code: "INVALID_PAYLOAD", message: "an edited payload can only accompany approval" });
+          throw new ApiError({
+            status: 422,
+            code: "INVALID_PAYLOAD",
+            message: "an edited payload can only accompany approval",
+          });
         }
         // Mirror the server rule: every edited value must appear in the
         // artifact's own source snapshot, or the edit is refused (422).
         const source = (extractionSourceTexts.get(artifact.id) ?? "").toLowerCase();
         for (const [field, values] of Object.entries(input.payload.fields)) {
           if (!field || field.length > 128) {
-            throw new ApiError({ status: 422, code: "INVALID_PAYLOAD", message: "extraction field names must be 1-128 characters" });
+            throw new ApiError({
+              status: 422,
+              code: "INVALID_PAYLOAD",
+              message: "extraction field names must be 1-128 characters",
+            });
           }
           for (const value of values) {
             if (!source.includes(value.toLowerCase())) {
-              throw new ApiError({ status: 422, code: "INVALID_PAYLOAD", message: `edited value for '${field}' is not present in the source record` });
+              throw new ApiError({
+                status: 422,
+                code: "INVALID_PAYLOAD",
+                message: `edited value for '${field}' is not present in the source record`,
+              });
             }
           }
         }
@@ -1998,16 +2455,24 @@ export const mockApi: Api = {
         return child;
       }
       if (artifact.status !== "pending_review") {
-        throw new ApiError({ status: 409, code: "ARTIFACT_NOT_REVIEWABLE", message: "artifact already left pending_review" });
+        throw new ApiError({
+          status: 409,
+          code: "ARTIFACT_NOT_REVIEWABLE",
+          message: "artifact already left pending_review",
+        });
       }
       // Approving an entity candidate records additive cross-aliases only —
       // the entities stay separate rows (merging needs entity.merge).
       const resolutionMeta: Record<string, unknown> =
-        input.decision === "approved" && artifact.kind === "entity_resolution" ? mockResolutionApprove(artifact) : {};
+        input.decision === "approved" && artifact.kind === "entity_resolution"
+          ? mockResolutionApprove(artifact)
+          : {};
       // Approving a cross-case candidate records a reviewed-relationship
       // artifact — never a merge and never a graph write.
       const crossCaseMeta: Record<string, unknown> =
-        input.decision === "approved" && artifact.kind === "cross_case_link" ? mockCrossCaseApprove(artifact) : {};
+        input.decision === "approved" && artifact.kind === "cross_case_link"
+          ? mockCrossCaseApprove(artifact)
+          : {};
       artifact.status = input.decision === "approved" ? "approved" : "rejected";
       artifact.review_note = input.note ?? null;
       artifact.reviewed_by = currentUser().record?.id ?? null;
@@ -2023,7 +2488,10 @@ export const mockApi: Api = {
       return artifact;
     },
 
-    async verifyIntegrity(caseId: string, evidenceFileId: string): Promise<IntegrityVerificationResponse> {
+    async verifyIntegrity(
+      caseId: string,
+      evidenceFileId: string,
+    ): Promise<IntegrityVerificationResponse> {
       await delay(MOCK_LATENCY * 2);
       requirePermission("ingestion.run");
       assertCaseAccess(caseId);
@@ -2062,7 +2530,10 @@ export const mockApi: Api = {
         updated_at: isoNow(),
       };
       artifactsState.unshift(artifact);
-      pushAudit("integrity.verified", "evidence_file", caseId, { evidence_file_id: evidenceFileId, status: "match" });
+      pushAudit("integrity.verified", "evidence_file", caseId, {
+        evidence_file_id: evidenceFileId,
+        status: "match",
+      });
       return {
         evidence_id: evidenceFileId,
         artifact_id: artifact.id,
@@ -2082,10 +2553,17 @@ export const mockApi: Api = {
       requirePermission("ingestion.run");
       assertCaseAccess(caseId);
       const active = intelJobsState.find(
-        (j) => j.case_id === caseId && j.feature === "custody" && (j.status === "pending" || j.status === "running"),
+        (j) =>
+          j.case_id === caseId &&
+          j.feature === "custody" &&
+          (j.status === "pending" || j.status === "running"),
       );
       if (active) {
-        throw new ApiError({ status: 409, code: "CUSTODY_AUDIT_ACTIVE", message: "a custody audit is already active for this case" });
+        throw new ApiError({
+          status: 409,
+          code: "CUSTODY_AUDIT_ACTIVE",
+          message: "a custody audit is already active for this case",
+        });
       }
       // Deterministic rule engine (mirror of the backend's unacknowledged-transfer
       // rule): a transfer with no later receipt produces one finding, deduped by
@@ -2112,7 +2590,8 @@ export const mockApi: Api = {
             (a) =>
               a.case_id === caseId &&
               a.kind === "custody_finding" &&
-              (a.payload as { rule?: string; event_id?: string }).rule === "custody.unacknowledged_transfer" &&
+              (a.payload as { rule?: string; event_id?: string }).rule ===
+                "custody.unacknowledged_transfer" &&
               (a.payload as { event_id?: string }).event_id === transfer.id,
           );
           if (duplicate) {
@@ -2196,7 +2675,10 @@ export const mockApi: Api = {
       return { job, duplicate: false };
     },
 
-    async custodyChronology(caseId: string, evidenceId: string): Promise<CustodyChronologyResponse> {
+    async custodyChronology(
+      caseId: string,
+      evidenceId: string,
+    ): Promise<CustodyChronologyResponse> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
       const item = mockEvidenceFor(caseId, evidenceId);
@@ -2218,27 +2700,56 @@ export const mockApi: Api = {
       };
     },
 
-    async recordCustodyEvent(caseId: string, evidenceId: string, input: CustodyEventCreateRequest): Promise<CustodyEventOut> {
+    async recordCustodyEvent(
+      caseId: string,
+      evidenceId: string,
+      input: CustodyEventCreateRequest,
+    ): Promise<CustodyEventOut> {
       await delay(MOCK_LATENCY);
       requirePermission("evidence.upload");
       assertCaseAccess(caseId);
       const item = mockEvidenceFor(caseId, evidenceId);
       if (!CUSTODY_EVENT_TYPES.includes(input.event_type)) {
-        throw new ApiError({ status: 422, code: "INVALID_PAYLOAD", message: `unknown custody event type '${input.event_type}'` });
+        throw new ApiError({
+          status: 422,
+          code: "INVALID_PAYLOAD",
+          message: `unknown custody event type '${input.event_type}'`,
+        });
       }
-      if (!/[zZ]|[+-]\d\d:?\d\d$/.test(input.occurred_at) || Number.isNaN(Date.parse(input.occurred_at))) {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "occurred_at must be an ISO-8601 timestamp with an explicit time zone" });
+      if (
+        !/[zZ]|[+-]\d\d:?\d\d$/.test(input.occurred_at) ||
+        Number.isNaN(Date.parse(input.occurred_at))
+      ) {
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "occurred_at must be an ISO-8601 timestamp with an explicit time zone",
+        });
       }
       if (Date.parse(input.occurred_at) > Date.now() + 300_000) {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "occurred_at cannot be more than 300 seconds in the future" });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "occurred_at cannot be more than 300 seconds in the future",
+        });
       }
       const required = CUSTODY_REQUIRED_FIELDS[input.event_type] ?? [];
-      const missing = required.filter((f) => !String(input[f as keyof CustodyEventCreateRequest] ?? "").trim());
+      const missing = required.filter(
+        (f) => !String(input[f as keyof CustodyEventCreateRequest] ?? "").trim(),
+      );
       if (missing.length) {
-        throw new ApiError({ status: 422, code: "CUSTODY_FIELD_REQUIRED", message: `'${input.event_type}' custody event requires: ${missing.join(", ")}` });
+        throw new ApiError({
+          status: 422,
+          code: "CUSTODY_FIELD_REQUIRED",
+          message: `'${input.event_type}' custody event requires: ${missing.join(", ")}`,
+        });
       }
       if (input.recorded_sha256 && !/^[0-9a-f]{64}$/i.test(input.recorded_sha256)) {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "recorded_sha256 must be a 64-character sha256 hex digest" });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "recorded_sha256 must be a 64-character sha256 hex digest",
+        });
       }
       void item;
       const event: CustodyEventOut = {
@@ -2258,7 +2769,10 @@ export const mockApi: Api = {
         recorded_sha256: input.recorded_sha256 ?? null,
       };
       custodyEventsState.push(event);
-      pushAudit("custody.event_recorded", "evidence_file", caseId, { evidence_file_id: evidenceId, event_type: input.event_type });
+      pushAudit("custody.event_recorded", "evidence_file", caseId, {
+        evidence_file_id: evidenceId,
+        event_type: input.event_type,
+      });
       return event;
     },
 
@@ -2273,7 +2787,12 @@ export const mockApi: Api = {
       if (finding.kind === "cross_case_link") return mockExplainCrossCase(finding);
       const payload = finding.payload as { type?: string; rule?: string };
       if (finding.kind !== "custody_finding" || payload.type !== "custody_finding") {
-        throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "only custody findings can be explained; hash verifications are deterministic facts" });
+        throw new ApiError({
+          status: 422,
+          code: "ARTIFACT_KIND_UNSUPPORTED",
+          message:
+            "only custody findings can be explained; hash verifications are deterministic facts",
+        });
       }
       const rule = payload.rule ?? "custody.finding";
       const explanation: DerivedArtifactOut = {
@@ -2298,7 +2817,11 @@ export const mockApi: Api = {
         model_profile: "explain",
         analysis_job_id: null,
         validation_errors: [
-          { field: "text", code: "ai_unverified", message: "AI-generated narration; unreviewed and unverified" },
+          {
+            field: "text",
+            code: "ai_unverified",
+            message: "AI-generated narration; unreviewed and unverified",
+          },
         ],
         review_note: null,
         reviewed_by: null,
@@ -2308,7 +2831,9 @@ export const mockApi: Api = {
         updated_at: isoNow(),
       };
       artifactsState.unshift(explanation);
-      pushAudit("custody.explanation_generated", "derived_artifact", caseId, { for_artifact_id: finding.id });
+      pushAudit("custody.explanation_generated", "derived_artifact", caseId, {
+        for_artifact_id: finding.id,
+      });
       return {
         explanation_artifact: explanation,
         text: explanation.payload.text as string,
@@ -2365,12 +2890,20 @@ export const mockApi: Api = {
         });
       }
       const active = intelJobsState.find(
-        (j) => j.case_id === anchor && j.feature === "cross_case" && (j.status === "pending" || j.status === "running"),
+        (j) =>
+          j.case_id === anchor &&
+          j.feature === "cross_case" &&
+          (j.status === "pending" || j.status === "running"),
       );
       if (active) {
-        throw new ApiError({ status: 409, code: "CROSS_CASE_ACTIVE", message: "a cross-case run is already active for this case" });
+        throw new ApiError({
+          status: 409,
+          code: "CROSS_CASE_ACTIVE",
+          message: "a cross-case run is already active for this case",
+        });
       }
-      const attempts = intelJobsState.filter((j) => j.case_id === anchor && j.feature === "cross_case").length + 1;
+      const attempts =
+        intelJobsState.filter((j) => j.case_id === anchor && j.feature === "cross_case").length + 1;
       const job: AnalysisJobOut = {
         id: nextIntelId(),
         case_id: anchor,
@@ -2410,8 +2943,13 @@ export const mockApi: Api = {
         cases_inaccessible: 0,
       };
       intelJobsState.unshift(job);
-      pushAudit("cross_case.search_submitted", "analysis_job", anchor, { feature: "cross_case", attempt: attempts });
-      pushAudit("cross_case.analysis_completed", "analysis_job", anchor, { ...(job.result_summary as Record<string, unknown>) });
+      pushAudit("cross_case.search_submitted", "analysis_job", anchor, {
+        feature: "cross_case",
+        attempt: attempts,
+      });
+      pushAudit("cross_case.analysis_completed", "analysis_job", anchor, {
+        ...(job.result_summary as Record<string, unknown>),
+      });
       return { job, duplicate: false };
     },
 
@@ -2419,7 +2957,9 @@ export const mockApi: Api = {
       await delay(MOCK_LATENCY);
       requirePermission("crosscase.read");
       assertCaseAccess(anchorCaseId);
-      const all = artifactsState.filter((a) => a.case_id === anchorCaseId && a.kind === "cross_case_link");
+      const all = artifactsState.filter(
+        (a) => a.case_id === anchorCaseId && a.kind === "cross_case_link",
+      );
       // Read-time recheck: a candidate touching an inaccessible case is omitted
       // entirely — not redacted, not counted.
       const visible = all.filter((artifact) => {
@@ -2435,14 +2975,21 @@ export const mockApi: Api = {
       };
     },
 
-    async commitTimelineProposal(caseId: string, artifactId: string): Promise<TimelineCommitResponse> {
+    async commitTimelineProposal(
+      caseId: string,
+      artifactId: string,
+    ): Promise<TimelineCommitResponse> {
       await delay(MOCK_LATENCY * 2);
       requirePermission("case.update");
       assertCaseAccess(caseId);
       const artifact = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
       if (!artifact) throw notFound("proposal not found");
       if (artifact.kind !== "timeline_proposal") {
-        throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "artifact is not a timeline proposal" });
+        throw new ApiError({
+          status: 422,
+          code: "ARTIFACT_KIND_UNSUPPORTED",
+          message: "artifact is not a timeline proposal",
+        });
       }
       const payload = artifact.payload as {
         title?: string;
@@ -2456,7 +3003,11 @@ export const mockApi: Api = {
         missing_timestamp?: boolean;
       };
       if (artifact.status !== "approved") {
-        throw new ApiError({ status: 409, code: "PROPOSAL_NOT_APPROVED", message: "proposal must be approved before it can be committed" });
+        throw new ApiError({
+          status: 409,
+          code: "PROPOSAL_NOT_APPROVED",
+          message: "proposal must be approved before it can be committed",
+        });
       }
       if (payload.missing_timestamp || !payload.occurred_at) {
         throw new ApiError({
@@ -2468,7 +3019,9 @@ export const mockApi: Api = {
       // Idempotency: one event per proposal key — a retry returns the same row.
       const key = payload.proposal_key ?? `artifact-${artifact.id}`;
       const existing = timelineState.find(
-        (event) => event.case_id === caseId && (event.payload as { proposal_key?: unknown } | null)?.proposal_key === key,
+        (event) =>
+          event.case_id === caseId &&
+          (event.payload as { proposal_key?: unknown } | null)?.proposal_key === key,
       );
       if (existing) {
         pushAudit("reconstruction.proposal_committed", "timeline_event", caseId, {
@@ -2525,12 +3078,23 @@ export const mockApi: Api = {
         });
       }
       if (!input.note?.trim()) {
-        throw new ApiError({ status: 422, code: "REVIEW_NOTE_REQUIRED", message: "a resolution note is required for every state" });
+        throw new ApiError({
+          status: 422,
+          code: "REVIEW_NOTE_REQUIRED",
+          message: "a resolution note is required for every state",
+        });
       }
       const parent = artifactsState.find((a) => a.id === artifactId && a.case_id === caseId);
       if (!parent) throw notFound("artifact not found");
-      if (parent.kind !== "contradiction" || (parent.payload as { type?: string }).type !== "contradiction") {
-        throw new ApiError({ status: 422, code: "ARTIFACT_KIND_UNSUPPORTED", message: "artifact is not a contradiction candidate" });
+      if (
+        parent.kind !== "contradiction" ||
+        (parent.payload as { type?: string }).type !== "contradiction"
+      ) {
+        throw new ApiError({
+          status: 422,
+          code: "ARTIFACT_KIND_UNSUPPORTED",
+          message: "artifact is not a contradiction candidate",
+        });
       }
       if (parent.status !== "pending_review") {
         throw new ApiError({
@@ -2583,11 +3147,17 @@ export const mockApi: Api = {
     async get(caseId: string): Promise<GraphResponse> {
       await delay(MOCK_LATENCY * 2);
       assertCaseAccess(caseId);
-      if (caseId === CASE_ID_MAIN) return { case_id: caseId, nodes: MAIN_GRAPH_NODES, edges: MAIN_GRAPH_EDGES };
+      if (caseId === CASE_ID_MAIN)
+        return { case_id: caseId, nodes: MAIN_GRAPH_NODES, edges: MAIN_GRAPH_EDGES };
       if (caseId === CASE_ID_SECONDARY) {
-        return { case_id: caseId, nodes: SECONDARY_CASE_DATA.graphNodes, edges: SECONDARY_CASE_DATA.graphEdges };
+        return {
+          case_id: caseId,
+          nodes: SECONDARY_CASE_DATA.graphNodes,
+          edges: SECONDARY_CASE_DATA.graphEdges,
+        };
       }
-      if (caseId === CASE_ID_CLOSED) return { case_id: caseId, nodes: CLOSED_CASE_GRAPH.nodes, edges: CLOSED_CASE_GRAPH.edges };
+      if (caseId === CASE_ID_CLOSED)
+        return { case_id: caseId, nodes: CLOSED_CASE_GRAPH.nodes, edges: CLOSED_CASE_GRAPH.edges };
       return { case_id: caseId, nodes: [], edges: [] };
     },
 
@@ -2654,7 +3224,21 @@ export const mockApi: Api = {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
       if (caseId === CASE_ID_MAIN) return MAIN_COMMUNITIES;
-      if (caseId === CASE_ID_SECONDARY) return [{ community_id: "C1", member_count: 6, density: 0.35, internal_edges: 5, external_edges: 2, dominant_entity_types: ["person", "organization"], dominant_relationship_types: ["works_for"], member_entity_ids: [], score: 0.6, explanation: "Single import operation." }];
+      if (caseId === CASE_ID_SECONDARY)
+        return [
+          {
+            community_id: "C1",
+            member_count: 6,
+            density: 0.35,
+            internal_edges: 5,
+            external_edges: 2,
+            dominant_entity_types: ["person", "organization"],
+            dominant_relationship_types: ["works_for"],
+            member_entity_ids: [],
+            score: 0.6,
+            explanation: "Single import operation.",
+          },
+        ];
       return [];
     },
 
@@ -2666,7 +3250,16 @@ export const mockApi: Api = {
           ? MAIN_NETWORK_PROFILES
           : caseId === CASE_ID_SECONDARY
             ? [
-                { entity_id: SECONDARY_CASE_DATA.entities[0].id, entity_type: "person", display_value: "Dinesh Sawant", overall_score: 0.62, tier: "MONITORED" as const, features: {}, signals: [], explanation: "Central to manifest network." },
+                {
+                  entity_id: SECONDARY_CASE_DATA.entities[0].id,
+                  entity_type: "person",
+                  display_value: "Dinesh Sawant",
+                  overall_score: 0.62,
+                  tier: "MONITORED" as const,
+                  features: {},
+                  signals: [],
+                  explanation: "Central to manifest network.",
+                },
               ]
             : [];
       return profiles.slice(0, limit);
@@ -2715,7 +3308,10 @@ export const mockApi: Api = {
         completed_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
       };
-      pushAudit("analytics.run_completed", "analytics_run", caseId, { status: "completed", stage: "complete" });
+      pushAudit("analytics.run_completed", "analytics_run", caseId, {
+        status: "completed",
+        stage: "complete",
+      });
       return run;
     },
 
@@ -2733,7 +3329,12 @@ export const mockApi: Api = {
     async list(caseId: string, params: FindingListParams = {}): Promise<FindingList> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
-      let items = caseId === CASE_ID_MAIN ? findingsState : caseId === CASE_ID_SECONDARY ? SECONDARY_CASE_DATA.findings : [];
+      let items =
+        caseId === CASE_ID_MAIN
+          ? findingsState
+          : caseId === CASE_ID_SECONDARY
+            ? SECONDARY_CASE_DATA.findings
+            : [];
       if (params.finding_type) items = items.filter((f) => f.finding_type === params.finding_type);
       if (params.status) items = items.filter((f) => f.status === params.status);
       if (params.severity) items = items.filter((f) => f.severity === params.severity);
@@ -2754,12 +3355,21 @@ export const mockApi: Api = {
     async stats(caseId: string, runId?: string): Promise<FindingStats> {
       await delay(MOCK_LATENCY / 2);
       assertCaseAccess(caseId);
-      const items = caseId === CASE_ID_MAIN ? findingsState : caseId === CASE_ID_SECONDARY ? SECONDARY_CASE_DATA.findings : [];
+      const items =
+        caseId === CASE_ID_MAIN
+          ? findingsState
+          : caseId === CASE_ID_SECONDARY
+            ? SECONDARY_CASE_DATA.findings
+            : [];
       void runId;
       return findingsStatsFor(items);
     },
 
-    async updateStatus(caseId: string, findingId: string, input: { status: string; reason?: string | null }): Promise<FindingStatusOut> {
+    async updateStatus(
+      caseId: string,
+      findingId: string,
+      input: { status: string; reason?: string | null },
+    ): Promise<FindingStatusOut> {
       await delay(MOCK_LATENCY);
       const user = requirePermission(permissionForStatus(input.status));
       assertCaseAccess(caseId);
@@ -2769,7 +3379,11 @@ export const mockApi: Api = {
       const isClosed = finding.status === "DISMISSED" || finding.status === "CONFIRMED";
       const isAdmin = user.roles.includes("ADMIN");
       if (isClosed && previous !== input.status && !isAdmin) {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: "closed findings are immutable except by ADMIN" });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: "closed findings are immutable except by ADMIN",
+        });
       }
       const changed = previous !== input.status;
       finding.status = input.status as Finding["status"];
@@ -2777,7 +3391,11 @@ export const mockApi: Api = {
       finding.reviewed_at = new Date().toISOString();
       finding.review_comment = input.reason ?? null;
       if (changed) {
-        pushAudit("finding.status_changed", "finding", caseId, { from: previous, to: input.status, reason: input.reason });
+        pushAudit("finding.status_changed", "finding", caseId, {
+          from: previous,
+          to: input.status,
+          reason: input.reason,
+        });
       }
       return {
         id: finding.id,
@@ -2797,7 +3415,8 @@ export const mockApi: Api = {
       if (params.case_id) items = items.filter((e) => e.case_id === params.case_id);
       if (params.actor_id) items = items.filter((e) => e.actor_id === params.actor_id);
       if (params.action) items = items.filter((e) => e.action === params.action);
-      if (params.resource_type) items = items.filter((e) => e.resource_type === params.resource_type);
+      if (params.resource_type)
+        items = items.filter((e) => e.resource_type === params.resource_type);
       const limit = params.limit ?? 50;
       const offset = params.offset ?? 0;
       return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
@@ -2892,7 +3511,9 @@ export const mockApi: Api = {
       if (params.device_type) items = items.filter((d) => d.device_type === params.device_type);
       if (params.search) {
         const q = params.search.toLowerCase();
-        items = items.filter((d) => d.name.toLowerCase().includes(q) || d.serial_number.toLowerCase().includes(q));
+        items = items.filter(
+          (d) => d.name.toLowerCase().includes(q) || d.serial_number.toLowerCase().includes(q),
+        );
       }
       items.sort((a, b) => b.created_at.localeCompare(a.created_at));
       const total = items.length;
@@ -2909,8 +3530,14 @@ export const mockApi: Api = {
     async register(caseId: string, input: IoTDeviceCreateRequest): Promise<IoTDevice> {
       await delay(MOCK_LATENCY);
       const now = iso(Date.now());
-      if (iotDeviceState.some((d) => d.case_id === caseId && d.serial_number === input.serial_number)) {
-        throw new ApiError({ status: 409, code: "CONFLICT", message: "a device with this serial number is already registered" });
+      if (
+        iotDeviceState.some((d) => d.case_id === caseId && d.serial_number === input.serial_number)
+      ) {
+        throw new ApiError({
+          status: 409,
+          code: "CONFLICT",
+          message: "a device with this serial number is already registered",
+        });
       }
       const device: IoTDevice = {
         id: uid(6000 + iotDeviceState.length),
@@ -2938,10 +3565,17 @@ export const mockApi: Api = {
         updated_at: now,
       };
       iotDeviceState.push(device);
-      pushAudit("iot.device_registered", "iot_device", device.id, { case_id: caseId, name: device.name });
+      pushAudit("iot.device_registered", "iot_device", device.id, {
+        case_id: caseId,
+        name: device.name,
+      });
       return device;
     },
-    async updateDevice(caseId: string, deviceId: string, input: IoTDeviceUpdateRequest): Promise<IoTDevice> {
+    async updateDevice(
+      caseId: string,
+      deviceId: string,
+      input: IoTDeviceUpdateRequest,
+    ): Promise<IoTDevice> {
       await delay(MOCK_LATENCY);
       const idx = iotDeviceState.findIndex((x) => x.id === deviceId && x.case_id === caseId);
       if (idx === -1) throw notFound("iot device not found");
@@ -2950,7 +3584,10 @@ export const mockApi: Api = {
         if (val !== undefined) (d as unknown as Record<string, unknown>)[k] = val;
       }
       d.updated_at = iso(Date.now());
-      pushAudit("iot.device_updated", "iot_device", d.id, { case_id: caseId, fields: Object.keys(input) });
+      pushAudit("iot.device_updated", "iot_device", d.id, {
+        case_id: caseId,
+        fields: Object.keys(input),
+      });
       return d;
     },
     async deleteDevice(caseId: string, deviceId: string): Promise<void> {
@@ -3012,7 +3649,11 @@ export const mockApi: Api = {
         device.last_seen_at = event.event_time;
       }
       device.event_count += 1;
-      pushAudit("iot.event_recorded", "iot_event", event.id, { case_id: caseId, device_id: event.device_id, event_type: event.event_type });
+      pushAudit("iot.event_recorded", "iot_event", event.id, {
+        case_id: caseId,
+        device_id: event.device_id,
+        event_type: event.event_type,
+      });
       return event;
     },
   },
@@ -3049,7 +3690,10 @@ export const mockApi: Api = {
         created_at: created,
       };
       timelineState.unshift(event);
-      pushAudit("timeline.event_recorded", "timeline_event", caseId, { kind: event.kind, title: event.title });
+      pushAudit("timeline.event_recorded", "timeline_event", caseId, {
+        kind: event.kind,
+        title: event.title,
+      });
       return event;
     },
   },
@@ -3109,17 +3753,26 @@ export const mockApi: Api = {
       return created;
     },
 
-    async update(caseId: string, collectionId: string, input: CollectionUpdateRequest): Promise<Collection> {
+    async update(
+      caseId: string,
+      collectionId: string,
+      input: CollectionUpdateRequest,
+    ): Promise<Collection> {
       await delay(MOCK_LATENCY);
       requirePermission("case.update");
       assertCaseAccess(caseId);
       const c = collectionsState.find((x) => x.id === collectionId && x.case_id === caseId);
       if (!c) throw notFound("collection not found");
       if (c.status === "sealed") {
-        throw new ApiError({ status: 409, code: "CONFLICT", message: "sealed collections cannot be modified" });
+        throw new ApiError({
+          status: 409,
+          code: "CONFLICT",
+          message: "sealed collections cannot be modified",
+        });
       }
       if (input.name !== undefined && input.name !== null) c.name = input.name;
-      if (input.description !== undefined && input.description !== null) c.description = input.description;
+      if (input.description !== undefined && input.description !== null)
+        c.description = input.description;
       c.updated_at = new Date().toISOString();
       return c;
     },
@@ -3195,7 +3848,10 @@ export const mockApi: Api = {
         created_at: now,
       };
       devicesState.push(device);
-      pushAudit("device.registered", "field_device", caseId, { serial: device.serial, platform: device.platform });
+      pushAudit("device.registered", "field_device", caseId, {
+        serial: device.serial,
+        platform: device.platform,
+      });
       timelineState.unshift({
         id: uid(3900 + timelineState.length),
         case_id: caseId,
@@ -3269,7 +3925,11 @@ export const mockApi: Api = {
       return d;
     },
 
-    async verifyKey(caseId: string, deviceId: string, input: DeviceVerifyRequest): Promise<DeviceVerifyResponse> {
+    async verifyKey(
+      caseId: string,
+      deviceId: string,
+      input: DeviceVerifyRequest,
+    ): Promise<DeviceVerifyResponse> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
       const d = devicesState.find((x) => x.id === deviceId && x.case_id === caseId);
@@ -3325,7 +3985,12 @@ export const mockApi: Api = {
       await delay(MOCK_LATENCY);
       const sources: AiSource[] = input.case_id
         ? [
-            { type: "case", id: input.case_id, label: "SHOW-2026-005", url: `/cases/${input.case_id}` },
+            {
+              type: "case",
+              id: input.case_id,
+              label: "SHOW-2026-005",
+              url: `/cases/${input.case_id}`,
+            },
             { type: "evidence", id: "ev-mock-1", label: "call_detail_record.csv" },
           ]
         : [{ type: "knowledge", id: "README.md#overview", label: "overview" }];
@@ -3507,16 +4172,26 @@ export const mockApi: Api = {
       await delay(MOCK_LATENCY * 2);
       assertCaseAccess(caseId);
       const now = new Date().toISOString();
-      const known = ["case_summary", "intelligence", "evidence_manifest", "network_analysis", "timeline"];
+      const known = [
+        "case_summary",
+        "intelligence",
+        "evidence_manifest",
+        "network_analysis",
+        "timeline",
+      ];
       const report: Report = {
         id: uid(2600 + reportsState.length),
         case_id: caseId,
         report_type: input.report_type,
         format: input.format ?? "json",
-        title: input.title ?? `${input.report_type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} - Case`,
+        title:
+          input.title ??
+          `${input.report_type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} - Case`,
         status: known.includes(input.report_type) ? "ready" : "failed",
         byte_size: known.includes(input.report_type) ? 24680 : null,
-        failure_reason: known.includes(input.report_type) ? null : `unknown report type '${input.report_type}'`,
+        failure_reason: known.includes(input.report_type)
+          ? null
+          : `unknown report type '${input.report_type}'`,
         created_at: now,
       };
       reportsState.unshift(report);
@@ -3536,15 +4211,27 @@ export const mockApi: Api = {
       if (r.status !== "ready") {
         throw new ApiError({ status: 409, code: "CONFLICT", message: "report not ready" });
       }
-      const blob = new Blob([JSON.stringify({ report_type: r.report_type, case_id: caseId, generated_at: r.created_at }, null, 2)], {
-        type: "application/json",
-      });
+      const blob = new Blob(
+        [
+          JSON.stringify(
+            { report_type: r.report_type, case_id: caseId, generated_at: r.created_at },
+            null,
+            2,
+          ),
+        ],
+        {
+          type: "application/json",
+        },
+      );
       return { blob, filename: `${r.report_type}-report.json` };
     },
   },
 
   hypotheses: {
-    async list(caseId: string, params: InvestigationHypothesisListParams = {}): Promise<InvestigationHypothesisList> {
+    async list(
+      caseId: string,
+      params: InvestigationHypothesisListParams = {},
+    ): Promise<InvestigationHypothesisList> {
       await delay(MOCK_LATENCY);
       assertCaseAccess(caseId);
       let items = hypothesesState.filter((h) => h.case_id === caseId);
@@ -3588,7 +4275,10 @@ export const mockApi: Api = {
         updated_at: now,
       };
       hypothesesState.unshift(created);
-      pushAudit("hypothesis.created", "hypothesis", caseId, { title: created.title, kind: created.kind });
+      pushAudit("hypothesis.created", "hypothesis", caseId, {
+        title: created.title,
+        kind: created.kind,
+      });
       timelineState.unshift({
         id: uid(3900 + timelineState.length),
         case_id: caseId,
@@ -3607,15 +4297,30 @@ export const mockApi: Api = {
       return created;
     },
 
-    async updateStatus(caseId: string, hypothesisId: string, status: string): Promise<InvestigationHypothesis> {
+    async updateStatus(
+      caseId: string,
+      hypothesisId: string,
+      status: string,
+    ): Promise<InvestigationHypothesis> {
       await delay(MOCK_LATENCY);
       const user = requirePermission("findings.review");
       assertCaseAccess(caseId);
       const h = hypothesesState.find((x) => x.id === hypothesisId && x.case_id === caseId);
       if (!h) throw notFound("hypothesis not found");
-      const valid = ["proposed", "under_review", "supported", "contradicted", "dismissed", "concluded"];
+      const valid = [
+        "proposed",
+        "under_review",
+        "supported",
+        "contradicted",
+        "dismissed",
+        "concluded",
+      ];
       if (!valid.includes(status)) {
-        throw new ApiError({ status: 422, code: "VALIDATION_ERROR", message: `invalid hypothesis status '${status}'` });
+        throw new ApiError({
+          status: 422,
+          code: "VALIDATION_ERROR",
+          message: `invalid hypothesis status '${status}'`,
+        });
       }
       const oldStatus = h.status;
       h.status = status as InvestigationHypothesis["status"];
@@ -3639,7 +4344,11 @@ export const mockApi: Api = {
       return h;
     },
 
-    async linkEvidence(caseId: string, hypothesisId: string, input): Promise<InvestigationHypothesis> {
+    async linkEvidence(
+      caseId: string,
+      hypothesisId: string,
+      input,
+    ): Promise<InvestigationHypothesis> {
       await delay(MOCK_LATENCY);
       requirePermission("findings.review");
       assertCaseAccess(caseId);
@@ -3674,17 +4383,35 @@ export const mockApi: Api = {
       if (caseId === CASE_ID_MAIN) {
         for (const e of MAIN_ENTITIES) {
           if (e.display_value.toLowerCase().includes(q)) {
-            results.push({ kind: "entity", id: e.id, title: e.display_value, subtitle: e.entity_type, url: `/app/cases/${caseId}/entities/${e.id}` });
+            results.push({
+              kind: "entity",
+              id: e.id,
+              title: e.display_value,
+              subtitle: e.entity_type,
+              url: `/app/cases/${caseId}/entities/${e.id}`,
+            });
           }
         }
         for (const item of evidenceState) {
           if (item.original_filename.toLowerCase().includes(q)) {
-            results.push({ kind: "evidence", id: item.id, title: item.original_filename, subtitle: item.format ?? null, url: `/app/cases/${caseId}/evidence` });
+            results.push({
+              kind: "evidence",
+              id: item.id,
+              title: item.original_filename,
+              subtitle: item.format ?? null,
+              url: `/app/cases/${caseId}/evidence`,
+            });
           }
         }
         for (const f of MAIN_FINDINGS) {
           if (f.title.toLowerCase().includes(q)) {
-            results.push({ kind: "finding", id: f.id, title: f.title, subtitle: f.finding_type, url: `/app/cases/${caseId}/findings/${f.id}` });
+            results.push({
+              kind: "finding",
+              id: f.id,
+              title: f.title,
+              subtitle: f.finding_type,
+              url: `/app/cases/${caseId}/findings/${f.id}`,
+            });
           }
         }
       }
@@ -3766,10 +4493,14 @@ function entitiesFor(caseId: string): Entity[] {
 
 /* ------------------ Case intelligence (phase 3) ------------------ */
 
-type AnalysisFeature = "entity_resolution" | "timeline" | "contradiction" | "financial_flow" | "cross_case";
+type AnalysisFeature =
+  "entity_resolution" | "timeline" | "contradiction" | "financial_flow" | "cross_case";
 
 /** Mirrors the backend submit route: refusal code, audit prefix, success action. */
-const ANALYSIS_FEATURES: Record<AnalysisFeature, { audit: string; activeCode: ApiErrorCode; successAction: string }> = {
+const ANALYSIS_FEATURES: Record<
+  AnalysisFeature,
+  { audit: string; activeCode: ApiErrorCode; successAction: string }
+> = {
   entity_resolution: {
     audit: "resolution",
     activeCode: "RESOLUTION_ACTIVE",
@@ -3814,11 +4545,7 @@ function nameSimilarity(a: string, b: string): number {
     rows[0] = j;
     for (let i = 1; i <= a.length; i += 1) {
       const current = rows[i];
-      rows[i] = Math.min(
-        rows[i] + 1,
-        rows[i - 1] + 1,
-        prev + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
+      rows[i] = Math.min(rows[i] + 1, rows[i - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
       prev = current;
     }
   }
@@ -3842,9 +4569,7 @@ function scoreBand(score: number): "strong" | "ambiguous" | "weak" {
 }
 
 /** Indexed same-bucket person pairs (never an all-pairs scan). */
-function mockResolutionPairs(
-  caseId: string,
-): Array<{ a: Entity; b: Entity; score: number }> {
+function mockResolutionPairs(caseId: string): Array<{ a: Entity; b: Entity; score: number }> {
   const people = entitiesFor(caseId).filter(
     (e) => e.entity_type === "person" && e.status === "active",
   );
@@ -3878,7 +4603,11 @@ function mockEntitySide(entity: Entity): Record<string, unknown> {
   };
 }
 
-function mockResolutionArtifact(caseId: string, jobId: string, pair: { a: Entity; b: Entity; score: number }): DerivedArtifactOut {
+function mockResolutionArtifact(
+  caseId: string,
+  jobId: string,
+  pair: { a: Entity; b: Entity; score: number },
+): DerivedArtifactOut {
   const codes = ["no_identifier_evidence"];
   return {
     id: nextIntelId(),
@@ -3910,7 +4639,11 @@ function mockResolutionArtifact(caseId: string, jobId: string, pair: { a: Entity
     prompt_version: null,
     model_profile: null,
     analysis_job_id: jobId,
-    validation_errors: codes.map((code) => ({ field: "pair", code, message: RESOLUTION_MESSAGES[code] })),
+    validation_errors: codes.map((code) => ({
+      field: "pair",
+      code,
+      message: RESOLUTION_MESSAGES[code],
+    })),
     review_note: null,
     reviewed_by: null,
     reviewed_at: null,
@@ -3953,7 +4686,8 @@ const MOCK_RECONSTRUCTION_DRAFTS = [
       {
         field: "timestamp",
         code: "ambiguous_timezone",
-        message: "the source timestamp has no time zone; it was interpreted as UTC for ordering and flagged",
+        message:
+          "the source timestamp has no time zone; it was interpreted as UTC for ordering and flagged",
       },
     ],
   },
@@ -3983,7 +4717,11 @@ function mockProposalKey(draft: (typeof MOCK_RECONSTRUCTION_DRAFTS)[number]): st
   return `proposal-${draft.field}-${draft.original}`;
 }
 
-function mockReconstructionArtifact(caseId: string, jobId: string, draft: (typeof MOCK_RECONSTRUCTION_DRAFTS)[number]): DerivedArtifactOut {
+function mockReconstructionArtifact(
+  caseId: string,
+  jobId: string,
+  draft: (typeof MOCK_RECONSTRUCTION_DRAFTS)[number],
+): DerivedArtifactOut {
   const flagged = draft.errors.length > 0;
   return {
     id: nextIntelId(),
@@ -4092,14 +4830,25 @@ function mockContradictionArtifact(caseId: string, jobId: string): DerivedArtifa
 }
 
 /** Resolution approvals add reviewed cross-aliases here — entities never merge. */
-const resolutionAliasState: Record<string, Array<{ id: string; alias_value: string; alias_type: string }>> = {};
+const resolutionAliasState: Record<
+  string,
+  Array<{ id: string; alias_value: string; alias_type: string }>
+> = {};
 
-function mockResolutionApprove(artifact: DerivedArtifactOut): { aliases_added: number; entity_a_id: string; entity_b_id: string } {
+function mockResolutionApprove(artifact: DerivedArtifactOut): {
+  aliases_added: number;
+  entity_a_id: string;
+  entity_b_id: string;
+} {
   const locator = artifact.source_locator as { entity_a?: string; entity_b?: string };
   const entityA = entitiesFor(artifact.case_id).find((e) => e.id === locator.entity_a);
   const entityB = entitiesFor(artifact.case_id).find((e) => e.id === locator.entity_b);
   if (!entityA || !entityB || entityA.status !== "active" || entityB.status !== "active") {
-    throw new ApiError({ status: 409, code: "CANDIDATE_ENTITY_UNAVAILABLE", message: "candidate entities are no longer available (missing or merged)" });
+    throw new ApiError({
+      status: 409,
+      code: "CANDIDATE_ENTITY_UNAVAILABLE",
+      message: "candidate entities are no longer available (missing or merged)",
+    });
   }
   const added =
     recordResolutionAlias(entityA.id, entityB.canonical_value) +
@@ -4110,7 +4859,10 @@ function mockResolutionApprove(artifact: DerivedArtifactOut): { aliases_added: n
 function recordResolutionAlias(entityId: string, aliasValue: string): number {
   const existing = resolutionAliasState[entityId] ?? [];
   if (existing.some((a) => a.alias_value === aliasValue)) return 0;
-  resolutionAliasState[entityId] = [...existing, { id: nextIntelId(), alias_value: aliasValue, alias_type: "resolution" }];
+  resolutionAliasState[entityId] = [
+    ...existing,
+    { id: nextIntelId(), alias_value: aliasValue, alias_type: "resolution" },
+  ];
   return 1;
 }
 
@@ -4206,12 +4958,22 @@ const mockFlowEdge = (source: string, target: string, ids: string[]): MockFlowEd
  */
 const MOCK_FLOW_NODES: MockFlowNode[] = [
   { id: "account:ACCSIH001", kind: "account", label: "ACC-SIH-001", origin: "record" },
-  { id: "merchant:phonepe merchant", kind: "merchant", label: "PhonePe Merchant", origin: "record" },
+  {
+    id: "merchant:phonepe merchant",
+    kind: "merchant",
+    label: "PhonePe Merchant",
+    origin: "record",
+  },
   { id: "party:ananya sirohi", kind: "party", label: "Ananya Sirohi", origin: "record" },
   { id: "account:ACCSIH002", kind: "account", label: "ACC-SIH-002", origin: "record" },
   { id: "merchant:paytm merchant", kind: "merchant", label: "Paytm Merchant", origin: "record" },
   { id: "party:rohan mehta", kind: "party", label: "Rohan Mehta", origin: "record" },
-  { id: "beneficiary:ananya sirohi", kind: "beneficiary", label: "Ananya Sirohi", origin: "record" },
+  {
+    id: "beneficiary:ananya sirohi",
+    kind: "beneficiary",
+    label: "Ananya Sirohi",
+    origin: "record",
+  },
   { id: "account:3300445566", kind: "account", label: "3300445566", origin: "record" },
   { id: "bank:securemart", kind: "bank", label: "SecureMart", origin: "record" },
   { id: "party:sunita sharma", kind: "party", label: "Sunita Sharma", origin: "record" },
@@ -4354,11 +5116,14 @@ const MOCK_FLOW_LIMITATIONS = [
 
 const MOCK_FLOW_CALCULATION_DEFINITIONS: Record<string, string> = {
   fact: "one deterministic extraction from one source record's raw_data; fact_class=transaction when an amount or transaction reference is present, otherwise account_reference",
-  amount: "parsed with Decimal from the original value (JSON strings parse exactly); originals are preserved verbatim alongside; non-numeric values are rejected and counted, never coerced",
-  total_records: "sum of exact Decimal amounts over every record carrying an amount, duplicates included",
+  amount:
+    "parsed with Decimal from the original value (JSON strings parse exactly); originals are preserved verbatim alongside; non-numeric values are rejected and counted, never coerced",
+  total_records:
+    "sum of exact Decimal amounts over every record carrying an amount, duplicates included",
   total_distinct:
     "one contribution per distinct transaction group (grouped by the documented dedupe key: transaction reference, else amount+account), so a transfer recorded twice counts once; groups whose records disagree on the amount are excluded and listed in conflicting_groups. Records without a transaction reference cannot be told apart from genuinely repeated transfers, so both totals are always reported together and neither is the unique truth. When every group disagrees it is null, because a zero there would be a fabricated figure",
-  currency_bucketing: "amounts are summed only within one currency value; records without a currency fall into a null bucket flagged currency_unknown",
+  currency_bucketing:
+    "amounts are summed only within one currency value; records without a currency fall into a null bucket flagged currency_unknown",
   net_flow: "not computed: direction is absent from the ingest",
   structure_edge:
     "association edges are documented co-occurrence within one record (star from the account when present); relationship edges are schema-asserted (e.g. owns). No edge is a confirmed transfer",
@@ -4468,9 +5233,12 @@ function mockFlowVictims(caseId: string): Record<string, unknown>[] {
     .map((victim) => {
       const missing: string[] = [];
       const limitations = ["float_source"];
-      if (victim.reported_amount === null || victim.reported_amount === undefined) missing.push("reported_amount");
-      if (victim.amount_lost === null || victim.amount_lost === undefined) missing.push("amount_lost");
-      if (victim.recovery_amount === null || victim.recovery_amount === undefined) missing.push("recovery_amount");
+      if (victim.reported_amount === null || victim.reported_amount === undefined)
+        missing.push("reported_amount");
+      if (victim.amount_lost === null || victim.amount_lost === undefined)
+        missing.push("amount_lost");
+      if (victim.recovery_amount === null || victim.recovery_amount === undefined)
+        missing.push("recovery_amount");
       if (!victim.currency) {
         missing.push("currency");
         limitations.push("currency_unknown");
@@ -4694,7 +5462,11 @@ const MOCK_CROSSCASE_GRAPH_NOTE =
   "Discovery reads only the cases' authorized records; it does not depend on the Neo4j projection.";
 
 /** One deterministic mock candidate: a shared account reference across two cases. */
-function mockCrossCaseCandidate(anchorCaseId: string, caseIds: string[], jobId: string): DerivedArtifactOut {
+function mockCrossCaseCandidate(
+  anchorCaseId: string,
+  caseIds: string[],
+  jobId: string,
+): DerivedArtifactOut {
   const sides = caseIds.slice(0, 2).map((caseId) => ({
     case_id: caseId,
     value_originals: ["ACC-SIH-001"],
@@ -4718,7 +5490,11 @@ function mockCrossCaseCandidate(anchorCaseId: string, caseIds: string[], jobId: 
     source_locator: null,
     payload: {
       crosscase_rules_version: MOCK_CROSSCASE_RULES_VERSION,
-      scope: { case_ids: caseIds, scope_hash: `scope-${caseIds.length}`, cases_in_group: caseIds.slice(0, 2) },
+      scope: {
+        case_ids: caseIds,
+        scope_hash: `scope-${caseIds.length}`,
+        cases_in_group: caseIds.slice(0, 2),
+      },
       group: { indicator_kind: "account_ref", value_normalized: "ACCSIH001" },
       classification: "normalized_identifier",
       classification_semantics: {
@@ -4779,7 +5555,11 @@ function structuredExplanationChild(
     model_profile: "explain",
     analysis_job_id: null,
     validation_errors: [
-      { field: "explanation", code: "ai_unverified", message: "AI-generated narration; unreviewed and unverified" },
+      {
+        field: "explanation",
+        code: "ai_unverified",
+        message: "AI-generated narration; unreviewed and unverified",
+      },
     ],
     review_note: null,
     reviewed_by: null,
@@ -4792,14 +5572,18 @@ function structuredExplanationChild(
 
 /** Facts-only narration of a financial finding: cites a real fact, quotes no invented number. */
 function mockExplainFinancial(parent: DerivedArtifactOut): CustodyExplainResponse {
-  const payload = parent.payload as { facts?: Array<{ record_no?: number; amount?: string | null }> };
+  const payload = parent.payload as {
+    facts?: Array<{ record_no?: number; amount?: string | null }>;
+  };
   const first = payload.facts?.[0] ?? {};
   const cited = first.record_no != null ? [String(first.record_no)] : [];
   const explanation = {
     summary: first.amount
       ? `Amount-bearing records were extracted; the first carries ${first.amount} with currency unrecorded.`
       : "Amount-bearing records were extracted from the case records.",
-    why_patterns_fired: ["Each pattern fires only on the extracted facts recorded on this finding."],
+    why_patterns_fired: [
+      "Each pattern fires only on the extracted facts recorded on this finding.",
+    ],
     cited_transaction_ids: cited,
     alternative_explanations: ["A legitimate business transfer with the same recorded shape."],
     missing_information: ["currency", "payer side", "timestamps"],
@@ -4807,16 +5591,23 @@ function mockExplainFinancial(parent: DerivedArtifactOut): CustodyExplainRespons
   };
   const child = structuredExplanationChild(parent, "financial_finding", explanation);
   artifactsState.unshift(child);
-  pushAudit("flow.explanation_generated", "derived_artifact", parent.case_id, { for_artifact_id: parent.id });
+  pushAudit("flow.explanation_generated", "derived_artifact", parent.case_id, {
+    for_artifact_id: parent.id,
+  });
   return { explanation_artifact: child, text: explanation.summary, rule: "", explanation };
 }
 
 /** Facts-only narration of a cross-case candidate: scope-rechecked, never proof. */
 function mockExplainCrossCase(parent: DerivedArtifactOut): CustodyExplainResponse {
   requirePermission("crosscase.read");
-  const payload = parent.payload as { group?: { indicator_kind?: string }; classification?: string; sides?: Array<{ case_id: string; value_originals?: string[] }> };
+  const payload = parent.payload as {
+    group?: { indicator_kind?: string };
+    classification?: string;
+    sides?: Array<{ case_id: string; value_originals?: string[] }>;
+  };
   // Fail closed: a candidate touching an inaccessible case is shown as not-found.
-  if (!(payload.sides ?? []).every((side) => canAccessCase(side.case_id))) throw notFound("artifact not found");
+  if (!(payload.sides ?? []).every((side) => canAccessCase(side.case_id)))
+    throw notFound("artifact not found");
   const shared = payload.sides?.[0]?.value_originals?.[0] ?? "";
   const explanation = {
     summary: shared
@@ -4825,12 +5616,20 @@ function mockExplainCrossCase(parent: DerivedArtifactOut): CustodyExplainRespons
     matching_signal: `identifier ${payload.group?.indicator_kind ?? "unknown"}, classification ${payload.classification ?? "unknown"}`,
     cited_identifiers: shared ? [shared] : [],
     conflicts: [] as string[],
-    not_established: ["that the cases are the same incident", "that any transfer occurred between them"],
-    verification_steps: ["Confirm the account holder on both sides", "Check whether the shared value is a coincidence"],
+    not_established: [
+      "that the cases are the same incident",
+      "that any transfer occurred between them",
+    ],
+    verification_steps: [
+      "Confirm the account holder on both sides",
+      "Check whether the shared value is a coincidence",
+    ],
   };
   const child = structuredExplanationChild(parent, "cross_case_link", explanation);
   artifactsState.unshift(child);
-  pushAudit("cross_case.explanation_generated", "derived_artifact", parent.case_id, { for_artifact_id: parent.id });
+  pushAudit("cross_case.explanation_generated", "derived_artifact", parent.case_id, {
+    for_artifact_id: parent.id,
+  });
   return { explanation_artifact: child, text: explanation.summary, rule: "", explanation };
 }
 
@@ -4844,8 +5643,14 @@ function traceMockFlow(caseId: string, input: FlowTraceRequest): FlowTraceRespon
   const target = input.target;
   const edgeKind = input.edge_kind ?? "association";
   const targetKind = input.target_kind ?? "account";
-  const maxDepth = Math.min(Math.max(input.max_depth ?? MOCK_FLOW_TRACE_MAX_DEPTH, 1), MOCK_FLOW_TRACE_MAX_DEPTH);
-  const maxPaths = Math.min(Math.max(input.max_paths ?? MOCK_FLOW_TRACE_MAX_PATHS, 1), MOCK_FLOW_TRACE_MAX_PATHS);
+  const maxDepth = Math.min(
+    Math.max(input.max_depth ?? MOCK_FLOW_TRACE_MAX_DEPTH, 1),
+    MOCK_FLOW_TRACE_MAX_DEPTH,
+  );
+  const maxPaths = Math.min(
+    Math.max(input.max_paths ?? MOCK_FLOW_TRACE_MAX_PATHS, 1),
+    MOCK_FLOW_TRACE_MAX_PATHS,
+  );
   const limitations = [
     "every hop is an association (documented co-occurrence) or a recorded relationship, never a confirmed transfer, so a trace answers what else is documented about an account \u2014 not where money went",
     "no ingested record carries a transaction timestamp, so a trace has no time dimension",
@@ -4923,7 +5728,12 @@ function traceMockFlow(caseId: string, input: FlowTraceRequest): FlowTraceRespon
     response.start_node = start;
     const paths: FlowTracePath[] = [];
     let truncated = false;
-    const dfs = (node: string, nodesPath: string[], hops: FlowTraceHop[], visited: Set<string>): void => {
+    const dfs = (
+      node: string,
+      nodesPath: string[],
+      hops: FlowTraceHop[],
+      visited: Set<string>,
+    ): void => {
       if (paths.length >= maxPaths) {
         truncated = true;
         return;
@@ -4985,13 +5795,19 @@ function traceMockFlow(caseId: string, input: FlowTraceRequest): FlowTraceRespon
   return response;
 }
 
-async function submitAnalysisFeature(caseId: string, feature: AnalysisFeature): Promise<JobSubmitResponse> {
+async function submitAnalysisFeature(
+  caseId: string,
+  feature: AnalysisFeature,
+): Promise<JobSubmitResponse> {
   await delay(MOCK_LATENCY * 2);
   requirePermission("ingestion.run");
   assertCaseAccess(caseId);
   const meta = ANALYSIS_FEATURES[feature];
   const active = intelJobsState.find(
-    (j) => j.case_id === caseId && j.feature === feature && (j.status === "pending" || j.status === "running"),
+    (j) =>
+      j.case_id === caseId &&
+      j.feature === feature &&
+      (j.status === "pending" || j.status === "running"),
   );
   if (active) {
     throw new ApiError({
@@ -5000,7 +5816,8 @@ async function submitAnalysisFeature(caseId: string, feature: AnalysisFeature): 
       message: `a ${feature} run is already active for this case`,
     });
   }
-  const attempts = intelJobsState.filter((j) => j.case_id === caseId && j.feature === feature).length + 1;
+  const attempts =
+    intelJobsState.filter((j) => j.case_id === caseId && j.feature === feature).length + 1;
   const job: AnalysisJobOut = {
     id: nextIntelId(),
     case_id: caseId,
@@ -5024,7 +5841,9 @@ async function submitAnalysisFeature(caseId: string, feature: AnalysisFeature): 
   };
 
   const record = (artifact: DerivedArtifactOut): boolean => {
-    const reuse = artifactsState.some((a) => a.case_id === caseId && a.content_hash === artifact.content_hash);
+    const reuse = artifactsState.some(
+      (a) => a.case_id === caseId && a.content_hash === artifact.content_hash,
+    );
     if (!reuse) artifactsState.unshift(artifact);
     return !reuse;
   };
@@ -5060,7 +5879,9 @@ async function submitAnalysisFeature(caseId: string, feature: AnalysisFeature): 
     Object.assign(summary, {
       records_scanned: 0,
       records_bounded: false,
-      artifacts_scanned: artifactsState.filter((a) => a.case_id === caseId && a.kind === "timeline_proposal").length,
+      artifacts_scanned: artifactsState.filter(
+        (a) => a.case_id === caseId && a.kind === "timeline_proposal",
+      ).length,
       artifacts_bounded: false,
       drafts_generated: 0,
       proposals_recorded: 0,
@@ -5078,15 +5899,21 @@ async function submitAnalysisFeature(caseId: string, feature: AnalysisFeature): 
         continue;
       }
       summary["drafts_generated"] = Number(summary["drafts_generated"]) + 1;
-      if (draft.missing_timestamp) summary["missing_timestamps"] = Number(summary["missing_timestamps"]) + 1;
-      if (draft.tz_assumed) summary["ambiguous_timezones"] = Number(summary["ambiguous_timezones"]) + 1;
+      if (draft.missing_timestamp)
+        summary["missing_timestamps"] = Number(summary["missing_timestamps"]) + 1;
+      if (draft.tz_assumed)
+        summary["ambiguous_timezones"] = Number(summary["ambiguous_timezones"]) + 1;
       const created = record(mockReconstructionArtifact(caseId, job.id, draft));
       summary[created ? "proposals_recorded" : "proposals_reused"] =
         Number(summary[created ? "proposals_recorded" : "proposals_reused"]) + 1;
     }
   } else if (feature === "financial_flow") {
     const payload = mockFlowPayload(caseId);
-    const patterns = payload.patterns as { firing: unknown[]; not_fired: string[]; not_evaluable: unknown[] };
+    const patterns = payload.patterns as {
+      firing: unknown[];
+      not_fired: string[];
+      not_evaluable: unknown[];
+    };
     const aggregates = payload.aggregates as { currency_buckets: unknown[] };
     const network = payload.structure_network as { nodes_total: number; edges_total: number };
     const scope = payload.scope as { records_scanned: number; victim_rows_scanned: number };

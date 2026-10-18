@@ -1,7 +1,35 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
-import type { AdminUserListParams, CaseListParams, CaseMemberAddRequest, EntityListParams, FindingListParams, AuditParams, VictimListParams, IoTDeviceListParams, IoTEventListParams, InvestigationHypothesisListParams } from "@/api/contract";
-import type { ArtifactReviewRequest, CaseStatus, CollectionCreateRequest, ContradictionResolveRequest, CustodyEventCreateRequest, FlowTraceRequest, PageParams, VictimCreateRequest, VictimUpdateRequest, IoTDeviceCreateRequest, IoTDeviceUpdateRequest, IoTEventCreateRequest, DeviceRegisterRequest, HypothesisLinkEvidenceRequest, ReportGenerateRequest, InvestigationHypothesisCreateRequest } from "@/types/domain";
+import type {
+  AdminUserListParams,
+  CaseListParams,
+  CaseMemberAddRequest,
+  EntityListParams,
+  FindingListParams,
+  AuditParams,
+  VictimListParams,
+  IoTDeviceListParams,
+  IoTEventListParams,
+  InvestigationHypothesisListParams,
+} from "@/api/contract";
+import type {
+  ArtifactReviewRequest,
+  CaseStatus,
+  CollectionCreateRequest,
+  ContradictionResolveRequest,
+  CustodyEventCreateRequest,
+  FlowTraceRequest,
+  PageParams,
+  VictimCreateRequest,
+  VictimUpdateRequest,
+  IoTDeviceCreateRequest,
+  IoTDeviceUpdateRequest,
+  IoTEventCreateRequest,
+  DeviceRegisterRequest,
+  HypothesisLinkEvidenceRequest,
+  ReportGenerateRequest,
+  InvestigationHypothesisCreateRequest,
+} from "@/types/domain";
 
 const MINUTE = 60_000;
 
@@ -17,17 +45,21 @@ export const queryKeys = {
   provenance: (caseId: string, id: string) => ["evidence", caseId, id, "provenance"] as const,
   jobs: (caseId: string) => ["jobs", caseId] as const,
   /* Phase 2 keys nest under ["evidence", caseId] so evidence invalidations cover them. */
-  intelJobs: (caseId: string, feature?: string) => ["evidence", caseId, "intel-jobs", feature] as const,
+  intelJobs: (caseId: string, feature?: string) =>
+    ["evidence", caseId, "intel-jobs", feature] as const,
   artifacts: (caseId: string, kind?: string) => ["evidence", caseId, "artifacts", kind] as const,
   sourceRecords: (caseId: string, evidenceId: string) =>
     ["evidence", caseId, "source-records", evidenceId] as const,
-  crossCaseCandidates: (anchorCaseId: string) => ["evidence", anchorCaseId, "cross-case-candidates"] as const,
-  custody: (caseId: string, evidenceId: string) => ["evidence", caseId, "custody", evidenceId] as const,
+  crossCaseCandidates: (anchorCaseId: string) =>
+    ["evidence", anchorCaseId, "cross-case-candidates"] as const,
+  custody: (caseId: string, evidenceId: string) =>
+    ["evidence", caseId, "custody", evidenceId] as const,
   graph: (caseId: string) => ["graph", caseId] as const,
   graphStats: (caseId: string) => ["graph", caseId, "stats"] as const,
   ego: (caseId: string, id: string) => ["graph", caseId, "ego", id] as const,
   summary: (caseId: string) => ["analytics", caseId, "summary"] as const,
-  centrality: (caseId: string, metric: string) => ["analytics", caseId, "centrality", metric] as const,
+  centrality: (caseId: string, metric: string) =>
+    ["analytics", caseId, "centrality", metric] as const,
   communities: (caseId: string) => ["analytics", caseId, "communities"] as const,
   networkDna: (caseId: string) => ["analytics", caseId, "network-dna"] as const,
   priorities: (caseId: string) => ["analytics", caseId, "priorities"] as const,
@@ -44,15 +76,18 @@ export const queryKeys = {
   pendingUsers: () => ["users", "pending"] as const,
   victims: (caseId: string, params?: VictimListParams) => ["victims", caseId, params] as const,
   victim: (caseId: string, id: string) => ["victims", caseId, id] as const,
-  iotDevices: (caseId: string, params?: IoTDeviceListParams) => ["iot", caseId, "devices", params] as const,
+  iotDevices: (caseId: string, params?: IoTDeviceListParams) =>
+    ["iot", caseId, "devices", params] as const,
   iotDevice: (caseId: string, id: string) => ["iot", caseId, "devices", id] as const,
   iotDeviceStats: (caseId: string, id: string) => ["iot", caseId, "devices", id, "stats"] as const,
-  iotEvents: (caseId: string, params?: IoTEventListParams) => ["iot", caseId, "events", params] as const,
+  iotEvents: (caseId: string, params?: IoTEventListParams) =>
+    ["iot", caseId, "events", params] as const,
   collections: (caseId: string) => ["collections", caseId] as const,
   fieldDevices: (caseId: string) => ["field-devices", caseId] as const,
   reports: (caseId: string) => ["reports", caseId] as const,
   health: () => ["health"] as const,
-  investigationHypotheses: (caseId: string, params?: InvestigationHypothesisListParams) => ["hypotheses", caseId, params] as const,
+  investigationHypotheses: (caseId: string, params?: InvestigationHypothesisListParams) =>
+    ["hypotheses", caseId, params] as const,
   search: (caseId: string, q: string) => ["search", caseId, q] as const,
 };
 
@@ -311,8 +346,11 @@ export function useTimeline(caseId: string) {
 export function useCreateCase() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { title: string; description?: string | null; status?: Exclude<CaseStatus, "archived"> }) =>
-      api.cases.create(input),
+    mutationFn: (input: {
+      title: string;
+      description?: string | null;
+      status?: Exclude<CaseStatus, "archived">;
+    }) => api.cases.create(input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["cases"] });
     },
@@ -351,12 +389,17 @@ export function useUploadEvidence(caseId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: { file: File; dataSource?: string; collectionId?: string }) =>
-      api.evidence.upload(caseId, {
-        name: input.file.name,
-        type: input.file.type,
-        size: input.file.size,
-        contents: input.file,
-      }, input.dataSource, { collectionId: input.collectionId }),
+      api.evidence.upload(
+        caseId,
+        {
+          name: input.file.name,
+          type: input.file.type,
+          size: input.file.size,
+          contents: input.file,
+        },
+        input.dataSource,
+        { collectionId: input.collectionId },
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
@@ -853,6 +896,17 @@ export function useMultilingual(caseId: string) {
   });
 }
 
+export function useTriage(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (evidenceFileId: string) => api.evidence.triage(caseId, evidenceFileId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
 /** Original parsed source records (verbatim) for the original-vs-translation viewer. */
 export function useSourceRecords(caseId: string, evidenceId: string | null | undefined) {
   return useQuery({
@@ -908,7 +962,8 @@ export function useVerifyIntegrity(caseId: string) {
 export function useCustodyAudit(caseId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (evidenceFileId?: string | null) => api.evidence.custodyAudit(caseId, evidenceFileId),
+    mutationFn: (evidenceFileId?: string | null) =>
+      api.evidence.custodyAudit(caseId, evidenceFileId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
@@ -1103,7 +1158,8 @@ export function useInvestigationHypotheses(caseId: string) {
 export function useCreateInvestigationHypothesis(caseId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: InvestigationHypothesisCreateRequest) => api.hypotheses.create(caseId, input),
+    mutationFn: (input: InvestigationHypothesisCreateRequest) =>
+      api.hypotheses.create(caseId, input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.investigationHypotheses(caseId) });
       void qc.invalidateQueries({ queryKey: queryKeys.timeline(caseId) });
@@ -1128,8 +1184,13 @@ export function useUpdateInvestigationHypothesisStatus(caseId: string) {
 export function useLinkEvidenceToHypothesis(caseId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ hypothesisId, input }: { hypothesisId: string; input: HypothesisLinkEvidenceRequest }) =>
-      api.hypotheses.linkEvidence(caseId, hypothesisId, input),
+    mutationFn: ({
+      hypothesisId,
+      input,
+    }: {
+      hypothesisId: string;
+      input: HypothesisLinkEvidenceRequest;
+    }) => api.hypotheses.linkEvidence(caseId, hypothesisId, input),
     onSuccess: (_result, variables) => {
       void qc.invalidateQueries({ queryKey: queryKeys.investigationHypotheses(caseId) });
       void variables;

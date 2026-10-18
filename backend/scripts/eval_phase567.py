@@ -5,9 +5,10 @@ Extends the Phase 1-4 harness conventions (``scripts/eval_model.py``,
 ``scripts/eval_phase4.py``: real HTTP, real auth, real local inference,
 independent verification against PostgreSQL - never the server's self-report).
 
-Current scope: **phase 5A multilingual complaint intelligence**. The digital
-forensics triage (5B) and AI report auditing (6) sections are appended as
-those phases land; the entry point and report path already cover all three.
+Current scope: **phase 5A multilingual complaint intelligence and phase 5B
+digital forensics triage**. The AI report auditing (6) section is appended
+when that phase lands; the entry point and report path already cover all
+three.
 
 The harness has two independent sections:
 
@@ -25,6 +26,13 @@ The harness has two independent sections:
     accept/reject exactness, anti-vacuous thresholds, and full determinism
     (two passes must be byte-identical).
 
+  For the triage engine the frozen set (``triage_checks.json``) replays
+  through the pure ``triage_contents`` engine and gates: structural profile
+  counts, exact rule/severity/record-locator observation sets (including
+  bounded details), benign no-over-fire, the typed no-structure refusal,
+  instruction-injection containment, hash-manifest verdict matrices, auth-
+  failure burst windows, explanation parse accept/reject and determinism.
+
 * **Live end-to-end** (requires running stack + local model): real HTTP jobs
   against local Qwen3 - Hindi auto-translation run, Hindi + English runs with
   explicit translation, an unsupported-script refusal probe, a cancellation
@@ -35,6 +43,14 @@ The harness has two independent sections:
   resolve, API and database rows agree, nothing is auto-approved, and audit
   metadata stays counts and identifiers only (never complaint text). Per-run
   latency is measured.
+
+  The triage live block uploads deceptive-URL evidence, a hash manifest with
+  real stored objects (one matching, one tampered, one absent) and plain
+  prose, runs the job against the local model, then independently recomputes
+  every deterministic payload field from PostgreSQL records and verifies
+  every manifest verdict by re-hashing the MinIO objects. Unsupported prose
+  must be refused with ``TRIAGE_UNSUPPORTED_CONTENT`` and zero artifacts;
+  nothing is auto-approved; a failed model explanation is never silent.
 
 Deterministic safety properties are gated; model-dependent label choices
 (language label, auto-translation trigger) are reported, never gated. All
@@ -55,6 +71,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import re
 import sys
@@ -65,6 +82,7 @@ from typing import Any
 
 import httpx
 from app.core.config import get_settings
+from app.core.enums import EvidenceFormat
 from app.db.postgres import Database
 from app.db.storage import Storage
 from app.models import (
@@ -75,6 +93,15 @@ from app.models import (
     DerivedArtifact,
     EvidenceFile,
     SourceRecord,
+)
+from app.services.forensic_triage import (
+    TRIAGE_RULES_VERSION,
+    TriageRunError,
+    _parse_explanation,
+    _unit_content,
+    auth_failure_burst,
+    manifest_verdicts,
+    triage_contents,
 )
 from app.services.multilingual import (
     _parse_analysis,
@@ -90,6 +117,7 @@ from app.services.multilingual import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_DIR = REPO_ROOT / "backend" / "tests" / "fixtures" / "evidence_intelligence"
 ML_FIXTURE = FIXTURE_DIR / "multilingual_checks.json"
+TRIAGE_FIXTURE = FIXTURE_DIR / "triage_checks.json"
 REPORT_DEFAULT = REPO_ROOT / "ai_runtime" / "eval_phase567_report.json"
 API_BASE_DEFAULT = "http://localhost:8000/api/v1"
 
@@ -119,6 +147,20 @@ CANCEL_PARAGRAPHS = [
 CANCEL_TEXT = "\n\n".join(CANCEL_PARAGRAPHS)
 IDOR_TEXT = "IDOR probe file for the phase-5 evaluation (synthetic)."
 
+# Synthetic triage evidence used only by the live section.
+TRIAGE_URLS_TEXT = (
+    "Visit log:\n"
+    "http://paypal.com@evil.test/login\n"
+    "https://192.168.10.5:8443/account/update\n"
+    "https://xn--pypal-4ve.com/verify/session\n"
+)
+TRIAGE_PROSE = (
+    "I ordered a laptop from an online seller on the marketplace. "
+    "The seller stopped replying after I transferred the amount from my "
+    "savings account. I want to know what can be done about the pending "
+    "delivery and my money."
+)
+
 # Every validation-error code the multilingual services may record.
 KNOWN_ISSUE_CODES = {
     "value_not_in_source",
@@ -141,6 +183,13 @@ AUDIT_COUNT_KEYS = {
     "values_total",
     "values_verified",
     "values_withheld_injected",
+    # triage (phase 5B) counts - integers only, like every key above
+    "records_total",
+    "records_scanned",
+    "urls_analyzed",
+    "observations_total",
+    "manifest_entries_verified",
+    "explanation_failed",
 }
 AUDIT_ALLOWED_KEYS = AUDIT_COUNT_KEYS | {
     "code",
@@ -154,6 +203,15 @@ AUDIT_TOKEN_RE = re.compile(r"^[A-Za-z_]{1,40}$")
 AUDIT_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 LIMITATIONS = [
+    "Triage never fetches, resolves or executes anything: URL observations "
+    "are structural only (userinfo, raw-IP host, punycode, non-standard "
+    "port) and cannot detect a malicious payload behind an innocent URL.",
+    "Hash-manifest verification compares sha-256 of the filenames the "
+    "manifest lists against the stored case objects; a renamed file, or a "
+    "manifest that omits files, cannot be detected.",
+    "The model's triage explanation is shape-validated and fenced to the "
+    "recorded observations; a fluent but unsupported interpretation that "
+    "passes the shape check stays pending_review for a human.",
     "Language identification is deterministic Unicode script profiling only; "
     "Devanagari cannot separate Hindi from Marathi, and no language library "
     "is installed (downloads are not permitted).",
@@ -380,6 +438,160 @@ class Phase567EvalRunner:
             "problems_total": sum(len(v) for v in problems.values()),
         }
 
+    @staticmethod
+    def _triage_golden_pass(fixture: dict[str, Any]) -> dict[str, Any]:
+        settings = get_settings()
+        problems: dict[str, list[str]] = {
+            "profile": [],
+            "observations": [],
+            "missing": [],
+            "refusal": [],
+            "injection": [],
+            "manifest": [],
+            "burst": [],
+            "explanation": [],
+        }
+        rules_seen: set[str] = set()
+        benign_n = 0
+        refusal_n = 0
+        injection_n = 0
+        manifest_cases_n = 0
+
+        for case in fixture["cases"]:
+            name = str(case["name"])
+            expect = case["expect"]
+            supported = bool(expect["supported"])
+            contents: list[tuple[SourceRecord, str]] = []
+            for rec in case["records"]:
+                if "text" in rec:
+                    raw_data: dict[str, Any] = {"text": rec["text"]}
+                    text = str(rec["text"])
+                else:
+                    raw_data = dict(rec["row"])
+                    text = "\n".join(str(v) for v in raw_data.values() if isinstance(v, str))
+                contents.append(
+                    (
+                        SourceRecord(
+                            evidence_file_id="eval-triage",
+                            record_no=int(rec["record_no"]),
+                            raw_data=raw_data,
+                        ),
+                        text,
+                    )
+                )
+            try:
+                result = triage_contents(contents, settings=settings)
+            except TriageRunError as exc:
+                result = None
+                if supported:
+                    problems["refusal"].append(f"{name}: expected support, got refusal {exc.code}")
+                elif exc.code != str(expect.get("error_code") or ""):
+                    problems["refusal"].append(
+                        f"{name}: refusal code {exc.code} != {expect.get('error_code')}"
+                    )
+                else:
+                    refusal_n += 1
+            if result is None:
+                continue
+            if not supported:
+                problems["refusal"].append(f"{name}: expected refusal, analysis succeeded")
+                continue
+            profile = result["profile"]
+            if dict(profile) != dict(expect["profile"]):
+                problems["profile"].append(
+                    f"{name}: profile {dict(profile)!r} != {dict(expect['profile'])!r}"
+                )
+            want_obs = list(expect.get("observations") or [])
+            got_obs = list(result["observations"])
+            if len(got_obs) != len(want_obs):
+                problems["observations"].append(
+                    f"{name}: {len(got_obs)} observations != {len(want_obs)} expected"
+                )
+            for index, want in enumerate(want_obs):
+                if index >= len(got_obs):
+                    break
+                got = got_obs[index]
+                if (
+                    got["rule"] != want["rule"]
+                    or got["severity"] != want["severity"]
+                    or got["locator"]["record_no"] != want["record_no"]
+                ):
+                    problems["observations"].append(
+                        f"{name}[{index}]: got rule={got['rule']} severity={got['severity']} "
+                        f"record_no={got['locator']['record_no']} != want {want!r}"
+                    )
+                if "detail" in want and got.get("detail") != want["detail"]:
+                    problems["observations"].append(
+                        f"{name}[{index}]: detail {got.get('detail')!r} != {want['detail']!r}"
+                    )
+            rules_seen.update(str(o["rule"]) for o in got_obs)
+            if list(result["missing_information"]) != list(expect.get("missing_information") or []):
+                problems["missing"].append(
+                    f"{name}: missing_information {result['missing_information']!r} "
+                    f"!= {expect.get('missing_information')!r}"
+                )
+            if not got_obs:
+                benign_n += 1
+            forbidden = [str(x) for x in expect.get("injection_forbidden") or []]
+            if forbidden:
+                injection_n += 1
+                blob = json.dumps(got_obs, ensure_ascii=False)
+                for needle in forbidden:
+                    if needle in blob:
+                        problems["injection"].append(
+                            f"{name}: forbidden text {needle[:40]!r} leaked into observations"
+                        )
+            if expect.get("fields_manifest_is_null"):
+                manifest_cases_n += 1
+                if result["fields"]["manifest"] is not None:
+                    problems["manifest"].append(
+                        f"{name}: pure stage must leave fields.manifest null"
+                    )
+
+        for section in fixture.get("manifest_verdicts", []):
+            verdicts = manifest_verdicts(section["entries"], section["available"])
+            got = [v["verdict"] for v in verdicts]
+            if got != section["expect"]:
+                problems["manifest"].append(
+                    f"{section['name']}: verdicts {got!r} != {section['expect']!r}"
+                )
+
+        burst_cases_n = 0
+        for section in fixture.get("bursts", []):
+            burst_cases_n += 1
+            result = auth_failure_burst(
+                section["events"],
+                threshold=int(section.get("threshold", 5)),
+                window_seconds=int(section.get("window_seconds", 600)),
+            )
+            expect = section["expect"]
+            if expect is None:
+                if result is not None:
+                    problems["burst"].append(
+                        f"{section['name']}: expected no burst, got {result!r}"
+                    )
+            elif result is None or any(result.get(k) != v for k, v in expect.items()):
+                problems["burst"].append(f"{section['name']}: {result!r} != {expect!r}")
+
+        for section in fixture.get("explanations", []):
+            accepted = _parse_explanation(section["text"]) is not None
+            if accepted != bool(section["accept"]):
+                problems["explanation"].append(
+                    f"{section['name']}: accepted={accepted} != {section['accept']}"
+                )
+
+        return {
+            "problems": problems,
+            "cases_n": len(fixture["cases"]),
+            "rules_seen": sorted(rules_seen),
+            "benign_n": benign_n,
+            "refusal_n": refusal_n,
+            "injection_n": injection_n,
+            "manifest_cases_n": manifest_cases_n,
+            "burst_cases_n": burst_cases_n,
+            "problems_total": sum(len(v) for v in problems.values()),
+        }
+
     def _golden_section(self) -> dict[str, Any]:
         print("  golden: multilingual complaint intelligence", flush=True)
         fixture = json.loads(ML_FIXTURE.read_text(encoding="utf-8"))
@@ -388,10 +600,20 @@ class Phase567EvalRunner:
         first["determinism_ok"] = json.dumps(
             first, sort_keys=True, ensure_ascii=False
         ) == json.dumps(second, sort_keys=True, ensure_ascii=False)
+        print("  golden: digital forensics triage", flush=True)
+        triage_fixture = json.loads(TRIAGE_FIXTURE.read_text(encoding="utf-8"))
+        triage_first = self._triage_golden_pass(triage_fixture)
+        triage_second = self._triage_golden_pass(triage_fixture)
+        triage_first["determinism_ok"] = json.dumps(
+            triage_first, sort_keys=True, ensure_ascii=False
+        ) == json.dumps(triage_second, sort_keys=True, ensure_ascii=False)
         return {
             "multilingual": first,
             "fixture": str(ML_FIXTURE.relative_to(REPO_ROOT)),
             "fixture_limitations": fixture.get("limitations", []),
+            "triage": triage_first,
+            "triage_fixture": str(TRIAGE_FIXTURE.relative_to(REPO_ROOT)),
+            "triage_fixture_limitations": triage_fixture.get("limitations", []),
         }
 
     # -- live end-to-end section ---------------------------------------------
@@ -465,6 +687,60 @@ class Phase567EvalRunner:
             "summary": job.get("result_summary"),
             "latency_seconds": round(time.monotonic() - submitted, 3),
         }
+
+    async def _upload_bytes(self, case_id: str, name: str, data: bytes) -> str:
+        response = await self.api.post(
+            f"/cases/{case_id}/evidence",
+            files={"file": (name, data, "text/plain")},
+            headers=self._headers(),
+        )
+        response.raise_for_status()
+        return str(response.json()["id"])
+
+    async def _run_triage_job(self, case_id: str, evidence_id: str) -> dict[str, Any]:
+        submitted = time.monotonic()
+        response = await self.api.post(
+            f"/cases/{case_id}/evidence-intelligence/triage",
+            json={"evidence_file_id": evidence_id},
+            headers=self._headers(),
+        )
+        if response.status_code != 202:
+            return {
+                "status": f"http_{response.status_code}",
+                "error": response.text[:200],
+                "summary": None,
+                "latency_seconds": 0.0,
+            }
+        body = response.json()
+        job_id = (body.get("job") or {}).get("id")
+        if not job_id:
+            raise RuntimeError(f"triage submit returned no job id: {body!r}")
+        job = await self._poll_job(case_id, job_id, feature="triage")
+        return {
+            "status": job["status"],
+            "error": job.get("error"),
+            "summary": job.get("result_summary"),
+            "latency_seconds": round(time.monotonic() - submitted, 3),
+        }
+
+    async def _db_case_evidence(self, case_id: str) -> list[EvidenceFile]:
+        from sqlalchemy import select
+
+        factory = self.database.session_factory()
+        async with factory() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(EvidenceFile)
+                        .where(EvidenceFile.case_id == uuid.UUID(case_id))
+                        .where(EvidenceFile.deleted_at.is_(None))
+                        .order_by(EvidenceFile.created_at)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return list(rows)
 
     async def _artifacts(self, case_id: str, kind: str) -> list[dict[str, Any]]:
         response = await self.api.get(
@@ -650,7 +926,7 @@ class Phase567EvalRunner:
         return probe
 
     async def _audit_metadata_check(self, case_id: str) -> dict[str, Any]:
-        from sqlalchemy import select
+        from sqlalchemy import or_, select
 
         factory = self.database.session_factory()
         async with factory() as session:
@@ -659,7 +935,12 @@ class Phase567EvalRunner:
                     await session.execute(
                         select(AuditLog)
                         .where(AuditLog.case_id == uuid.UUID(case_id))
-                        .where(AuditLog.action.like("multilingual.%"))
+                        .where(
+                            or_(
+                                AuditLog.action.like("multilingual.%"),
+                                AuditLog.action.like("triage.%"),
+                            )
+                        )
                         .order_by(AuditLog.created_at)
                     )
                 )
@@ -678,6 +959,8 @@ class Phase567EvalRunner:
             BENGALI_TEXT,
             CANCEL_TEXT,
             IDOR_TEXT,
+            TRIAGE_URLS_TEXT,
+            TRIAGE_PROSE,
         ):
             complaint_words |= {w.lower() for w in re.findall(r"\w+", text) if len(w) >= 4}
         for row in rows:
@@ -930,6 +1213,190 @@ class Phase567EvalRunner:
 
         # Cancellation + audit metadata.
         checks["cancel_probe_consistent"] = live["reports"]["cancel_probe"]["consistent"]
+
+        # ---- digital forensics triage (5B) -------------------------------
+        target_bytes = b"chain of custody target bytes"
+        sha_target = hashlib.sha256(target_bytes).hexdigest()
+        await self._upload_bytes(case_id, "phase5b-target.txt", target_bytes)
+        await self._upload_bytes(case_id, "phase5b-other.txt", b"unrelated other bytes")
+        manifest_text = (
+            f"phase5b-target.txt {sha_target}\n\n"  # matches stored bytes -> match
+            f"phase5b-other.txt {sha_target}\n\n"  # exists, bytes differ -> mismatch
+            f"phase5b-absent.txt {sha_target}\n\n"  # no such file -> missing
+        )
+        ev_triage = await self._upload_text(case_id, "phase5b-triage-urls.txt", TRIAGE_URLS_TEXT)
+        ev_manifest = await self._upload_text(case_id, "phase5b-manifest.txt", manifest_text)
+        ev_prose = await self._upload_text(case_id, "phase5b-prose.txt", TRIAGE_PROSE)
+
+        runs_t = {
+            "triage_urls": await self._run_triage_job(case_id, ev_triage),
+            "triage_manifest": await self._run_triage_job(case_id, ev_manifest),
+            "triage_unsupported": await self._run_triage_job(case_id, ev_prose),
+        }
+        for label, run in runs_t.items():
+            print(
+                f"    run {label}: {run['status']} in {run['latency_seconds']}s",
+                flush=True,
+            )
+        live["runs"].update(runs_t)
+        live["latency_seconds"].update(
+            {label: run["latency_seconds"] for label, run in runs_t.items()}
+        )
+
+        triage_api = await self._artifacts(case_id, "triage_observation")
+        triage_by_ev = {str(a.get("evidence_file_id")): a for a in triage_api}
+        triage_url_art = triage_by_ev.get(ev_triage)
+        triage_manifest_art = triage_by_ev.get(ev_manifest)
+        checks["triage_run_ok"] = runs_t["triage_urls"]["status"] in {"succeeded", "partial"}
+        checks["triage_artifact_recorded"] = (
+            triage_url_art is not None and triage_manifest_art is not None
+        )
+        prose_artifacts = [a for a in triage_api if a.get("evidence_file_id") == ev_prose]
+        checks["triage_unsupported_refused"] = (
+            runs_t["triage_unsupported"]["status"] == "failed"
+            and str(runs_t["triage_unsupported"].get("error") or "").startswith(
+                "TRIAGE_UNSUPPORTED_CONTENT"
+            )
+            and not prose_artifacts
+        )
+        checks["triage_no_auto_approval"] = bool(triage_api) and all(
+            a.get("status") == "pending_review" for a in triage_api
+        )
+        checks["triage_explanation_failure_never_silent"] = bool(triage_api) and all(
+            (a.get("payload") or {}).get("explanation_failed") is not True
+            or a.get("validation_status") == "flagged"
+            for a in triage_api
+        )
+        live["reports"]["triage_explanations_recorded"] = {
+            "urls": triage_url_art is not None
+            and (triage_url_art.get("payload") or {}).get("explanation") is not None,
+            "manifest": triage_manifest_art is not None
+            and (triage_manifest_art.get("payload") or {}).get("explanation") is not None,
+        }
+
+        # Independent recompute: PostgreSQL records -> pure engine -> payload.
+        db_artifacts_after = await self._db_artifacts(case_id)
+        db_by_id_after = {str(a.id): a for a in db_artifacts_after}
+        db_records_after = await self._db_case_records(case_id)
+        db_evidence_rows = await self._db_case_evidence(case_id)
+        db_evidence_by_name = {
+            str(row.original_filename).lower(): row
+            for row in db_evidence_rows
+            if row.original_filename
+        }
+        records_for: dict[str, list[SourceRecord]] = {}
+        for record in db_records_after:
+            records_for.setdefault(str(record.evidence_file_id), []).append(record)
+
+        triage_problems: list[str] = []
+        for ev_id, triage_api_art in (
+            (ev_triage, triage_url_art),
+            (ev_manifest, triage_manifest_art),
+        ):
+            if triage_api_art is None:
+                continue
+            row = db_by_id_after.get(str(triage_api_art["id"]))
+            if row is None:
+                triage_problems.append(
+                    f"triage artifact {triage_api_art['id']} missing in PostgreSQL"
+                )
+                continue
+            payload = dict(row.payload or {})
+            ev_row = next((r for r in db_evidence_rows if str(r.id) == ev_id), None)
+            fmt = EvidenceFormat(ev_row.format) if ev_row is not None and ev_row.format else None
+            contents: list[tuple[SourceRecord, str]] = []
+            for record in sorted(records_for.get(ev_id, []), key=lambda r: r.record_no):
+                text = _unit_content(record, fmt)
+                if text.strip():
+                    contents.append((record, text))
+            try:
+                analysis = triage_contents(contents, settings=self.settings)
+            except TriageRunError as exc:
+                triage_problems.append(f"triage recompute refused for {ev_id}: {exc.code}")
+                continue
+            if payload.get("format_profile") != analysis["profile"]:
+                triage_problems.append(
+                    f"triage artifact {row.id}: format profile does not recompute"
+                )
+            if payload.get("missing_information") != analysis["missing_information"]:
+                triage_problems.append(
+                    f"triage artifact {row.id}: missing_information does not recompute"
+                )
+            if payload.get("rules_version") != TRIAGE_RULES_VERSION:
+                triage_problems.append(f"triage artifact {row.id}: rules_version mismatch")
+            if "no URL was fetched" not in str(payload.get("analysis_scope") or ""):
+                triage_problems.append(f"triage artifact {row.id}: analysis scope missing")
+            locator = dict(row.source_locator or {})
+            if locator.get("scope") != "evidence_file" or locator.get("records_scanned") != len(
+                contents
+            ):
+                triage_problems.append(f"triage artifact {row.id}: locator invalid")
+            expected_obs = [
+                obs
+                for obs in analysis["observations"]
+                if not str(obs["rule"]).startswith("triage.manifest.")
+            ]
+            got_obs = [
+                obs
+                for obs in (payload.get("observations") or [])
+                if not str(obs.get("rule", "")).startswith("triage.manifest.")
+            ]
+            if got_obs != expected_obs:
+                triage_problems.append(f"triage artifact {row.id}: observations do not recompute")
+
+        # Manifest verdicts verified by re-hashing the real MinIO objects.
+        manifest_verdict_counts: dict[str, int] = {}
+        if triage_manifest_art is not None:
+            manifest_payload = dict(triage_manifest_art.get("payload") or {})
+            manifest_rows = list((manifest_payload.get("fields") or {}).get("manifest") or [])
+            for entry in manifest_rows:
+                name = str(entry.get("filename") or "").lower()
+                verdict = str(entry.get("verdict"))
+                manifest_verdict_counts[verdict] = manifest_verdict_counts.get(verdict, 0) + 1
+                target = db_evidence_by_name.get(name)
+                if verdict == "missing":
+                    if target is not None or entry.get("computed_sha256") is not None:
+                        triage_problems.append(
+                            f"manifest entry {name!r}: missing verdict but file/hash exists"
+                        )
+                    continue
+                if target is None or verdict not in {"match", "mismatch"}:
+                    triage_problems.append(
+                        f"manifest entry {name!r}: unverifiable verdict {verdict!r}"
+                    )
+                    continue
+                raw_bytes = self.storage.download(str(target.stored_key))
+                computed = hashlib.sha256(raw_bytes).hexdigest()
+                if entry.get("computed_sha256") != computed:
+                    triage_problems.append(
+                        f"manifest entry {name!r}: computed hash does not recompute"
+                    )
+                agrees = computed == str(entry.get("sha256"))
+                if (verdict == "match") != agrees:
+                    triage_problems.append(
+                        f"manifest entry {name!r}: verdict {verdict!r} disagrees with bytes"
+                    )
+            manifest_rule_counts = {
+                rule: sum(
+                    1
+                    for obs in manifest_payload.get("observations") or []
+                    if obs.get("rule") == rule
+                )
+                for rule in ("triage.manifest.hash_mismatch", "triage.manifest.entry_missing")
+            }
+            if manifest_rule_counts != {
+                "triage.manifest.hash_mismatch": 1,
+                "triage.manifest.entry_missing": 1,
+            }:
+                triage_problems.append(f"manifest observations wrong: {manifest_rule_counts!r}")
+        checks["triage_observations_recompute"] = not triage_problems and triage_url_art is not None
+        checks["triage_manifest_bytes_verified"] = (
+            not triage_problems
+            and triage_manifest_art is not None
+            and manifest_verdict_counts == {"match": 1, "mismatch": 1, "missing": 1}
+        )
+        live["problems"].extend(triage_problems)
+
         audit = await self._audit_metadata_check(case_id)
         live["reports"]["audit"] = audit
         checks["audit_metadata_content_free"] = audit["rows_n"] >= 2 and not audit["problems"]
@@ -1022,6 +1489,27 @@ class Phase567EvalRunner:
             "ml_parse_accept_reject_exact": not problems["parse"],
             "ml_determinism": golden["determinism_ok"],
         }
+        triage = self.report["golden"].get("triage")
+        if triage:
+            t_problems = triage["problems"]
+            gates["triage_not_vacuous"] = (
+                triage["cases_n"] >= 8
+                and len(triage["rules_seen"]) >= 7
+                and triage["benign_n"] >= 2
+                and triage["refusal_n"] >= 1
+                and triage["injection_n"] >= 1
+                and triage["manifest_cases_n"] >= 1
+                and triage["burst_cases_n"] >= 2
+            )
+            gates["triage_profile_counts_exact"] = not t_problems["profile"]
+            gates["triage_observations_exact"] = not t_problems["observations"]
+            gates["triage_missing_information_exact"] = not t_problems["missing"]
+            gates["triage_refusal_exact"] = not t_problems["refusal"]
+            gates["triage_injection_containment"] = not t_problems["injection"]
+            gates["triage_manifest_verdicts_exact"] = not t_problems["manifest"]
+            gates["triage_burst_exact"] = not t_problems["burst"]
+            gates["triage_explanation_parse_exact"] = not t_problems["explanation"]
+            gates["triage_determinism"] = triage["determinism_ok"]
         live = self.report.get("live")
         if live:
             for name, ok in live.get("checks", {}).items():

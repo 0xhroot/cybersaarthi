@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
-# Run the phase-5/6 evaluation harness (currently: phase 5A multilingual).
+# Run the phase-5/6 evaluation harness (currently: phase 5A multilingual
+# + phase 5B digital forensics triage).
 #
 # Two sections:
 #   - deterministic golden-fixture metrics (always run, no stack needed):
-#       exact Unicode script profiles (independently derived character
-#       counts + candidate), language/script cross-check exactness,
-#       ambiguity-flag exactness, negation detection (incl. Marathi),
-#       per-value source containment (false accepts/rejects gated),
-#       instruction-context injection withholding (leaks and false
+#       multilingual: exact Unicode script profiles (independently derived
+#       character counts + candidate), language/script cross-check
+#       exactness, ambiguity-flag exactness, negation detection (incl.
+#       Marathi), per-value source containment (false accepts/rejects
+#       gated), instruction-context injection withholding (leaks and false
 #       withholdings gated), translation material-preservation exactness
 #       with the total == preserved + missing invariant, parse
-#       accept/reject exactness, anti-vacuous gates, determinism.
+#       accept/reject exactness. Triage: structural profile counts, exact
+#       rule/severity/locator observation sets, benign no-over-fire, typed
+#       no-structure refusal, injection containment, hash-manifest verdict
+#       matrices, auth-failure burst windows, explanation parse contract.
+#       Anti-vacuous gates + determinism on both.
 #   - live end-to-end (requires running stack + local model): real HTTP
 #     jobs against local Qwen3 (Hindi auto-translate, Hindi + English with
-#     translation, unsupported-script refusal), cancellation probe,
-#     original-records verbatim viewer, anonymous / non-member / cross-case
-#     IDOR probes, independent PostgreSQL recompute of every stored value,
-#     profile/flags/material/negation exactness, locator validity,
-#     API-vs-database agreement, no auto-approval, complaint-free audit
-#     metadata (counts/identifiers only), per-run latency.
+#     translation, unsupported-script refusal, triage URLs / manifest /
+#     unsupported prose), cancellation probe, original-records verbatim
+#     viewer, anonymous / non-member / cross-case IDOR probes, independent
+#     PostgreSQL recompute of every stored value (multilingual fields and
+#     triage observations/profiles), manifest verdicts re-verified by
+#     re-hashing the MinIO objects, locator validity, API-vs-database
+#     agreement, no auto-approval, complaint-free audit metadata
+#     (counts/identifiers only), per-run latency.
 #
 # Usage:
 #   ./scripts/ai/eval_phase567.sh              # full evaluation
