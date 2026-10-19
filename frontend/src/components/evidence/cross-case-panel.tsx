@@ -308,6 +308,15 @@ export function CrossCasePanel({ caseId }: { caseId: string }) {
   );
   const summary = (latestJob?.result_summary ?? {}) as Record<string, unknown>;
   const items = useMemo(() => candidates.data?.items ?? [], [candidates.data]);
+  // Real discovery writes `candidates_expected` into the job summary (the
+  // mock writes `candidates_found`); "pending review" is a property of the
+  // candidate list — every artifact starts as pending_review — so count it
+  // there once the full list is loaded. Mid-run summaries simply show "—".
+  const pendingReview =
+    summary.candidates_pending_review ??
+    (candidates.data && items.length === candidates.data.total
+      ? items.filter((artifact) => artifact.status === "pending_review").length
+      : undefined);
 
   const toggleCase = (id: string) => {
     setSelected((current) => {
@@ -425,8 +434,9 @@ export function CrossCasePanel({ caseId }: { caseId: string }) {
         <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="cross-case-summary">
           <Badge tone={jobTone(latestJob.status)}>{latestJob.status}</Badge>
           <span className="text-dim">
-            {String(summary.cases_scanned ?? "—")} cases · {String(summary.candidates_found ?? "—")} candidates ·{" "}
-            {String(summary.candidates_pending_review ?? "—")} pending review ·{" "}
+            {String(summary.cases_scanned ?? "—")} cases ·{" "}
+            {String(summary.candidates_found ?? summary.candidates_expected ?? "—")} candidates ·{" "}
+            {String(pendingReview ?? "—")} pending review ·{" "}
             {String(summary.cases_inaccessible ?? 0)} inaccessible (scope enforced) ·{" "}
             {formatRelative(latestJob.updated_at)}
           </span>

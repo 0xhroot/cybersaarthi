@@ -782,6 +782,43 @@ describe("phase 4 cross-case panel", () => {
     expect(run.hasAttribute("disabled")).toBe(true);
   });
 
+  it("real discovery summary keys (candidates_expected) drive the counters, not mock-only fields", () => {
+    // The backend cross_case job writes candidates_expected/artifacts_created;
+    // it never writes candidates_found. The panel must not show "—" for a
+    // successful run just because the mock's key names differ.
+    stubCrossCase({
+      job: job({
+        feature: "cross_case",
+        status: "succeeded",
+        result_summary: {
+          cases_scanned: 3,
+          groups_shared: 3,
+          candidates_expected: 3,
+          artifacts_created: 3,
+        },
+      }),
+    });
+    const artifacts = [1, 2, 3].map((n) =>
+      crossCaseArtifact({}, { id: `art-cc-${n}`, content_hash: `cross-case-case-${n}` }),
+    );
+    queries.useCrossCaseCandidates.mockReturnValue(
+      queryResult({
+        items: artifacts,
+        total: 3,
+        anchor_case_id: CASE,
+        crosscase_rules_version: "crosscase/1.0.0",
+        graph_freshness_note: "Discovery reads only authorized records.",
+      }),
+    );
+
+    renderPanel(<CrossCasePanel caseId={CASE} />);
+    const summary = screen.getByTestId("cross-case-summary");
+    expect(summary.textContent).toContain("3 cases");
+    expect(summary.textContent).toContain("3 candidates");
+    // Pending review counts the loaded candidates still awaiting a human.
+    expect(summary.textContent).toContain("3 pending review");
+  });
+
   it("without crosscase.read the panel does not render at all", () => {
     permissions.allowed = false;
     stubCrossCase();
