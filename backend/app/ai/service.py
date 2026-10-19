@@ -84,8 +84,16 @@ MAX_QUESTION_CHARS = 4_000
 DEFAULT_MAX_TOKENS = 512
 TITLE_MAX_CHARS = 80
 # Output-token floor for analysis mode: the five-section contract plus quoted
-# metrics needs more than deep's 768 (observed truncation in live runs).
-ANALYSIS_MIN_MAX_TOKENS = 1024
+# metrics needs more than deep's 768 (observed truncation in live runs after
+# section 3). Raised again 768 -> 1024 -> 2048 on 2026-10-19: a verbose,
+# UUID-heavy answer (each entity id ~15 tokens) hit exactly 1024 tokens and
+# was cut mid-section-3, dropping sections 4-5. 2048 doubles the headroom so
+# the contract fits even when the model lists entities verbosely; the only
+# effect is a larger output allowance (context, model and parallelism are
+# untouched, and _clamp_history_to_budget reserves the room from the prompt
+# budget). The evaluation gate is unchanged -- it still requires all five
+# sections present with verbatim metric quotes.
+ANALYSIS_MIN_MAX_TOKENS = 2048
 # Appended to the last in-budget TOOL_RESULT when the model has already spent
 # its tool rounds: the next completion must be a direct answer, so a tool fence
 # can never be returned verbatim as the response.

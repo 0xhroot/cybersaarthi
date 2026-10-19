@@ -51,7 +51,15 @@ ARGS=(
   --port "${PORT}"
   # llama.cpp divides --ctx-size evenly across --parallel slots; multiply so
   # each concurrent request still gets the full AI_CONTEXT_LENGTH budget.
-  --ctx-size "$((CTX * PARALLEL))"
+  #
+  # The 2x factor is deliberate slack for llama-server's retained per-slot KV
+  # prefix: a slot that previously served a long same-case prompt keeps a
+  # shared prefix, which eats into the generation room the gateway reserved
+  # (observed 2026-10-19: a retained ~4.6k-token prefix cut an analysis
+  # answer at slot n_tokens=8191 with finish_reason=length — the five-section
+  # contract failed mid-sentence). One full prompt budget of extra room makes
+  # that retention absorbable instead of answer-truncating.
+  --ctx-size "$((CTX * 2 * PARALLEL))"
   --n-gpu-layers "${NGPU_LAYERS}"
   --parallel "${PARALLEL}"
   --no-webui
