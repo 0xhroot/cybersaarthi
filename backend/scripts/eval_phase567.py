@@ -1170,6 +1170,28 @@ class Phase567EvalRunner:
         actions: list[str] = []
         # Structural rule (typed keys and typed values) plus an explicit
         # content rule: no metadata string may be a word from any complaint.
+        # Exact matches to documented system enums are exempt: they are typed
+        # content by construction ("pending" as a job status collides with
+        # TRIAGE_PROSE's "the pending delivery", which made the rule race on
+        # cancel timing). Every other single-word value still has to be free
+        # of complaint vocabulary.
+        from app.models.analysis_job import ANALYSIS_JOB_FEATURES, ANALYSIS_JOB_STATUSES
+
+        system_words = (
+            set(ANALYSIS_JOB_STATUSES)
+            | set(ANALYSIS_JOB_FEATURES)
+            | {  # derived_artifact status / validation enums (DB CHECKs)
+                "pending_review",
+                "approved",
+                "rejected",
+                "failed",
+                "superseded",
+                "recorded",
+                "valid",
+                "flagged",
+                "invalid",
+            }
+        )
         complaint_words: set[str] = set()
         for text in (
             HINDI_AUTO,
@@ -1196,7 +1218,11 @@ class Phase567EvalRunner:
                     if not (AUDIT_UUID_RE.match(value) or AUDIT_TOKEN_RE.match(value)):
                         problems.append(f"{row.action}: untyped metadata value for {key!r}")
                         continue
-                    if len(value) >= 4 and value.lower() in complaint_words:
+                    if (
+                        len(value) >= 4
+                        and value.lower() not in system_words
+                        and value.lower() in complaint_words
+                    ):
                         problems.append(
                             f"{row.action}: complaint text in metadata value for {key!r}"
                         )
