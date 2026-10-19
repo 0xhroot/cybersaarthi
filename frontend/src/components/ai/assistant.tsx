@@ -50,7 +50,13 @@ const PHASE_LABEL: Record<string, string> = {
 type PanelView = "chat" | "history";
 
 function caseIdFromPath(pathname: string): string | null {
-  const match = /^\/cases\/([0-9a-fA-F-]{36})/.exec(pathname);
+  // Case routes live under /app (router.tsx: /app/cases/:caseId[...]); this
+  // used to anchor on ^/cases/ only, so in the real app the assistant never
+  // picked up case context and silently degraded to general mode (case-scoped
+  // questions then went through case *resolution* instead of being answered
+  // from the authorized DATA block). Match the segment wherever it appears so
+  // both the real route and directly-mounted test routes work.
+  const match = /\/cases\/([0-9a-fA-F-]{36})(?:\/|$)/.exec(pathname);
   return match ? match[1] : null;
 }
 

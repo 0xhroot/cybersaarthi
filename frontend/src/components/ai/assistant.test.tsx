@@ -69,9 +69,22 @@ describe("floating assistant", () => {
     expect(screen.getByText("knowledge: overview")).toBeInTheDocument();
   });
 
+  it("picks up case context from the real /app-prefixed route", async () => {
+    // Regression: caseIdFromPath used to anchor on ^/cases/, but every case
+    // route in the app lives under /app/cases/:caseId — so the assistant
+    // silently degraded to general mode and case questions fell back to case
+    // *resolution* tools instead of the authorized case DATA block.
+    const user = userEvent.setup();
+    renderAssistant(`/app/cases/${CASE_ID}/evidence`);
+    await openPanel(user);
+
+    expect(screen.getByPlaceholderText(/Ask about this case/i)).toBeInTheDocument();
+    expect(screen.getByText(/Scoped to this case/i)).toBeInTheDocument();
+  });
+
   it("scopes questions to the case in the route", async () => {
     const user = userEvent.setup();
-    renderAssistant(`/cases/${CASE_ID}`);
+    renderAssistant(`/app/cases/${CASE_ID}`);
     await openPanel(user);
 
     expect(screen.getByPlaceholderText(/Ask about this case/i)).toBeInTheDocument();
@@ -89,7 +102,7 @@ describe("floating assistant", () => {
 
   it("never renders the raw tool fence streamed before a tool event", async () => {
     const user = userEvent.setup();
-    renderAssistant(`/cases/${CASE_ID}`);
+    renderAssistant(`/app/cases/${CASE_ID}`);
     await openPanel(user);
 
     const input = screen.getByTestId("assistant-input");
@@ -211,7 +224,7 @@ describe("floating assistant", () => {
 
   it("opens history, loads a stored conversation, and returns to chat", async () => {
     const user = userEvent.setup();
-    renderAssistant(`/cases/${CASE_ID_MAIN}`);
+    renderAssistant(`/app/cases/${CASE_ID_MAIN}`);
     await openPanel(user);
 
     await user.click(screen.getByTestId("assistant-history"));
