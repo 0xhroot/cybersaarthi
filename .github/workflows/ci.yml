@@ -46,7 +46,7 @@ jobs:
       # Docker `dev` build target. `--extra dev` installs the declared
       # [project.optional-dependencies].dev group (pytest, pytest-asyncio, httpx,
       # ruff, mypy, types-python-dateutil).
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.12.5"
           enable-cache: true
