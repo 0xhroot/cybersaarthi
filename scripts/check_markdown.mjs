@@ -85,11 +85,10 @@ for (const rel of files) {
   const lines = text.split("\n");
 
   // --- mermaid fence balance -------------------------------------------
-  const fenceCount = (text.match(/```mermaid\b/g) ?? []).length;
-  const closeCount = (text.match(/```\s*$/gm) ?? []).length;
-  if (fenceCount > 0 && closeCount < 2 * fenceCount) {
-    problems.push(`${rel}: unbalanced or unclosed \`\`\`mermaid fence(s)`);
-  }
+  // Track open/close state exactly: a file whose only fence is a single
+  // mermaid block has exactly one bare "```" line (the opener ends in
+  // "mermaid"), so counting bare fences is a false positive — flag an
+  // opener still open at EOF instead.
   let mermaidOpen = false;
   for (let i = 0; i < lines.length; i++) {
     if (/^\s*```mermaid\b/.test(lines[i])) {
@@ -102,6 +101,9 @@ for (const rel of files) {
     } else if (mermaidOpen && /^\s*```\s*$/.test(lines[i])) {
       mermaidOpen = false;
     }
+  }
+  if (mermaidOpen) {
+    problems.push(`${rel}: unclosed \`\`\`mermaid fence`);
   }
 
   // --- links ------------------------------------------------------------
