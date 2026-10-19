@@ -97,6 +97,12 @@ services:
     volumes:
       - ./backend:/src
       - .:/repo:ro
+      # Same inference mounts as the backend service, so `make test` can run
+      # the live-model integration tests when the local AI server
+      # (run_server.sh + socket_bridge.sh) is up; without them those tests
+      # skip on the unreachable socket.
+      - ./ai_runtime:/run/ai-runtime
+      - ./Qwen3-8B-Q4_K_M.gguf:/models/Qwen3-8B-Q4_K_M.gguf:ro
     depends_on:
       postgres:
         condition: service_healthy
