@@ -921,6 +921,9 @@ export function useReportAudits(caseId: string) {
   });
 }
 
+/** Audit runs that are still in flight (the artifact lands with completion). */
+const ACTIVE_AUDIT_STATUSES = new Set(["pending", "queued", "running"]);
+
 /** One audit run with its full findings payload (the reviewer surface). */
 export function useReportAuditDetail(caseId: string, auditId: string | null | undefined) {
   return useQuery({
@@ -928,6 +931,11 @@ export function useReportAuditDetail(caseId: string, auditId: string | null | un
     queryFn: () => api.evidence.reportAuditDetail(caseId, auditId as string),
     enabled: Boolean(auditId),
     staleTime: 60 * 1000,
+    // A detail fetched while the run is active caches "no artifact yet" and
+    // staleTime would hold it for 60s; poll only while the audit is active so
+    // the findings card appears when the job commits, not on the next reload.
+    refetchInterval: (query) =>
+      ACTIVE_AUDIT_STATUSES.has(query.state.data?.status ?? "") ? 5_000 : false,
   });
 }
 

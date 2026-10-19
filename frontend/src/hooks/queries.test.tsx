@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useUpdateFindingStatus } from "@/hooks/queries";
+import { useUpdateFindingStatus, useReportAuditDetail } from "@/hooks/queries";
+import { api } from "@/api";
 import { mockApi } from "@/api/mock";
+import type { ReportAuditDetailOut } from "@/types/domain";
 
 const CASE_ID = "a0000000-0000-4000-8000-000000000001";
 
@@ -52,4 +54,42 @@ describe("finding status mutation", () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect((result.current.error as { status?: number }).status).toBe(422);
   });
+});
+
+describe("report audit detail polling", () => {
+  it(
+    "refetches an in-flight audit's detail so the findings card appears on completion",
+    async () => {
+      // Regression: the detail is fetched while the run is still active and
+      // caches "no artifact yet"; without the active-run poll, staleTime
+      // holds that empty result and the audit card only appears on remount.
+      const running = {
+        id: "audit-1",
+        case_id: CASE_ID,
+        status: "running",
+        artifact: null,
+      } as unknown as ReportAuditDetailOut;
+      const done = {
+        ...running,
+        status: "succeeded",
+        artifact: { id: "art-1" },
+      } as unknown as ReportAuditDetailOut;
+      let calls = 0;
+      const spy = vi.spyOn(api.evidence, "reportAuditDetail").mockImplementation(async () => {
+        calls += 1;
+        return calls === 1 ? running : done;
+      });
+
+      const { result } = renderHook(() => useReportAuditDetail(CASE_ID, "audit-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => expect(result.current.data?.status).toBe("running"));
+      // The 5s active-run poll flips the cached detail to the terminal payload.
+      await waitFor(() => expect(result.current.data?.artifact).toBeTruthy(), {
+        timeout: 10_000,
+      });
+      spy.mockRestore();
+    },
+    { timeout: 15_000 },
+  );
 });
