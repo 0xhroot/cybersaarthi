@@ -13,10 +13,16 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 from app.core.config import get_settings
+from app.models import AuditLog, Case
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from sqlalchemy import delete, func, select
 
 PREFIX = get_settings().API_V1_PREFIX
+
+# Case ids created via ``_make_case`` during this module; consumed by the
+# ``_case_hygiene`` teardown fixture.
+_created_case_ids: list[str] = []
 
 
 def _new_rsa() -> tuple[str, rsa.RSAPrivateKey]:
@@ -55,12 +61,56 @@ async def admin_http_client(user_factory):
 
 
 async def _make_case(http_client) -> str:
+    """Create a synthetic case AND register it for guaranteed teardown.
+
+    The API suite runs against the shared dev database and the API exposes
+    no case-delete endpoint, so every case created here must be removed by
+    the module hygiene fixture below; untracked creation used to leak
+    ``heartbeat <id>`` cases into the admin's case list (424 accumulated).
+    """
     resp = await http_client.post(
         f"{PREFIX}/cases",
         json={"title": f"heartbeat {uuid.uuid4().hex[:8]}", "description": None, "status": "open"},
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
+    case_id = resp.json()["id"]
+    _created_case_ids.append(case_id)
+    return case_id
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def _case_hygiene(database):
+    """Delete every case this module creates and prove none were left behind.
+
+    Teardown removes the tracked cases together with their audit rows (the
+    ``audit_logs.case_id`` FK is ON DELETE SET NULL, which would otherwise
+    orphan synthetic audit entries); field devices and other case-scoped
+    children cascade at the database. The final assertion is the regression
+    guard: if any test in this module creates a case without going through
+    ``_make_case``, the shared database ends up fuller than it started and
+    the suite fails loudly.
+    """
+    factory = database.session_factory()
+    async with factory() as session:
+        before = await session.scalar(
+            select(func.count(Case.id)).where(Case.title.like("heartbeat %"))
+        )
+    _created_case_ids.clear()
+    yield
+    ids = [uuid.UUID(c) for c in _created_case_ids]
+    if ids:
+        async with factory() as session:
+            await session.execute(delete(AuditLog).where(AuditLog.case_id.in_(ids)))
+            await session.execute(delete(Case).where(Case.id.in_(ids)))
+            await session.commit()
+    async with factory() as session:
+        after = await session.scalar(
+            select(func.count(Case.id)).where(Case.title.like("heartbeat %"))
+        )
+    assert after <= before, (
+        f"device heartbeat tests leaked {after - before} 'heartbeat %' case(s) "
+        f"into the shared database (before={before}, after={after})"
+    )
 
 
 async def _register_device(http_client, case_id: str, pem: str, serial: str) -> dict:
