@@ -1,6 +1,7 @@
 # AI Feature Status Matrix
 
-**Date:** 2026-10-15 · **Evidence basis:** live stack + automated tests run this
+**Date:** 2026-10-15 · **AI expansion (Phases 3–7) verified:** 2026-10-19 ·
+**Evidence basis:** live stack + automated tests run this
 day. Every "✅" below maps to a reproducible check (command or test name); nothing
 is marked done on assertion alone.
 
@@ -77,13 +78,44 @@ Legend: ✅ verified working · 🟡 works with a documented limitation ·
 | 43 | Prompt/answer persisted per turn with sources, tool events, timings | ✅ | `_persist()`; history endpoint returns them |
 | 44 | Conversation retention policy (`AI_CONVERSATION_RETENTION_DAYS`) | ✅ | lifespan sweep in `app/main.py`: purge once at startup + daily asyncio task (cancelled on shutdown, never fatal); `test_retention_purge_removes_only_expired_threads` (expired purged, survivor kept, messages FK-cascaded); live-verified: a 120-day-old thread deleted on backend restart with log `AI retention sweep removed conversations` |
 
-## F. Not part of this subsystem / blockers
+## F. AI expansion — ten-feature matrix (Phases 3–7)
+
+**Evidence basis (2026-10-19):** `./scripts/ai/eval_final.sh --report …` →
+**147/147 combined gates, exit 0** (golden + live, 213 s, post-fix run) with per-feature
+`n=` kept separate; backend suite **1048 passed**; frontend **216/216** +
+lint + typecheck + production build; `ruff check .` / `ruff format --check .`
+(290 files) / `mypy` (177 files) clean; alembic head unchanged
+(`c5e2b8f4d9a3`). `n=` is the golden sample size re-checked on every run;
+"live" cells were exercised end-to-end against the local Qwen3 server.
+
+| # | Feature | Backend service → API | Frontend | Data sources | Authorization / review | Verified evidence (n=, live) |
+|---|---|---|---|---|---|---|
+| 45 | Grounded AI assistant (chat, stream, report draft, tools) | `app/ai/*` → `POST /ai/chat`, `/ai/chat/stream`, `/ai/report-draft`, conversation CRUD under `/ai/*` | floating assistant + history (`assistant`/`history` tests) | case records + knowledge docs, read-only tool calls only | per-user auth + rate limit; owner-scoped threads; case chat needs membership; answers stay chat, never evidence | phase-1 live harness **5/5 gates**: 41 golden entries, fact recall 51/54, groundedness 1.0, sources 1282/1282 valid, abstention 7/7, 0 ungrounded answers, 0 invalid sources |
+| 46 | Evidence intelligence (ingestion copilot + chain-of-custody) | `evidence_intelligence` + `evidence_integrity` → `/cases/{id}/evidence-intelligence/extract`, `…/evidence-integrity/verify`, `…/custody-audit` | `extraction-panel.tsx` | uploaded files, custody events, content hashes | membership + IDOR probes; derived artifacts `pending_review` | phase-2 live **3/3 gates**: ingest n=3 cases (claim recall 12/13, precision 21/22, field validation 59/60, locator violations 0), integrity 3/3 states, custody n=2 (gap rule fires, clean case 0 findings), cleanup removes all objects |
+| 47 | Entity resolution | `case_intelligence` → `…/evidence-intelligence/entity-resolution` | `resolution-panel.tsx` | source records, entity/alias rows | membership; artifact `pending_review`, never auto-merged | golden **n=8**: precision 4/4, recall 4/4, false merges 0/4; live section ran |
+| 48 | Timeline reconstruction | `case_intelligence` → `…/timeline-reconstruction`, `…/timeline-proposals/{id}/commit` | `reconstruction-panel.tsx` | source records | membership; proposals require human commit | golden **n=13** parse cases: precision/recall 7/7, invented timestamps 0; n=5 record cases 5/5; live section ran |
+| 49 | Contradiction detection | `case_intelligence` → `…/contradiction-detection`, `…/contradictions/{id}/resolve` | `contradiction-panel.tsx` | source-record pairs | membership; findings only human-resolved | golden **n=19**: classifier 19/19, category precision/recall 7/7, 0 false positives; live section ran |
+| 50 | Financial flow analysis | `case_intelligence` → `…/financial-flow`, `…/financial-flow/trace` | `financial-flow-panel.tsx` | financial fields in source records (absence stays absence) | membership; artifact `pending_review`; no unkeyed grand totals | golden **n=23** records (2 victims, 22 facts): warnings recomputed exactly, invalid amounts stay invalid; live section ran |
+| 51 | Cross-case linkage | `cross_case` → `POST /cross-case/discover`, `/cross-case/candidates` | `cross-case-panel.tsx` | indicators across separate cases | discovery read-only; approval records a reviewed relationship artifact — never a case merge | golden **n=3** case pairs (4 records); live section ran |
+| 52 | Multilingual complaint intelligence | `evidence_intelligence` → `…/evidence-intelligence/multilingual` (+ jobs, cancel, artifacts, review) | `multilingual-panel.tsx` | complaint text units from uploaded records | anonymous 401 / non-member 403 / records IDOR 404 (live-checked); artifact `pending_review`; unsupported script refused | golden **n=7** complaints → 20 values (15 real, 5 planted fabrication), 0 false accepts; live vs Qwen3: Hindi auto-detect 4.05 s → 7/7 values verified, explicit translation 4.05 s → 7/7, English 8/8, unsupported script refused with 0 artifacts |
+| 53 | Digital forensics triage | `evidence_intelligence` → `…/evidence-intelligence/triage` | `triage-panel.tsx` | manifest bytes, URL/history/header fields (URLs never fetched, nothing executed) | same authz ladder; structural observations only — no malware/phishing verdict; artifact flagged | golden **n=9** (3 benign, 1 refusal, 1 injection, 1 manifest, 3 burst), 0 problems, deterministic re-compute; live: 3 URLs → 4 observations (3.04 s), manifest 3/3 entries re-hashed (2.03 s), unsupported format refused |
+| 54 | AI report auditing | `report_audits` → `POST /cases/{id}/report-audits`, `GET …/report-audits/{audit_id}` | `report-audit-panel.tsx` | draft text kept as sha256 only (never persisted raw) + case records for citations/counter-evidence | membership + mutable case (409 read-only); artifact **always** `pending_review` + `flagged` + standing `model_claims_unreviewed`; anonymous 401 / mid-run revocation fails closed / injection fenced (new tests) | golden **n=19** (dates/amounts/arithmetic/chronology/currency), 0 problems; live: 273-char draft → 6 claims, findings 6 high / 0 medium / 1 info, 3 counter-evidence matches, 19 audit metadata rows content-free |
+
+**Pre-stated limitations for rows 45–54** (decided before implementation, see
+`PHASE_5_6_7_PLAN.md` §8): no OCR (image-only PDFs refused with
+`OCR_REQUIRED`); no `.eml`/MIME parsing; Devanagari Hindi-vs-Marathi ambiguity
+is flagged for review, never hidden; translation quality is measured only as
+material-value preservation (no BLEU/human claim); triage never fetches URLs
+and never issues malware verdicts; report auditing covers draft text only;
+"Soup" fine-tuning stays an external blocker (row 57).
+
+## G. Not part of this subsystem / blockers
 
 | # | Item | Status | Note |
 |---|---|---|---|
-| 45 | Cloud/remote inference | 🔴 by design | excluded by requirement; no cloud path exists in code |
-| 46 | Ollama | 🔴 by design | not used anywhere |
-| 47 | "Soup" fine-tuning | 🔴 blocker | no Soup repository exists on this machine — only a mention in `docs/architecture/complete-project-status-report.md`. See `docs/ai/EVALUATION.md` |
+| 55 | Cloud/remote inference | 🔴 by design | excluded by requirement; no cloud path exists in code |
+| 56 | Ollama | 🔴 by design | not used anywhere |
+| 57 | "Soup" fine-tuning | 🔴 blocker | no Soup repository exists on this machine — only a mention in `docs/architecture/complete-project-status-report.md`. See `docs/ai/EVALUATION.md` |
 
-**Totals:** 42 ✅ · 2 🟡 (all with documented, deliberate reasons) · 1 🔴 external
+**Totals:** 52 ✅ · 2 🟡 (all with documented, deliberate reasons) · 1 🔴 external
 blocker · 2 🔴 by-design exclusions.

@@ -151,6 +151,71 @@ the context to 4096 tokens per slot while showcase-case DATA blocks need
 ~4350 — every large-case chat failed 503. Fixed in `scripts/ai/run_server.sh`
 (`--ctx-size $((CTX * PARALLEL))`, verified `n_ctx_slot = 8192`).
 
+**Two truncation bugs caught live on 2026-10-19 by the combined gate.** The
+first two delivery runs of `eval_final.sh` failed `p1_analysis_all_pass` on
+`a001-analysis-interpret` (cut mid-sentence, missing 2/5 then 1/5 required
+sections). It looked stochastic — answers differed per run — but the
+llama-server slot logs showed two *distinct* walls:
+
+1. **Retained-prefix context wall.** Every failing run ended at slot
+   `n_tokens = 8191, truncated = 1` with exactly 963 generated tokens; the
+   one passing run finished at 8142 — 49 tokens of headroom. A reused slot
+   retains a shared KV prefix (~4.6k tokens observed), shrinking real
+   generation headroom below the 1024-token analysis budget
+   (`finish_reason=length`, which the client does not surface). Fixed in
+   `scripts/ai/run_server.sh`: per-slot context doubled
+   (`--ctx-size $((CTX * 2 * PARALLEL))` → `n_ctx_slot = 16384`, VRAM
+   9 837 MiB / 12 GiB).
+2. **Output-budget truncation.** A third run still failed *after* the ctx
+   fix — but now `n_tokens = 8252, truncated = 0` (no context wall): a
+   verbose, UUID-heavy answer (each entity id ~15 tokens) hit exactly
+   `max_tokens = 1024` and was cut mid-section-3, dropping sections 4–5.
+   `ANALYSIS_MIN_MAX_TOKENS` in `app/ai/service.py` (already raised once,
+   768 → 1024, for this same reason) was raised 1024 → 2048 — only the
+   output allowance changes; context, model and parallelism are untouched,
+   and `_clamp_history_to_budget` reserves the room from the prompt budget.
+
+After both fixes: phase-1 harness passed 5/5 with slot usage ≤ 7 956 and
+zero truncation; the combined `eval_final.sh` passed **147/147, exit 0**. The
+evaluation gate was never weakened — it had correctly failed both defective
+runs. Known limitation standing: the AI client does not surface
+`finish_reason`, so a future context-wall or budget hit would again present
+as a short answer rather than an explicit truncation error.
+
+### Extended 2026-10-19 — case-intelligence harnesses (phases 3–7) + combined final eval
+
+The same principle (deterministic scorer, hard gates, `n=` stated, no LLM
+judge) now covers the ten-feature AI expansion; four more harnesses ship with
+it:
+
+- `scripts/ai/eval_phase3.sh` — golden fixtures for entity resolution
+  (`n=8`), timeline reconstruction (`n=13` parse / `n=5` record cases) and
+  contradiction detection (`n=19`): precision/recall/false-merge rates
+  computed from frozen fixtures.
+- `scripts/ai/eval_phase4.sh` — financial flow (`n=23` records) and
+  cross-case linkage (`n=3` pairs): warnings re-computed exactly, absence
+  stays absence, no unkeyed grand totals, approval never merges cases.
+- `scripts/ai/eval_phase567.sh` — multilingual (`n=7` complaints, 20 values:
+  15 real + 5 planted), triage (`n=9`) and report auditing (`n=19`) golden
+  cases, **plus live runs** against the local Qwen3 server: every live
+  number re-computed deterministically from source records, artifacts never
+  auto-approved, audit metadata content-free (system enum values exempt by
+  construction).
+- `scripts/ai/eval_final.sh` → `python -m scripts.eval_final` — the
+  combined gate: orchestrates all five harnesses (phase 1, 2, 3, 4, 5-6-7)
+  as subprocesses and adds cross-cutting gates: each harness ran clean,
+  a 10-feature coverage matrix (golden `n=` **or** live run per feature,
+  "not measured here" labels where applicable), a unit-test inventory floor
+  (≥1000 collected), alembic head unchanged (`c5e2b8f4d9a3`), and one live
+  anonymous error-shape probe (401 `{"error": {code, message}}`). Per-feature
+  metrics stay separate — no aggregated "AI accuracy" number is invented.
+
+**Run evidence (2026-10-19, delivery):** `eval_final.sh` → **147/147 gates,
+exit 0** (golden + live, 213 s post-fix); per-harness gates 5 / 3 / 16 / 47 / 64 plus
+12 cross-cutting; backend suite 1048 passed; frontend 216/216 + lint +
+typecheck + production build. Report path passed via `--report` (gitignored
+like the others).
+
 ## 6. "Soup" — status, blocker, and safe prep only
 
 **What Soup is** (verified from the upstream repository today,

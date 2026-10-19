@@ -311,15 +311,52 @@ pass vacuously (fixtures contain supported claims that must come back
 
 ## 7. Outcomes (filled in as phases complete)
 
-See the phase commits and the final delivery report; verified results are
-recorded here as they land.
+All numbers below were re-verified in the Phase-7 combined run
+(`./scripts/ai/eval_final.sh --report …` → **147/147 gates, exit 0**, 2026-10-19)
+unless stated otherwise.
 
-- 5A: see `feat(ai): add multilingual complaint intelligence` — outcomes
-  appended below when verified.
-- 5B: see `feat(ai): add digital forensics triage`.
-- 6: see `feat(ai): add AI report auditing`.
-- 7: see `test(ai): complete final AI integration and evaluation` and
-  `docs(ai): finalize AI expansion status and delivery`.
+- **5A — `feat(ai): add multilingual complaint intelligence` (`2188527`)**:
+  golden `n=7` complaints → 20 extracted values (15 real / 5 planted
+  fabrication), 0 false accepts; profile/language/flags/negation/injection
+  categories re-computed with 0 problems. Live vs local Qwen3: Hindi
+  auto-detect 4.05 s (7/7 values verified, 1 translation recorded), explicit
+  translation 4.05 s (7/7), English 8/8; unsupported script refused with 0
+  artifacts; anonymous 401 / non-member 403 / records IDOR 404 live-checked;
+  cancel contract covered.
+- **5B — `feat(ai): add digital forensics triage` (`4447609`)**: golden `n=9`
+  (3 benign, 1 refusal, 1 injection, 1 manifest, 3 burst) with 0 problems and
+  bit-exact determinism. Live: 3 seeded URLs → 4 observations (3.04 s),
+  manifest → 3/3 entries re-hashed + verified (2.03 s), unsupported format
+  refused (expected `failed`, 0 artifacts); explanations never fail silently
+  (`explanation_failed=0`).
+- **6 — `feat(ai): add AI report auditing` (`bfa3171`)**: golden `n=19`
+  across dates/amounts/arithmetic/chronology/currency with 0 problems,
+  determinism exact. Live: 273-char draft → 6 claims, findings 6 high / 0
+  medium / 1 info, 3 counter-evidence matches; artifact always
+  `pending_review` + `flagged` with standing `model_claims_unreviewed`; 19
+  audit metadata rows content-free; raw draft never persisted (sha256 only).
+  Security tests added: anonymous 401 (submit/list/detail), mid-run
+  revocation fails closed with `CASE_ACCESS_DENIED` and no artifact,
+  injection-in-draft cannot approve or suppress findings (23/23 in suite).
+- **7 — `test(ai): complete final AI integration and evaluation` +
+  `docs(ai): finalize AI expansion status and delivery`**: combined harness
+  `scripts/ai/eval_final.sh` → **147 gates, 0 failed, exit 0** (golden + live,
+  213 s post-fix) covering all 10 features with per-feature `n=` kept separate.
+  Cross-cutting gates: all five phase harnesses ran clean (5/3/16/47/64
+  harness gates), test inventory ≥ 1000 (1048 collected at delivery),
+  alembic head unchanged (`c5e2b8f4d9a3`), anonymous error-shape probe → 401
+  `{"error": {code, message}}` on the Phase-6 submit route. Full backend
+  suite **1048 passed**; frontend **216/216** + lint + typecheck + production
+  build; `ruff check .` / `ruff format --check .` (290 files) / `mypy` (177
+  files) clean; diff secret scan clean.
+  - *Evaluation finding (Phase 7's own deliverable):* intermediate delivery
+    runs failed `p1_analysis_all_pass` and root-caused **two distinct
+    truncation walls** behind a stochastic-looking symptom — the retained
+    per-slot KV prefix (→ per-slot ctx 8192 → 16384 in `run_server.sh`) and
+    the analysis output floor (→ `ANALYSIS_MIN_MAX_TOKENS` 1024 → 2048 in
+    `service.py`). Both were real product defects (truncated five-section
+    reports reach users); the gate was never weakened and correctly failed
+    the defective runs. Full narrative in `EVALUATION.md` §5.
 
 ## 8. Pre-stated limitations (decided before implementation)
 

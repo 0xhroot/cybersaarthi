@@ -12,18 +12,23 @@ each claim was verified against the running code or its source.
 
 | Setting | Value | Source |
 |---|---|---|
-| `AI_CONTEXT_LENGTH` | 8192 (per slot) | `config.py:120` |
+| `AI_CONTEXT_LENGTH` | 8192 (gateway prompt budget, per slot) | `config.py:195` |
 | `AI_MAX_OUTPUT_TOKENS` | 512 | `config.py:121` |
 | `AI_MAX_CONCURRENT_GENERATIONS` | 2 | `config.py:124` |
 | `AI_REQUEST_TIMEOUT_SECONDS` | 180 | `config.py:123` |
 | `AI_SERVER_PARALLEL` | 2 | `run_server.sh` |
-| Server args | `--ctx-size $((CTX*PARALLEL)) --parallel 2 --jinja --no-webui` | `run_server.sh` |
+| Server args | `--ctx-size $((CTX*2*PARALLEL)) --parallel 2 --jinja --no-webui` (per-slot 16384) | `run_server.sh` |
 | Temperature | **fixed 0.2** | `client.py` (both chat + stream) |
 | Qwen3 thinking | **disabled** (`chat_template_kwargs.enable_thinking=false`) | `client.py` |
 | Timeout | `connect=5, read=f(max_tokens), write=10, pool=5` | `client.py:86` |
 
 The per-slot context fix (`--ctx-size = CTX * PARALLEL`) is intact and must be
 preserved: llama.cpp divides `--ctx-size` evenly across `--parallel` slots.
+The `2x` factor added 2026-10-19 is also load-bearing: llama-server retains a
+shared KV prefix in a reused slot, which otherwise steals the generation room
+the gateway reserved (observed cutting analysis answers at
+`n_tokens = 8191, truncated = 1`) — one full prompt budget of slack absorbs
+it (`n_ctx_slot = 16384`, VRAM ~9.8/12 GiB measured).
 
 **Consequence for Phase 1:** because `enable_thinking=false`, the model emits no
 hidden reasoning. "Think" can therefore only mean *more budget + more bounded

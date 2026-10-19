@@ -569,3 +569,59 @@ surfaced for human review, never silently passed; fact recall is substring
 matching (reported only); no numeric confidence exists anywhere in the AI
 path by design; all latency/eval figures are single-run measurements, not
 statistical claims.
+
+## 2026-10-19 — AI Expansion Phases 5A/5B/6/7 (multilingual, triage, report audit, final integration)
+
+Commits (chain from `6a128cf`): `2188527` multilingual complaint
+intelligence → `4447609` digital forensics triage → `bfa3171` AI report
+auditing → `test(ai): complete final AI integration and evaluation` →
+`docs(ai): finalize AI expansion status and delivery`.
+
+Verified at delivery (numbers, not adjectives):
+
+- **Combined eval** `scripts/ai/eval_final.sh`: **147/147 gates, exit 0**
+  (golden + live, 215 s); per-harness gates 5 / 3 / 16 / 47 / 64 + 12
+  cross-cutting; all 10 features measured (golden `n=` or live run);
+  alembic head unchanged (`c5e2b8f4d9a3`); anonymous error-shape probe 401
+  `{"error": {code, message}}`.
+- **Backend:** 1048 tests passed (hermetic + integration); `ruff check .` /
+  `ruff format --check .` (290 files) / `mypy` (177 files) clean.
+- **Frontend:** 216/216 tests, lint, typecheck and production build green.
+- **Security added this phase (report audit):** anonymous 401 on
+  submit/list/detail with nothing queued; mid-run permission revocation
+  fails closed (`CASE_ACCESS_DENIED`, extraction ran but no assessment call
+  and no artifact); prompt-injection draft cannot approve the artifact or
+  suppress deterministic findings.
+- **Docs:** `FEATURE_STATUS.md` §F (10-feature matrix with evidence),
+  `PHASE_5_6_7_PLAN.md` §7 outcomes, `EVALUATION.md` §5 extension.
+- **Live-gate incident, root-caused and fixed (2026-10-19):** the first two
+  delivery runs of `eval_final.sh` failed `p1_analysis_all_pass` (145/147):
+  `a001-analysis-interpret` was cut mid-sentence, missing 2/5 then 1/5
+  required sections. It looked stochastic (answers differed per run), but the
+  llama-server slot logs exposed **two distinct truncation walls**, and the
+  same gate caught both:
+  1. *Retained-prefix context wall* — failing runs ended at slot
+     `n_tokens = 8191, truncated = 1` with **exactly 963 generated tokens**;
+     the one passing run finished at 8142 (49 tokens of headroom). A reused
+     slot retains a shared KV prefix (~4.6k tokens), shrinking headroom below
+     the 1024-token analysis budget. Fixed in `scripts/ai/run_server.sh`:
+     per-slot context doubled (`--ctx-size $((CTX * 2 * PARALLEL))`,
+     `n_ctx_slot = 8192 → 16384`, VRAM 9 837 MiB / 12 GiB).
+  2. *Output-budget truncation* — a third run still failed after the ctx fix,
+     but at `n_tokens = 8252, truncated = 0` (no context wall): a verbose,
+     UUID-heavy answer hit exactly `max_tokens = 1024` and was cut
+     mid-section-3, dropping sections 4–5. `ANALYSIS_MIN_MAX_TOKENS` in
+     `app/ai/service.py` (already raised once, 768 → 1024, for this reason)
+     raised 1024 → 2048 — only the output allowance changes; context, model
+     and parallelism untouched.
+  After both fixes: phase-1 5/5, slot usage ≤ 7 956, zero truncation; combined
+  eval **147/147, exit 0**. The evaluation gate was never weakened — it
+  correctly failed all defective runs. Known limitation standing: the AI
+  client does not surface `finish_reason`, so a future hit would again present
+  as a short answer rather than an explicit truncation error.
+- **Stochastic observation (honest):** one frontend test failed in a single
+  run that executed concurrently with the full 1048-test backend suite;
+  three subsequent standalone runs were green (216/216). The failing test
+  name was lost to output truncation and did not reproduce.
+- **Unchanged:** Soup fine-tuning not attempted — still awaits an explicit
+  go-ahead; no model re-downloads; no migrations added in 5A/5B/6/7.
