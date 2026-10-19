@@ -28,6 +28,7 @@ import type {
   DeviceRegisterRequest,
   HypothesisLinkEvidenceRequest,
   ReportGenerateRequest,
+  ReportAuditSubmitInput,
   InvestigationHypothesisCreateRequest,
 } from "@/types/domain";
 
@@ -50,6 +51,9 @@ export const queryKeys = {
   artifacts: (caseId: string, kind?: string) => ["evidence", caseId, "artifacts", kind] as const,
   sourceRecords: (caseId: string, evidenceId: string) =>
     ["evidence", caseId, "source-records", evidenceId] as const,
+  reportAudits: (caseId: string) => ["evidence", caseId, "report-audits"] as const,
+  reportAudit: (caseId: string, auditId: string) =>
+    ["evidence", caseId, "report-audits", auditId] as const,
   crossCaseCandidates: (anchorCaseId: string) =>
     ["evidence", anchorCaseId, "cross-case-candidates"] as const,
   custody: (caseId: string, evidenceId: string) =>
@@ -901,6 +905,38 @@ export function useTriage(caseId: string) {
   return useMutation({
     mutationFn: (evidenceFileId: string) => api.evidence.triage(caseId, evidenceFileId),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.audit() });
+    },
+  });
+}
+
+/** Report-audit runs for a case (polls while one is active). */
+export function useReportAudits(caseId: string) {
+  return useQuery({
+    queryKey: queryKeys.reportAudits(caseId),
+    queryFn: () => api.evidence.reportAudits(caseId),
+    staleTime: 15 * 1000,
+    refetchInterval: 15 * 1000,
+  });
+}
+
+/** One audit run with its full findings payload (the reviewer surface). */
+export function useReportAuditDetail(caseId: string, auditId: string | null | undefined) {
+  return useQuery({
+    queryKey: queryKeys.reportAudit(caseId, auditId ?? "none"),
+    queryFn: () => api.evidence.reportAuditDetail(caseId, auditId as string),
+    enabled: Boolean(auditId),
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useSubmitReportAudit(caseId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReportAuditSubmitInput) => api.evidence.reportAudit(caseId, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.reportAudits(caseId) });
       void qc.invalidateQueries({ queryKey: ["evidence", caseId] });
       void qc.invalidateQueries({ queryKey: queryKeys.audit() });
     },

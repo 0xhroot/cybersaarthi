@@ -24,6 +24,7 @@ from app.api.routes import (
     hypotheses_router,
     import_packages_router,
     iot_router,
+    report_audits_router,
     reports_router,
     search_router,
     timeline_router,
@@ -54,6 +55,9 @@ api_router.include_router(evidence_integrity_router, prefix="/api/v1")
 # Phase 4 feature B: cross-case pattern discovery (submit + scope-checked read).
 api_router.include_router(cross_case_router, prefix="/api/v1")
 api_router.include_router(graph_router, prefix="/api/v1")
+
+# Phase 6: AI report auditor (audit a draft; the draft is never modified).
+api_router.include_router(report_audits_router, prefix="/api/v1")
 
 # Phase 3: investigation intelligence (analytics + explainable findings).
 api_router.include_router(analytics_router, prefix="/api/v1")

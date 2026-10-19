@@ -14,8 +14,22 @@ vi.mock("@/api", () => ({
   isMockMode: false,
 }));
 
+// The embedded report-audit panel has its own dedicated test file; here it
+// only needs inert hooks so the analysis surface renders. (restoreMocks
+// wipes factory implementations, so the shapes are set in beforeEach.)
+vi.mock("@/hooks/queries", () => ({
+  useReportAudits: vi.fn(),
+  useReportAuditDetail: vi.fn(),
+  useSubmitReportAudit: vi.fn(),
+  useIntelJobs: vi.fn(),
+  useReviewArtifact: vi.fn(),
+  useCancelIntelJob: vi.fn(),
+}));
+vi.mock("@/lib/permissions", () => ({ useCan: () => true }));
+
 import { AnalysisPanel } from "@/components/ai/analysis-panel";
 import type { AiCitationCheck } from "@/api/contract";
+import * as queries from "@/hooks/queries";
 
 const PASSING_CHECK: AiCitationCheck = {
   cited_ids: 2,
@@ -57,6 +71,35 @@ describe("AnalysisPanel", () => {
   beforeEach(() => {
     chatStreamMock.mockReset();
     reportDraftMock.mockReset();
+    const { useReportAudits, useReportAuditDetail, useSubmitReportAudit, useIntelJobs, useReviewArtifact, useCancelIntelJob } =
+      vi.mocked(queries);
+    useReportAudits.mockReturnValue({
+      data: { items: [], total: 0, limit: 50, offset: 0 },
+      isLoading: false,
+      isError: false,
+      error: null,
+      isFetching: false,
+      isSuccess: true,
+    } as never);
+    useReportAuditDetail.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+      error: null,
+      isFetching: false,
+      isSuccess: true,
+    } as never);
+    useSubmitReportAudit.mockReturnValue({ mutateAsync: vi.fn(), isPending: false } as never);
+    useIntelJobs.mockReturnValue({
+      data: { items: [], total: 0, limit: 100, offset: 0 },
+      isLoading: false,
+      isError: false,
+      error: null,
+      isFetching: false,
+      isSuccess: true,
+    } as never);
+    useReviewArtifact.mockReturnValue({ mutateAsync: vi.fn(), isPending: false } as never);
+    useCancelIntelJob.mockReturnValue({ mutateAsync: vi.fn(), isPending: false } as never);
   });
 
   it("offers the analysis actions and a report draft", () => {

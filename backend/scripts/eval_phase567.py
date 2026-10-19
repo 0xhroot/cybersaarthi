@@ -5,10 +5,8 @@ Extends the Phase 1-4 harness conventions (``scripts/eval_model.py``,
 ``scripts/eval_phase4.py``: real HTTP, real auth, real local inference,
 independent verification against PostgreSQL - never the server's self-report).
 
-Current scope: **phase 5A multilingual complaint intelligence and phase 5B
-digital forensics triage**. The AI report auditing (6) section is appended
-when that phase lands; the entry point and report path already cover all
-three.
+Current scope: **phase 5A multilingual complaint intelligence, phase 5B
+digital forensics triage and phase 6 AI report auditing**.
 
 The harness has two independent sections:
 
@@ -33,6 +31,14 @@ The harness has two independent sections:
   instruction-injection containment, hash-manifest verdict matrices, auth-
   failure burst windows, explanation parse accept/reject and determinism.
 
+  For report auditing the frozen set (``report_audit_checks.json``) replays
+  through the pure rule helpers and gates: date parsing (ASCII + Devanagari,
+  month names, ambiguity), amount parsing (Indian grouping, dot-grouping,
+  currency inference), arithmetic recomputation, chronology ordering,
+  currency-conflict detection, counter-evidence token derivation, claim
+  normalization (spans, categories, truncation, citations) and support-quote
+  verification accept/reject - plus determinism and draft-hash sensitivity.
+
 * **Live end-to-end** (requires running stack + local model): real HTTP jobs
   against local Qwen3 - Hindi auto-translation run, Hindi + English runs with
   explicit translation, an unsupported-script refusal probe, a cancellation
@@ -51,6 +57,13 @@ The harness has two independent sections:
   every manifest verdict by re-hashing the MinIO objects. Unsupported prose
   must be refused with ``TRIAGE_UNSUPPORTED_CONTENT`` and zero artifacts;
   nothing is auto-approved; a failed model explanation is never silent.
+
+  The report-audit live block submits a synthetic draft (dates, amounts, a
+  stated total, a chronology inversion - no real personal data) through the
+  real API and local model, then independently recomputes every deterministic
+  claim field (amounts, dates, arithmetic, spans, tokens) from the stored
+  payload and verifies the artifact stays flagged/pending_review with the
+  standing unreviewed finding and a reproducible draft hash.
 
 Deterministic safety properties are gated; model-dependent label choices
 (language label, auto-translation trigger) are reported, never gated. All
@@ -113,11 +126,25 @@ from app.services.multilingual import (
     profile_scripts,
     value_in_original,
 )
+from app.services.report_audit import (
+    REPORT_AUDIT_RULES_VERSION,
+    assessment_is_valid,
+    check_arithmetic,
+    chronology_issues,
+    claim_tokens,
+    currency_conflicts,
+    draft_sha256,
+    normalize_claims,
+    parse_amounts,
+    parse_assessment,
+    parse_dates,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_DIR = REPO_ROOT / "backend" / "tests" / "fixtures" / "evidence_intelligence"
 ML_FIXTURE = FIXTURE_DIR / "multilingual_checks.json"
 TRIAGE_FIXTURE = FIXTURE_DIR / "triage_checks.json"
+REPORT_AUDIT_FIXTURE = FIXTURE_DIR / "report_audit_checks.json"
 REPORT_DEFAULT = REPO_ROOT / "ai_runtime" / "eval_phase567_report.json"
 API_BASE_DEFAULT = "http://localhost:8000/api/v1"
 
@@ -161,6 +188,17 @@ TRIAGE_PROSE = (
     "delivery and my money."
 )
 
+# Synthetic report draft used only by the live section (no real personal
+# data): dates, amounts with Indian grouping, a stated total whose sum is
+# wrong, a currency switch and a chronology inversion, so the deterministic
+# checks have material to flag whatever the model chooses to extract.
+REPORT_AUDIT_DRAFT = (
+    "Case summary: the complainant paid Rs. 12,500.00 on 15/01/2026 and "
+    "Rs. 8,300.50 on 20/01/2026, bringing the total paid to Rs. 21,000.00. "
+    "The goods were delivered on 10/01/2026, before the first payment. A "
+    "refund of USD 500.00 was promised against the same account ACC-7781."
+)
+
 # Every validation-error code the multilingual services may record.
 KNOWN_ISSUE_CODES = {
     "value_not_in_source",
@@ -190,6 +228,21 @@ AUDIT_COUNT_KEYS = {
     "observations_total",
     "manifest_entries_verified",
     "explanation_failed",
+    # report audit (phase 6) counts - integers only, like every key above
+    "claims_extracted",
+    "claims_truncated",
+    "claims_invalid",
+    "citations_checked",
+    "citations_invalid",
+    "assessments_attempted",
+    "assessments_valid",
+    "assessments_invalid",
+    "findings_high",
+    "findings_medium",
+    "findings_info",
+    "records_searched",
+    "counter_matches",
+    "units_failed",
 }
 AUDIT_ALLOWED_KEYS = AUDIT_COUNT_KEYS | {
     "code",
@@ -198,6 +251,7 @@ AUDIT_ALLOWED_KEYS = AUDIT_COUNT_KEYS | {
     "evidence_file_id",
     "duplicate",
     "status",
+    "draft_source_type",
 }
 AUDIT_TOKEN_RE = re.compile(r"^[A-Za-z_]{1,40}$")
 AUDIT_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -232,6 +286,19 @@ LIMITATIONS = [
     "terminal status depends on the race between the cancel flag and the "
     "runner's unit boundary; deterministic cancel semantics are covered by "
     "the API test suite.",
+    "Report auditing verifies what the draft *says* against the case's own "
+    "records; it cannot know whether a draft statement about facts outside "
+    "the case is true, and every audit artifact stays flagged/pending_review "
+    "for a human regardless of what the checks found.",
+    "Claim extraction and support assessment are model-derived and "
+    "stochastic: spans, categories and quoted support vary between runs. "
+    "Gates cover only deterministic properties (span verbatim-ness, "
+    "amount/date/arithmetic recomputation, token derivation, quote "
+    "containment, hash reproducibility, review state).",
+    "Deterministic arithmetic checks only re-add a stated total inside one "
+    "claim that carries at least three parsed numbers; a wrong total "
+    "distributed across claims, or one stated without the word total/sum, "
+    "is not detected mechanically.",
 ]
 
 
@@ -592,6 +659,119 @@ class Phase567EvalRunner:
             "problems_total": sum(len(v) for v in problems.values()),
         }
 
+    @staticmethod
+    def _report_audit_golden_pass(fixture: dict[str, Any]) -> dict[str, Any]:
+        """Replay the frozen report-audit set through the pure helpers.
+
+        Gates span reproduction, amount/date parsing (ASCII + Devanagari,
+        Indian grouping), arithmetic recomputation, chronology, currency
+        conflicts, counter-evidence tokens and support-quote verification.
+        No model, database, network or storage is involved.
+        """
+        problems: dict[str, list[str]] = {
+            "dates": [],
+            "amounts": [],
+            "arithmetic": [],
+            "chronology": [],
+            "currency": [],
+            "tokens": [],
+            "claims": [],
+            "assessment": [],
+        }
+        kinds_seen: set[str] = set()
+        for case in fixture["cases"]:
+            name = case["name"]
+            kind = case["kind"]
+            kinds_seen.add(kind)
+            expect = case["expect"]
+            if kind == "dates":
+                parsed, unparsed = parse_dates(case["text"])
+                if parsed != expect["dates"]:
+                    problems["dates"].append(f"{name}: dates {parsed!r} != {expect['dates']!r}")
+                if unparsed != expect["unparsed"]:
+                    problems["dates"].append(
+                        f"{name}: unparsed {unparsed!r} != {expect['unparsed']!r}"
+                    )
+            elif kind == "amounts":
+                got = parse_amounts(case["text"])
+                if got != expect["amounts"]:
+                    problems["amounts"].append(f"{name}: {got!r} != {expect['amounts']!r}")
+            elif kind == "arithmetic":
+                result = check_arithmetic(case["text"], parse_amounts(case["text"]))
+                if result != expect["result"]:
+                    problems["arithmetic"].append(f"{name}: {result!r} != {expect['result']!r}")
+            elif kind == "chronology":
+                got = chronology_issues(case["claims"])
+                if got != expect["issues"]:
+                    problems["chronology"].append(f"{name}: {got!r} != {expect['issues']!r}")
+            elif kind == "currency":
+                claims = [
+                    {
+                        "claim_index": index,
+                        "char_start": item["char_start"],
+                        "amounts": parse_amounts(item["text"]),
+                    }
+                    for index, item in enumerate(case["claims"])
+                ]
+                got = currency_conflicts(claims)
+                if got != expect["conflicts"]:
+                    problems["currency"].append(f"{name}: {got!r} != {expect['conflicts']!r}")
+            elif kind == "tokens":
+                got_tokens = claim_tokens(case["text"], parse_amounts(case["text"]))
+                if got_tokens != expect["tokens"]:
+                    problems["tokens"].append(f"{name}: {got_tokens!r} != {expect['tokens']!r}")
+            elif kind == "claims":
+                claims, truncated = normalize_claims(
+                    case["raw_claims"],
+                    draft=case["draft"],
+                    max_claims=case["max_claims"],
+                )
+                if truncated != expect["truncated"]:
+                    problems["claims"].append(
+                        f"{name}: truncated {truncated!r} != {expect['truncated']!r}"
+                    )
+                keys = (
+                    "claim_index",
+                    "claim_id",
+                    "span_valid",
+                    "category_valid",
+                    "extraction_valid",
+                    "extraction_problems",
+                    "cited_ids",
+                )
+                got = [{key: claim[key] for key in keys} for claim in claims]
+                if got != expect["claims"]:
+                    problems["claims"].append(f"{name}: {got!r} != {expect['claims']!r}")
+            elif kind == "assessment":
+                result = parse_assessment(json.dumps(case["reply"]))
+                if result is None:
+                    problems["assessment"].append(f"{name}: reply was rejected")
+                    continue
+                valid, bad = assessment_is_valid(result, case["excerpts"])
+                if valid != expect["valid"] or bad != expect["unverified"]:
+                    problems["assessment"].append(
+                        f"{name}: valid={valid} unverified={bad!r} "
+                        f"!= {expect['valid']} {expect['unverified']!r}"
+                    )
+            else:  # pragma: no cover - fixture authoring guard
+                problems["claims"].append(f"unknown golden case kind {kind!r}")
+
+        # Draft hashing is deterministic and content-sensitive (staleness gate).
+        hash_problems: list[str] = []
+        if draft_sha256("abc") != draft_sha256("abc"):
+            hash_problems.append("draft_sha256 is not deterministic")
+        if draft_sha256("abc") == draft_sha256("abd"):
+            hash_problems.append("draft_sha256 ignores content differences")
+        problems["tokens"].extend(hash_problems)
+
+        return {
+            "problems": problems,
+            "cases_n": len(fixture["cases"]),
+            "kinds_seen": sorted(kinds_seen),
+            "rules_version": REPORT_AUDIT_RULES_VERSION,
+            "problems_total": sum(len(v) for v in problems.values()),
+        }
+
     def _golden_section(self) -> dict[str, Any]:
         print("  golden: multilingual complaint intelligence", flush=True)
         fixture = json.loads(ML_FIXTURE.read_text(encoding="utf-8"))
@@ -607,6 +787,13 @@ class Phase567EvalRunner:
         triage_first["determinism_ok"] = json.dumps(
             triage_first, sort_keys=True, ensure_ascii=False
         ) == json.dumps(triage_second, sort_keys=True, ensure_ascii=False)
+        print("  golden: AI report auditing", flush=True)
+        audit_fixture = json.loads(REPORT_AUDIT_FIXTURE.read_text(encoding="utf-8"))
+        audit_first = self._report_audit_golden_pass(audit_fixture)
+        audit_second = self._report_audit_golden_pass(audit_fixture)
+        audit_first["determinism_ok"] = json.dumps(
+            audit_first, sort_keys=True, ensure_ascii=False
+        ) == json.dumps(audit_second, sort_keys=True, ensure_ascii=False)
         return {
             "multilingual": first,
             "fixture": str(ML_FIXTURE.relative_to(REPO_ROOT)),
@@ -614,6 +801,9 @@ class Phase567EvalRunner:
             "triage": triage_first,
             "triage_fixture": str(TRIAGE_FIXTURE.relative_to(REPO_ROOT)),
             "triage_fixture_limitations": triage_fixture.get("limitations", []),
+            "report_audit": audit_first,
+            "report_audit_fixture": str(REPORT_AUDIT_FIXTURE.relative_to(REPO_ROOT)),
+            "report_audit_fixture_limitations": audit_fixture.get("limitations", []),
         }
 
     # -- live end-to-end section ---------------------------------------------
@@ -720,6 +910,34 @@ class Phase567EvalRunner:
             "status": job["status"],
             "error": job.get("error"),
             "summary": job.get("result_summary"),
+            "latency_seconds": round(time.monotonic() - submitted, 3),
+        }
+
+    async def _run_report_audit_job(self, case_id: str, draft_text: str) -> dict[str, Any]:
+        submitted = time.monotonic()
+        response = await self.api.post(
+            f"/cases/{case_id}/report-audits",
+            json={"draft_text": draft_text},
+            headers=self._headers(),
+        )
+        if response.status_code != 202:
+            return {
+                "status": f"http_{response.status_code}",
+                "error": response.text[:200],
+                "summary": None,
+                "duplicate": None,
+                "latency_seconds": 0.0,
+            }
+        body = response.json()
+        job_id = (body.get("job") or {}).get("id")
+        if not job_id:
+            raise RuntimeError(f"report audit submit returned no job id: {body!r}")
+        job = await self._poll_job(case_id, job_id, feature="report_audit")
+        return {
+            "status": job["status"],
+            "error": job.get("error"),
+            "summary": job.get("result_summary"),
+            "duplicate": body.get("duplicate"),
             "latency_seconds": round(time.monotonic() - submitted, 3),
         }
 
@@ -939,6 +1157,7 @@ class Phase567EvalRunner:
                             or_(
                                 AuditLog.action.like("multilingual.%"),
                                 AuditLog.action.like("triage.%"),
+                                AuditLog.action.like("report_audit.%"),
                             )
                         )
                         .order_by(AuditLog.created_at)
@@ -961,6 +1180,7 @@ class Phase567EvalRunner:
             IDOR_TEXT,
             TRIAGE_URLS_TEXT,
             TRIAGE_PROSE,
+            REPORT_AUDIT_DRAFT,
         ):
             complaint_words |= {w.lower() for w in re.findall(r"\w+", text) if len(w) >= 4}
         for row in rows:
@@ -1397,6 +1617,83 @@ class Phase567EvalRunner:
         )
         live["problems"].extend(triage_problems)
 
+        # ---- AI report auditing (6) ----------------------------------------
+        audit_run = await self._run_report_audit_job(case_id, REPORT_AUDIT_DRAFT)
+        print(
+            f"    run report_audit: {audit_run['status']} in {audit_run['latency_seconds']}s",
+            flush=True,
+        )
+        live["runs"]["report_audit"] = audit_run
+        live["latency_seconds"]["report_audit"] = audit_run["latency_seconds"]
+        checks["report_audit_run_ok"] = audit_run["status"] in {"succeeded", "partial"}
+
+        audit_api = await self._artifacts(case_id, "report_claim_review")
+        audit_art = audit_api[0] if audit_api else None
+        checks["report_audit_artifact_recorded"] = audit_art is not None
+        checks["report_audit_no_auto_approval"] = bool(audit_api) and all(
+            a.get("status") == "pending_review" and a.get("validation_status") == "flagged"
+            for a in audit_api
+        )
+        checks["report_audit_unreviewed_finding"] = bool(audit_api) and all(
+            any(
+                str(item.get("code")) == "model_claims_unreviewed"
+                for item in (a.get("validation_errors") or [])
+            )
+            for a in audit_api
+        )
+
+        audit_problems: list[str] = []
+        if audit_art is not None:
+            payload = dict(audit_art.get("payload") or {})
+            if payload.get("draft_hash") != draft_sha256(REPORT_AUDIT_DRAFT):
+                audit_problems.append("report audit draft hash does not recompute")
+            if payload.get("draft_chars") != len(REPORT_AUDIT_DRAFT):
+                audit_problems.append("report audit draft length does not recompute")
+            claims = list(payload.get("claims") or [])
+            model_summary = dict(payload.get("model") or {})
+            live["reports"]["report_audit"] = {
+                "claims_extracted": model_summary.get("claims_extracted"),
+                "findings_summary": payload.get("findings_summary"),
+                "draft_hash": payload.get("draft_hash"),
+            }
+            if int(model_summary.get("claims_extracted") or 0) < 1 or not claims:
+                audit_problems.append("report audit extracted no claims from the live draft")
+            recomputed_findings = {"high": 0, "medium": 0, "info": 0}
+            for claim in claims:
+                label = f"claim {claim.get('claim_index')}"
+                text = str(claim.get("text") or "")
+                stored = dict(claim.get("deterministic") or {})
+                amounts = parse_amounts(text)
+                dates, unparsed = parse_dates(text)
+                arithmetic = check_arithmetic(text, amounts)
+                if stored.get("amounts") != amounts:
+                    audit_problems.append(f"{label}: amounts do not recompute")
+                if stored.get("dates") != dates or stored.get("unparsed_dates") != unparsed:
+                    audit_problems.append(f"{label}: dates do not recompute")
+                if stored.get("arithmetic") != arithmetic:
+                    audit_problems.append(f"{label}: arithmetic does not recompute")
+                if claim_tokens(text, amounts) != list(
+                    (claim.get("counter_evidence") or {}).get("tokens") or []
+                ):
+                    audit_problems.append(f"{label}: counter-evidence tokens do not recompute")
+                if claim.get("span_valid") and text not in REPORT_AUDIT_DRAFT:
+                    audit_problems.append(f"{label}: valid span is not verbatim in the draft")
+                for finding in claim.get("findings") or []:
+                    bucket = str(finding.get("severity"))
+                    if bucket in recomputed_findings:
+                        recomputed_findings[bucket] += 1
+            findings_summary = dict(payload.get("findings_summary") or {})
+            for bucket, count in recomputed_findings.items():
+                if int(findings_summary.get(bucket) or 0) != count:
+                    audit_problems.append(
+                        f"findings_summary {bucket}={findings_summary.get(bucket)!r} "
+                        f"does not equal the recomputed {count}"
+                    )
+        checks["report_audit_deterministic_recompute"] = (
+            not audit_problems and audit_art is not None
+        )
+        live["problems"].extend(audit_problems)
+
         audit = await self._audit_metadata_check(case_id)
         live["reports"]["audit"] = audit
         checks["audit_metadata_content_free"] = audit["rows_n"] >= 2 and not audit["problems"]
@@ -1510,6 +1807,38 @@ class Phase567EvalRunner:
             gates["triage_burst_exact"] = not t_problems["burst"]
             gates["triage_explanation_parse_exact"] = not t_problems["explanation"]
             gates["triage_determinism"] = triage["determinism_ok"]
+        audit = self.report["golden"].get("report_audit")
+        if audit:
+            a_problems = audit["problems"]
+            gates["report_audit_not_vacuous"] = (
+                audit["cases_n"] >= 15
+                and len(audit["kinds_seen"]) >= 8
+                and sum(
+                    1
+                    for case in json.loads(REPORT_AUDIT_FIXTURE.read_text(encoding="utf-8"))[
+                        "cases"
+                    ]
+                    if case["kind"] == "claims"
+                )
+                >= 2
+                and sum(
+                    1
+                    for case in json.loads(REPORT_AUDIT_FIXTURE.read_text(encoding="utf-8"))[
+                        "cases"
+                    ]
+                    if case["kind"] == "assessment"
+                )
+                >= 4
+            )
+            gates["report_audit_dates_exact"] = not a_problems["dates"]
+            gates["report_audit_amounts_exact"] = not a_problems["amounts"]
+            gates["report_audit_arithmetic_exact"] = not a_problems["arithmetic"]
+            gates["report_audit_chronology_exact"] = not a_problems["chronology"]
+            gates["report_audit_currency_exact"] = not a_problems["currency"]
+            gates["report_audit_tokens_exact"] = not a_problems["tokens"]
+            gates["report_audit_spans_exact"] = not a_problems["claims"]
+            gates["report_audit_quote_verification_exact"] = not a_problems["assessment"]
+            gates["report_audit_determinism"] = audit["determinism_ok"]
         live = self.report.get("live")
         if live:
             for name, ok in live.get("checks", {}).items():

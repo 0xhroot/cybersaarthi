@@ -14,6 +14,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
+from app.api.routes.evidence_intelligence import _CANCELABLE_FEATURES
 from app.core.codes import (
     CODE_AI_DISABLED,
     CODE_ARTIFACT_KIND_UNSUPPORTED,
@@ -34,6 +35,7 @@ from app.db.postgres import Database
 from app.db.storage import Storage
 from app.main import app
 from app.models import AnalysisJob, AuditLog, Case, CaseMember, EvidenceFile
+from app.models.analysis_job import ANALYSIS_JOB_FEATURES
 from sqlalchemy import select
 
 from tests.api.phase2_fakes import FakeAI
@@ -541,21 +543,25 @@ async def test_custody_job_cancellation_contract(
     assert again.json()["error"]["code"] == CODE_JOB_TERMINAL
 
     # Phase 3 made entity_resolution/timeline/contradiction cancelable too,
-    # phase 4 added financial_flow and cross_case, and phase 5B added
-    # multilingual and triage; report_audit stays pre-registered in the DB
-    # CHECK but has no live cancel contract until phase 6 wires the feature,
-    # so it drives the 404 contract check.
-    wrong_feature = await _seed("pending", feature="report_audit")
-    refused = await http_client.post(
-        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/jobs/{wrong_feature}/cancel"
+    # phase 4 added financial_flow and cross_case, phase 5B added
+    # multilingual and triage, and phase 6 completed the set with
+    # report_audit. Every feature the DB CHECK can store now has a cancel
+    # contract, so the invariant below replaces the former "uncoverable
+    # feature" 404 probe; the 404 path itself stays covered by the unknown
+    # job id check.
+    phase6_id = await _seed("pending", feature="report_audit")
+    phase6_cancel = await http_client.post(
+        f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/jobs/{phase6_id}/cancel"
     )
-    assert refused.status_code == 404
-    assert refused.json()["error"]["code"] == CODE_JOB_NOT_FOUND
+    assert phase6_cancel.status_code == 200, phase6_cancel.text
+    assert phase6_cancel.json()["cancel_requested"] is True
+    assert set(ANALYSIS_JOB_FEATURES) <= set(_CANCELABLE_FEATURES)
 
     unknown = await http_client.post(
         f"{PREFIX}/cases/{_owned_case}/evidence-intelligence/jobs/{uuid.uuid4()}/cancel"
     )
     assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == CODE_JOB_NOT_FOUND
 
 
 # -- AI explanation (facts-only) ------------------------------------------------

@@ -1208,6 +1208,49 @@ export interface JobSubmitResponse {
 }
 
 /**
+ * One AI report-audit run (phase 6): the job state plus the linkage to its
+ * `report_claim_review` findings artifact. `stale` compares the audited
+ * draft hash against the current content of the referenced message at read
+ * time (`null` for supplied-text audits or missing messages). Findings are
+ * unreviewed model-derived output — never auto-trusted.
+ */
+export interface ReportAuditOut {
+  id: string;
+  case_id: string;
+  status: AnalysisJobStatus;
+  created_at: string;
+  completed_at: string | null;
+  error: string | null;
+  draft_source_type: string | null;
+  draft_hash: string | null;
+  draft_chars: number | null;
+  conversation_id: string | null;
+  message_id: string | null;
+  artifact_id: string | null;
+  claims: number | null;
+  stale: boolean | null;
+  result_summary: Record<string, unknown> | null;
+}
+
+export interface ReportAuditDetailOut extends ReportAuditOut {
+  artifact: DerivedArtifactOut | null;
+}
+
+export interface ReportAuditList {
+  items: ReportAuditOut[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Exactly one source: a report-message reference XOR investigator text. */
+export interface ReportAuditSubmitInput {
+  conversation_id?: string;
+  message_id?: string;
+  draft_text?: string;
+}
+
+/**
  * One derived artifact: extraction output, deterministic integrity fact or
  * custody finding (plus AI explanations, which are always `validation_status
  * "flagged"`). Nothing here is auto-approved — review is human-only.

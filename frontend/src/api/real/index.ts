@@ -107,6 +107,8 @@ import type {
   RelationshipList,
   RelationshipStrength,
   Report,
+  ReportAuditDetailOut,
+  ReportAuditList,
   ReportList,
   ReviewDecisionResponse,
   ReviewList,
@@ -356,6 +358,23 @@ const evidenceService: ApiEvidenceService = {
       method: "POST",
       body: { evidence_file_id: evidenceFileId },
     });
+  },
+  reportAudit(caseId, input) {
+    return request<JobSubmitResponse>(`/cases/${caseId}/report-audits`, {
+      method: "POST",
+      body: input,
+    });
+  },
+  reportAudits(caseId, params = {}) {
+    return request<ReportAuditList>(
+      `/cases/${caseId}/report-audits${buildQuery({
+        limit: params.limit ?? 50,
+        offset: params.offset ?? 0,
+      })}`,
+    );
+  },
+  reportAuditDetail(caseId, auditId) {
+    return request<ReportAuditDetailOut>(`/cases/${caseId}/report-audits/${auditId}`);
   },
   sourceRecords(caseId, evidenceId, params = {}) {
     return request<SourceRecordList>(

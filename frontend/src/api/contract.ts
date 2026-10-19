@@ -87,6 +87,9 @@ import type {
   RelationshipList,
   RelationshipStrength,
   Report,
+  ReportAuditDetailOut,
+  ReportAuditList,
+  ReportAuditSubmitInput,
   ReportGenerateRequest,
   ReportList,
   ReviewDecisionResponse,
@@ -245,6 +248,19 @@ export interface ApiEvidenceService {
    * `TRIAGE_UNSUPPORTED_CONTENT`, never an empty success.
    */
   triage(caseId: string, evidenceFileId: string): Promise<JobSubmitResponse>;
+  /**
+   * Submit one bounded audit of a report draft (202 + background job).
+   * Exactly one source: a report-mode assistant message reference
+   * (`conversation_id` + `message_id`) XOR `draft_text`. Deterministic code
+   * validates every span, citation, number and date; the model only extracts
+   * claims and assesses support and its output is verified or flagged —
+   * never trusted. The original draft is never modified.
+   */
+  reportAudit(caseId: string, input: ReportAuditSubmitInput): Promise<JobSubmitResponse>;
+  /** Report-audit runs for a case (newest first, 1..200, default 50). */
+  reportAudits(caseId: string, params?: PageParams): Promise<ReportAuditList>;
+  /** One audit run with its full `report_claim_review` findings payload. */
+  reportAuditDetail(caseId: string, auditId: string): Promise<ReportAuditDetailOut>;
   /**
    * Original parsed source records for one evidence file, verbatim and
    * bounded (pagination 1..200). This is the text reviewers compare model

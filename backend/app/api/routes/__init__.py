@@ -27,6 +27,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.hypotheses import router as hypotheses_router
 from app.api.routes.import_packages import router as import_packages_router
 from app.api.routes.iot import router as iot_router
+from app.api.routes.report_audits import router as report_audits_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.search import router as search_router
 from app.api.routes.timeline import router as timeline_router
@@ -61,6 +62,7 @@ __all__ = [
     "hypotheses_router",
     "import_packages_router",
     "iot_router",
+    "report_audits_router",
     "reports_router",
     "search_router",
     "timeline_router",

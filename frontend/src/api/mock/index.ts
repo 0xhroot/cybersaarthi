@@ -92,6 +92,10 @@ import type {
   NetworkProfile,
   RelationshipStrength,
   Report,
+  ReportAuditDetailOut,
+  ReportAuditList,
+  ReportAuditOut,
+  ReportAuditSubmitInput,
   ReportList,
   ReviewDecisionResponse,
   ReviewList,
@@ -367,6 +371,42 @@ function nextIntelId(): string {
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+/** Deterministic mock hash (stands in for the backend sha256 draft hash). */
+function draftHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/** Map a report-audit job (+ its findings artifact) to the API read model. */
+function mockReportAuditOut(job: AnalysisJobOut): ReportAuditOut {
+  const summary = job.result_summary ?? {};
+  const artifact = artifactsState.find((a) => a.analysis_job_id === job.id) ?? null;
+  const claims = artifact?.payload?.claims;
+  const str = (key: string) =>
+    typeof summary[key] === "string" ? (summary[key] as string) : null;
+  return {
+    id: job.id,
+    case_id: job.case_id,
+    status: job.status,
+    created_at: job.created_at,
+    completed_at: job.completed_at,
+    error: job.error,
+    draft_source_type: str("draft_source_type"),
+    draft_hash: str("draft_hash"),
+    draft_chars: typeof summary.draft_chars === "number" ? summary.draft_chars : null,
+    conversation_id: str("conversation_id"),
+    message_id: str("message_id"),
+    artifact_id: artifact?.id ?? null,
+    claims: Array.isArray(claims) ? claims.length : null,
+    stale: null,
+    result_summary: summary,
+  };
 }
 
 /**
@@ -2264,6 +2304,168 @@ export const mockApi: Api = {
         artifacts_created: 1,
       });
       return { job, duplicate: false };
+    },
+
+    async reportAudit(caseId: string, input: ReportAuditSubmitInput): Promise<JobSubmitResponse> {
+      await delay(MOCK_LATENCY * 2);
+      requirePermission("case.read");
+      assertCaseAccess(caseId);
+      const hasRef = Boolean(input.conversation_id) !== Boolean(input.message_id);
+      const bothRef = Boolean(input.conversation_id) && Boolean(input.message_id);
+      const hasText = typeof input.draft_text === "string";
+      if ((hasRef && !hasText) || (bothRef && hasText) || (!bothRef && !hasText)) {
+        throw new ApiError({
+          status: 422,
+          code: "DRAFT_SOURCE_INVALID",
+          message: "provide exactly one draft source",
+        });
+      }
+      const draft = hasText ? (input.draft_text as string).trim() : "mock message-sourced draft";
+      if (!draft) {
+        throw new ApiError({ status: 422, code: "DRAFT_SOURCE_INVALID", message: "draft is empty" });
+      }
+      const active = intelJobsState.find(
+        (j) =>
+          j.case_id === caseId &&
+          j.feature === "report_audit" &&
+          (j.status === "pending" || j.status === "running"),
+      );
+      if (active) {
+        throw new ApiError({
+          status: 409,
+          code: "REPORT_AUDIT_ACTIVE",
+          message: "an audit is already active for this case",
+        });
+      }
+      const attempts = intelJobsState.filter(
+        (j) => j.case_id === caseId && j.feature === "report_audit",
+      ).length;
+      const jobId = nextIntelId();
+      const job: AnalysisJobOut = {
+        id: jobId,
+        case_id: caseId,
+        feature: "report_audit",
+        status: "succeeded",
+        idempotency_key: `report_audit:${draftHash(draft)}:a${attempts + 1}`,
+        progress: 100,
+        total_records: 1,
+        processed_records: 1,
+        attempts: attempts + 1,
+        timeout_seconds: 300,
+        cancel_requested: false,
+        error: null,
+        result_summary: {
+          draft_source_type: hasText ? "text" : "message",
+          draft_hash: draftHash(draft),
+          draft_chars: draft.length,
+          claims_extracted: 0,
+          claims_truncated: 0,
+          claims_invalid: 0,
+          citations_checked: 0,
+          citations_invalid: 0,
+          assessments_attempted: 0,
+          assessments_valid: 0,
+          assessments_invalid: 0,
+          findings_high: 0,
+          findings_medium: 0,
+          findings_info: 0,
+          records_searched: 0,
+          counter_matches: 0,
+          artifacts_created: 1,
+          artifacts_reused: 0,
+          artifacts_flagged: 1,
+          units_failed: 0,
+        },
+        evidence_file_id: null,
+        actor_id: currentUser().record?.id ?? null,
+        started_at: isoNow(),
+        completed_at: isoNow(),
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      intelJobsState.unshift(job);
+      const artifactId = nextIntelId();
+      const auditArtifact: DerivedArtifactOut = {
+        id: artifactId,
+        case_id: caseId,
+        kind: "report_claim_review",
+        origin: "llm",
+        status: "pending_review",
+        validation_status: "flagged",
+        evidence_file_id: null,
+        source_record_id: null,
+        source_locator: { scope: "report_draft" },
+        payload: {
+          report_audit: true,
+          draft_source: {
+            type: hasText ? "text" : "message",
+            conversation_id: input.conversation_id ?? null,
+            message_id: input.message_id ?? null,
+            chars: draft.length,
+          },
+          draft_chars: draft.length,
+          draft_hash: draftHash(draft),
+          claims: [],
+          counter_evidence: { records_searched: 0, note: "mock run scans no records" },
+          model: { claims_extracted: 0, claims_truncated: 0 },
+          rules_version: "1.0.0",
+          analysis_scope:
+            "claim extraction and support assessment only: no draft text was executed or filed",
+        },
+        content_hash: `report-audit-${artifactId}`,
+        parser_version: "mock:1",
+        prompt_version: "1.0.0",
+        model_profile: "mock",
+        analysis_job_id: job.id,
+        validation_errors: [
+          { code: "model_claims_unreviewed", field: "claims", value: null },
+        ],
+        review_note: null,
+        reviewed_by: null,
+        reviewed_at: null,
+        parent_artifact_id: null,
+        created_at: isoNow(),
+        updated_at: isoNow(),
+      };
+      artifactsState.unshift(auditArtifact);
+      pushAudit("report_audit.submitted", "analysis_job", caseId, {
+        duplicate: false,
+        draft_source_type: hasText ? "text" : "message",
+      });
+      pushAudit("report_audit.completed", "analysis_job", caseId, {
+        status: "succeeded",
+        claims_extracted: 0,
+        artifacts_created: 1,
+      });
+      return { job, duplicate: false };
+    },
+
+    async reportAudits(caseId: string, params: PageParams = {}): Promise<ReportAuditList> {
+      await delay(MOCK_LATENCY);
+      requirePermission("case.read");
+      assertCaseAccess(caseId);
+      const jobs = intelJobsState.filter(
+        (j) => j.case_id === caseId && j.feature === "report_audit",
+      );
+      const limit = params.limit ?? 50;
+      const offset = params.offset ?? 0;
+      const items = jobs.slice(offset, offset + limit).map((job) => mockReportAuditOut(job));
+      return { items, total: jobs.length, limit, offset };
+    },
+
+    async reportAuditDetail(caseId: string, auditId: string): Promise<ReportAuditDetailOut> {
+      await delay(MOCK_LATENCY);
+      requirePermission("case.read");
+      assertCaseAccess(caseId);
+      const job = intelJobsState.find(
+        (j) => j.id === auditId && j.case_id === caseId && j.feature === "report_audit",
+      );
+      if (!job) {
+        throw new ApiError({ status: 404, code: "JOB_NOT_FOUND", message: "audit not found" });
+      }
+      const artifact =
+        artifactsState.find((a) => a.analysis_job_id === job.id) ?? null;
+      return { ...mockReportAuditOut(job), artifact };
     },
 
     async sourceRecords(

@@ -168,6 +168,7 @@ _CANCELABLE_FEATURES = (
     "cross_case",
     "multilingual",
     "triage",
+    "report_audit",
 )
 _AUDIT_PREFIX = {
     "ingestion": "extraction",
@@ -179,6 +180,7 @@ _AUDIT_PREFIX = {
     "cross_case": "cross_case",
     "multilingual": "multilingual",
     "triage": "triage",
+    "report_audit": "report_audit",
 }
 
 

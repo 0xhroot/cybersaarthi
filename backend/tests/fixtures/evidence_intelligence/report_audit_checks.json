@@ -1,0 +1,312 @@
+{
+  "description": "Hand-derived golden set for the deterministic report-audit helpers (phase 6, feature 10). Every expectation was derived by hand from the documented parsing rules (ASCII + Devanagari digits, comma/dot grouping, day-first slash dates, span reproduction, verbatim quote checks) and cross-checked against the pure engine. No model, database, network or storage is involved.",
+  "limitations": [
+    "fixtures are synthetic; real-world amount/date/claim variety is broader than this set",
+    "the model's claim extraction and support assessment are out of scope for the golden set - only their parse accept/reject and quote-verification contracts are checked here",
+    "cross-claim currency conflicts use the documented digit-key heuristic; two legitimately different amounts may surface for reviewer judgment",
+    "counter-evidence token extraction is checked deterministically; the record scan itself runs against real source records in the API and live sections"
+  ],
+  "cases": [
+    {
+      "name": "dates_formats_and_month_names",
+      "kind": "dates",
+      "text": "On 2026-01-14 and 14/01/2026 and 3 Feb 2026 and February 4, 2026",
+      "expect": {
+        "dates": ["2026-01-14", "2026-01-14", "2026-02-03", "2026-02-04"],
+        "unparsed": 0
+      }
+    },
+    {
+      "name": "dates_devanagari_and_invalid_counted",
+      "kind": "dates",
+      "text": "३१/०२/२०२६ और 2026-01-14",
+      "expect": {
+        "dates": ["2026-01-14"],
+        "unparsed": 1
+      }
+    },
+    {
+      "name": "amounts_indian_and_intl_grouping",
+      "kind": "amounts",
+      "text": "Received ₹1,23,456.50 and Rs. 5,000; balance $2,000.00",
+      "expect": {
+        "amounts": [
+          {"raw": "1,23,456.50", "currency": "INR", "value": "123456.50"},
+          {"raw": "5,000", "currency": "INR", "value": "5000"},
+          {"raw": "2,000.00", "currency": "USD", "value": "2000.00"}
+        ]
+      }
+    },
+    {
+      "name": "amounts_mask_date_spans",
+      "kind": "amounts",
+      "text": "On 2026-01-14 the amount ₹500 was sent",
+      "expect": {
+        "amounts": [{"raw": "500", "currency": "INR", "value": "500"}]
+      }
+    },
+    {
+      "name": "amounts_devanagari_digits",
+      "kind": "amounts",
+      "text": "रु ५,००० का भुगतान किया गया",
+      "expect": {
+        "amounts": [{"raw": "5,000", "currency": "INR", "value": "5000"}]
+      }
+    },
+    {
+      "name": "amounts_dot_grouping",
+      "kind": "amounts",
+      "text": "total 1.234 EUR",
+      "expect": {
+        "amounts": [{"raw": "1.234", "currency": "EUR", "value": "1234"}]
+      }
+    },
+    {
+      "name": "arithmetic_total_match",
+      "kind": "arithmetic",
+      "text": "The total of INR 12,000 and INR 8,000 is INR 20,000",
+      "expect": {
+        "result": {
+          "ok": true,
+          "stated": "20000",
+          "computed": "20000",
+          "components": ["12000", "8000"]
+        }
+      }
+    },
+    {
+      "name": "arithmetic_total_mismatch",
+      "kind": "arithmetic",
+      "text": "The total of INR 12,000 and INR 8,000 is INR 18,000",
+      "expect": {
+        "result": {
+          "ok": false,
+          "stated": "18000",
+          "computed": "20000",
+          "components": ["12000", "8000"]
+        }
+      }
+    },
+    {
+      "name": "arithmetic_not_applicable_single_number",
+      "kind": "arithmetic",
+      "text": "The total was 1,000",
+      "expect": {"result": null}
+    },
+    {
+      "name": "chronology_ascending_no_finding",
+      "kind": "chronology",
+      "claims": [
+        {"claim_index": 0, "char_start": 0, "dates": ["2026-01-10"]},
+        {"claim_index": 1, "char_start": 50, "dates": ["2026-02-01"]}
+      ],
+      "expect": {"issues": []}
+    },
+    {
+      "name": "chronology_descending_finding",
+      "kind": "chronology",
+      "claims": [
+        {"claim_index": 0, "char_start": 0, "dates": ["2026-01-10"]},
+        {"claim_index": 1, "char_start": 50, "dates": ["2026-01-05"]}
+      ],
+      "expect": {
+        "issues": [
+          {"claim_index": 1, "previous_date": "2026-01-10", "date": "2026-01-05"}
+        ]
+      }
+    },
+    {
+      "name": "currency_conflict_flagged_same_currency_ignored",
+      "kind": "currency",
+      "claims": [
+        {"char_start": 0, "text": "received ₹5,000"},
+        {"char_start": 60, "text": "balance $5,000"},
+        {"char_start": 90, "text": "fee ₹5,000"}
+      ],
+      "expect": {
+        "conflicts": [
+          {
+            "claim_index": 1,
+            "against_claim_index": 0,
+            "digit_key": "5000",
+            "currency": "USD",
+            "other_currency": "INR",
+            "raw": "5,000",
+            "other_raw": "5,000"
+          }
+        ]
+      }
+    },
+    {
+      "name": "counter_tokens_bounded",
+      "kind": "tokens",
+      "text": "paid 9876543210 on 2026-01-01 amount ₹5,000 via 111222333444",
+      "expect": {
+        "tokens": ["9876543210", "5,000", "5000", "111222333444"]
+      }
+    },
+    {
+      "name": "claims_span_and_category_gates",
+      "kind": "claims",
+      "draft": "The account received ₹5,000 on 2026-01-14.",
+      "max_claims": 30,
+      "raw_claims": [
+        {
+          "claim_id": "c1",
+          "text": "The account received ₹5,000 on 2026-01-14.",
+          "char_start": 0,
+          "char_end": 42,
+          "category": "factual_statement",
+          "cited_ids": []
+        },
+        {
+          "claim_id": "c2",
+          "text": "The account received ₹5,000",
+          "char_start": 0,
+          "char_end": 42,
+          "category": "quantity",
+          "cited_ids": []
+        },
+        {
+          "claim_id": "c3",
+          "text": "The account received ₹5,000 on 2026-01-14.",
+          "char_start": 0,
+          "char_end": 42,
+          "category": "vibes",
+          "cited_ids": ["evidence:notauuid"]
+        }
+      ],
+      "expect": {
+        "truncated": 0,
+        "claims": [
+          {
+            "claim_index": 0,
+            "claim_id": "c1",
+            "span_valid": true,
+            "category_valid": true,
+            "extraction_valid": true,
+            "extraction_problems": [],
+            "cited_ids": []
+          },
+          {
+            "claim_index": 1,
+            "claim_id": "c2",
+            "span_valid": false,
+            "category_valid": true,
+            "extraction_valid": false,
+            "extraction_problems": ["char_span"],
+            "cited_ids": []
+          },
+          {
+            "claim_index": 2,
+            "claim_id": "c3",
+            "span_valid": true,
+            "category_valid": false,
+            "extraction_valid": false,
+            "extraction_problems": ["category"],
+            "cited_ids": ["evidence:notauuid"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "claims_truncation_recorded",
+      "kind": "claims",
+      "draft": "The account received ₹5,000 on 2026-01-14.",
+      "max_claims": 2,
+      "raw_claims": [
+        {
+          "claim_id": "t1",
+          "text": "The account received ₹5,000 on 2026-01-14.",
+          "char_start": 0,
+          "char_end": 42,
+          "category": "factual_statement",
+          "cited_ids": []
+        },
+        {
+          "claim_id": "t2",
+          "text": "The account received ₹5,000 on 2026-01-14.",
+          "char_start": 0,
+          "char_end": 42,
+          "category": "quantity",
+          "cited_ids": []
+        },
+        {
+          "claim_id": "t3",
+          "text": "The account received ₹5,000 on 2026-01-14.",
+          "char_start": 0,
+          "char_end": 42,
+          "category": "timeline",
+          "cited_ids": []
+        }
+      ],
+      "expect": {
+        "truncated": 1,
+        "claims": [
+          {
+            "claim_index": 0,
+            "claim_id": "t1",
+            "span_valid": true,
+            "category_valid": true,
+            "extraction_valid": true,
+            "extraction_problems": [],
+            "cited_ids": []
+          },
+          {
+            "claim_index": 1,
+            "claim_id": "t2",
+            "span_valid": true,
+            "category_valid": true,
+            "extraction_valid": true,
+            "extraction_problems": [],
+            "cited_ids": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "assessment_verified_quote",
+      "kind": "assessment",
+      "reply": {
+        "assessment": "supported",
+        "explanation": "the ledger records the credit",
+        "quoted_spans": ["₹5,000 was credited"]
+      },
+      "excerpts": "ledger: ₹5,000 was credited on 2026-01-14",
+      "expect": {"valid": true, "unverified": []}
+    },
+    {
+      "name": "assessment_forged_quote_rejected",
+      "kind": "assessment",
+      "reply": {
+        "assessment": "supported",
+        "explanation": "the sources say so",
+        "quoted_spans": ["£9,000 was laundered"]
+      },
+      "excerpts": "ledger: ₹5,000 was credited on 2026-01-14",
+      "expect": {"valid": false, "unverified": ["£9,000 was laundered"]}
+    },
+    {
+      "name": "assessment_judgement_without_quote_rejected",
+      "kind": "assessment",
+      "reply": {
+        "assessment": "contradicted",
+        "explanation": "it contradicts the record",
+        "quoted_spans": []
+      },
+      "excerpts": "ledger: ₹5,000 was credited on 2026-01-14",
+      "expect": {"valid": false, "unverified": []}
+    },
+    {
+      "name": "assessment_not_established_needs_no_quote",
+      "kind": "assessment",
+      "reply": {
+        "assessment": "not_established",
+        "explanation": "the supplied sources do not address the claim",
+        "quoted_spans": []
+      },
+      "excerpts": "ledger: ₹5,000 was credited on 2026-01-14",
+      "expect": {"valid": true, "unverified": []}
+    }
+  ]
+}

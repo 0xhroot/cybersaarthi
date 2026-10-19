@@ -4,6 +4,7 @@ import { Brain, FileText, Loader2, Square } from "lucide-react";
 import { api } from "@/api";
 import type { AiCitationCheck, AiSource, AiToolEvent } from "@/api/contract";
 import { Markdown } from "@/components/ai/markdown";
+import { ReportAuditPanel } from "@/components/ai/report-audit-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -278,6 +279,7 @@ export function AnalysisPanel({ caseId }: AnalysisPanelProps) {
               Report draft — proposal for human review, not a submitted report
             </p>
             <Markdown>{draft}</Markdown>
+            <ReportAuditPanel caseId={caseId} draft={draft} />
           </div>
         ) : null}
 
