@@ -1,0 +1,25 @@
+# Keep the three dependency surfaces of this repo current with weekly PRs.
+# Each PR goes through CI (lint, typecheck, tests) before it can merge.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+
+  # Backend pins Python dependencies through pyproject.toml + uv.lock.
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  # The compose stack (postgres, neo4j, backend image base) gets its own PRs.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"

@@ -9,6 +9,9 @@ No Ollama. No cloud. No second copy of the weights: the runtime uses the
 ## 1. TL;DR (fresh machine → working assistant)
 
 ```bash
+# 0. runtime model (~4.7 GiB download, one time — ONLY if you don't have it)
+./scripts/ai/setup_model.sh     # official Qwen HF source + SHA-256 verify
+
 # 1. runtime binaries (~730 MB download, one time)
 ./scripts/ai/setup_runtime.sh
 
@@ -41,9 +44,10 @@ verify_model: all checks passed
 
 | Piece | Path | Role |
 |---|---|---|
-| Weights | `Qwen3-8B-Q4_K_M.gguf` (5 027 783 488 B, repo root) | **Not downloaded by any script** — must already exist; gitignored |
+| Weights | `Qwen3-8B-Q4_K_M.gguf` (5 027 783 488 B, repo root) | **Never committed** (gitignored). Obtained only by explicitly running `setup_model.sh` from the official `Qwen/Qwen3-8B-GGUF` source and verified against its SHA-256; no other script fetches it |
 | llama.cpp build | `ai_runtime/llama.cpp/llama-server` (release `b11617`, Ubuntu CUDA 12.8 x64) + bundled CUDA 12.x runtime libs | Prebuilt upstream binaries; `setup_runtime.sh` downloads & extracts (idempotent) |
 | Server script | `scripts/ai/run_server.sh` | Starts the server; **refuses a non-loopback bind without `AI_SERVER_API_KEY`** |
+| Model fetch | `scripts/ai/setup_model.sh` | Optional, explicit: downloads the GGUF from the official Qwen repo (resumable `.part` → verify → rename), or verifies an existing file. Never invoked by `make up`, compose, or tests |
 | Bridge | `scripts/ai/socket_bridge.sh` | `socat UNIX-LISTEN:ai_runtime/llama.sock → TCP:127.0.0.1:8081` |
 | Verifier | `scripts/ai/verify_model.sh` | GGUF magic → health → real completion → streamed throughput → `nvidia-smi` |
 | App side | `backend/app/ai/runtime.py`, `client.py` | Supervision, readiness, metrics, OpenAI-compatible client |
@@ -168,7 +172,10 @@ failure modes.
 - **Ollama** — excluded by requirement; nothing in the tree references it.
 - **Cloud inference** — no API keys, endpoints or SDKs for remote models exist
   anywhere in the codebase.
-- **A second weights download** — no script fetches any `.gguf`; the runtime
-  only fetches llama.cpp binaries.
+- **Silent weights downloads** — nothing fetches a `.gguf` during clone,
+  `docker compose up`, install, tests or any unrelated step. The single,
+  explicitly-invoked `./scripts/ai/setup_model.sh` is the only script that
+  can download the model, and it verifies size + SHA-256 (the checksum
+  recorded by the official Qwen repository) before the file is ever used.
 - **GPU passthrough into Docker** — considered and rejected (no NVIDIA runtime
   on this host; the container never needs the GPU, only the socket).
