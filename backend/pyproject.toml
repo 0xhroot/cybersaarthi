@@ -36,7 +36,7 @@ dev = [
     "pytest-asyncio==1.4.0",
     "httpx==0.28.1",
     "ruff==0.16.5",
-    "mypy==2.3.1",
+    "mypy==2.4.0",
     "types-python-dateutil",
 ]
 
