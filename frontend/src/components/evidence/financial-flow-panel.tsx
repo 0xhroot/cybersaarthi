@@ -18,6 +18,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Input, Label } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/loading";
 import { Tip } from "@/components/ui/tooltip";
+import { IdList as SharedIdList } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { formatRelative, shortId } from "@/lib/utils";
 import type { AnalysisJobOut, DerivedArtifactOut, FlowTraceResponse } from "@/types/domain";
@@ -173,12 +174,16 @@ function DefinitionTip({ label, definition }: { label: string; definition: strin
 
 function EvidenceList({ evidence }: { evidence?: Record<string, unknown> }) {
   if (!evidence || Object.keys(evidence).length === 0) return null;
+  // `grid-cols-1` (minmax(0,1fr)) matters: an implicit `auto` track takes its
+  // minimum from the item's min-content, so a nowrap value here used to push
+  // the track — and the whole page — to the value's full unwrapped width.
+  // Values wrap instead of truncating so none of them hide behind an ellipsis.
   return (
-    <dl className="mt-1.5 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+    <dl className="mt-1.5 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
       {Object.entries(evidence).map(([key, value]) => (
-        <div key={key} className="flex items-baseline justify-between gap-2 text-[11px]">
+        <div key={key} className="flex min-w-0 items-baseline justify-between gap-2 text-[11px]">
           <dt className="shrink-0 text-dim">{key.replace(/_/g, " ")}</dt>
-          <dd className="min-w-0 truncate font-mono text-foreground/85" title={String(value)}>
+          <dd className="min-w-0 wrap-anywhere text-right font-mono text-foreground/85">
             {Array.isArray(value) ? value.join(", ") : String(value)}
           </dd>
         </div>
@@ -187,13 +192,22 @@ function EvidenceList({ evidence }: { evidence?: Record<string, unknown> }) {
   );
 }
 
+/**
+ * Supporting-record ids for one flow item.
+ *
+ * Delegates to the shared `IdList` primitive, which wraps each id as its own
+ * breakable box. Rendering these as one joined `font-mono` string is what let a
+ * single long uuid widen its container past the viewport (see D1).
+ */
 function IdList({ ids }: { ids?: string[] }) {
   if (!ids?.length) return null;
   return (
-    <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-dim">
-      supporting records: {ids.slice(0, 6).join(", ")}
-      {ids.length > 6 ? ` (+${ids.length - 6} more)` : ""}
-    </p>
+    <SharedIdList
+      ids={ids}
+      max={6}
+      label="supporting records:"
+      className="mt-1.5 font-mono text-dim"
+    />
   );
 }
 
@@ -397,12 +411,14 @@ function TraceResultView({ result }: { result: FlowTraceResponse }) {
             ) : null}
           </div>
           {path.hops.map((hop, hopIndex) => (
-            <p key={hopIndex} className="mt-1 font-mono text-[10px] leading-relaxed text-dim" data-testid="flow-trace-hop">
-              {hop.source} → {hop.target} · {hop.edge_kind} ({hop.confidence}) · {hop.derivation}
-              {hop.supporting_source_record_ids.length
-                ? ` · records ${hop.supporting_source_record_ids.join(", ")}`
-                : ""}
-            </p>
+            <div key={hopIndex} className="mt-1 text-[10px] leading-relaxed text-dim" data-testid="flow-trace-hop">
+              <span className="font-mono">
+                {hop.source} → {hop.target} · {hop.edge_kind} ({hop.confidence}) · {hop.derivation}
+              </span>
+              {hop.supporting_source_record_ids.length ? (
+                <SharedIdList ids={hop.supporting_source_record_ids} label="records:" className="font-mono" />
+              ) : null}
+            </div>
           ))}
         </div>
       ))}
@@ -774,13 +790,19 @@ export function FinancialFlowPanel({ caseId }: { caseId: string }) {
             </div>
             <div className="mt-1.5 space-y-1">
               {(payload.structure_network?.edges ?? []).map((edge, index) => (
-                <p key={index} className="font-mono text-[10px] leading-relaxed text-dim" data-testid="flow-edge">
-                  {edge.source} ↔ {edge.target} · {edge.edge_kind} ({edge.confidence ?? "suspected"}) ·{" "}
-                  {edge.derivation ?? "co_occurrence"}
-                  {edge.supporting_source_record_ids?.length
-                    ? ` · records ${edge.supporting_source_record_ids.join(", ")}`
-                    : ""}
-                </p>
+                <div key={index} className="text-[10px] leading-relaxed text-dim" data-testid="flow-edge">
+                  <span className="font-mono">
+                    {edge.source} ↔ {edge.target} · {edge.edge_kind} ({edge.confidence ?? "suspected"}) ·{" "}
+                    {edge.derivation ?? "co_occurrence"}
+                  </span>
+                  {edge.supporting_source_record_ids?.length ? (
+                    <SharedIdList
+                      ids={edge.supporting_source_record_ids}
+                      label="records:"
+                      className="font-mono"
+                    />
+                  ) : null}
+                </div>
               ))}
             </div>
           </section>

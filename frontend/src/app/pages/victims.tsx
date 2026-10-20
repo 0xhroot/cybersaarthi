@@ -23,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import type { VictimClassification, VictimStatus } from "@/types/domain";
 
 const STATUSES: { value: string; label: string }[] = [
@@ -183,7 +183,7 @@ export default function VictimsPage() {
                       <TD>{formatCurrency(v.amount_lost, v.currency)}</TD>
                       <TD>{v.incident_type ?? "—"}</TD>
                       <TD className="text-xs text-dim">
-                        {new Date(v.created_at).toLocaleDateString()}
+                        {formatDate(v.created_at)}
                       </TD>
                     </TR>
                   ))}

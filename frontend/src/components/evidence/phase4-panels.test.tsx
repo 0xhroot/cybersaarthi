@@ -644,7 +644,14 @@ describe("phase 4 cross-case panel", () => {
     const sides = screen.getAllByTestId("cross-case-side");
     expect(sides).toHaveLength(2);
     expect(sides[0].textContent).toContain("ACC-SIH-001");
-    expect(sides[0].textContent).toContain("rec-1, rec-2");
+    // Both record ids render as discrete items. The IdList/MonoId primitives
+    // wrap each id in its own break-all span so a long id can wrap without
+    // widening the panel (that unbreakable run is what pushed the mobile
+    // layout past the viewport), so assert on the individual ids rather than
+    // a comma-joined string.
+    expect(sides[0].textContent).toContain("rec-1");
+    expect(sides[0].textContent).toContain("rec-2");
+    expect(sides[0].textContent).toContain("records:");
     expect(sides[0].querySelector("a")?.getAttribute("href")).toBe(`/app/cases/${CASE}/evidence`);
     expect(sides[1].textContent).toContain("reviewed alias");
 

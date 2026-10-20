@@ -23,7 +23,9 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
     <span
       ref={ref}
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-4",
+        // `whitespace-nowrap`: status labels must never collapse to one
+        // character per line when a squeezed table cell runs out of width.
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-medium leading-4",
         TONES[tone],
         className,
       )}

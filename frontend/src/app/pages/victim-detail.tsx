@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 import type { VictimClassification, VictimStatus, VictimUpdateRequest } from "@/types/domain";
 
 const STATUS_COLORS: Record<VictimStatus, string> = {
@@ -216,8 +216,8 @@ export default function VictimDetailPage() {
               )}
             </div>
             <div className="border-t border-border pt-3">
-              <Field label="Created" value={new Date(v.created_at).toLocaleString()} />
-              <Field label="Updated" value={new Date(v.updated_at).toLocaleString()} />
+              <Field label="Created" value={formatDateTime(v.created_at)} />
+              <Field label="Updated" value={formatDateTime(v.updated_at)} />
             </div>
           </CardContent>
         </Card>

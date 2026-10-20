@@ -15,7 +15,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 import type { IoTDeviceStatus, IoTDeviceType } from "@/types/domain";
 
 const STATUS_OPTIONS = ["registered", "active", "inactive", "seized", "removed"] as const;
@@ -104,14 +104,14 @@ export default function IoTDevicesPage() {
                       <TD><DeviceStatusBadge status={d.status as IoTDeviceStatus} /></TD>
                       <TD className="font-mono text-xs text-dim">{d.imei ?? d.serial_number}</TD>
                       <TD>{d.owner_name ?? "—"}</TD>
-                      <TD className="text-xs text-dim">{d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "Never seen"}</TD>
+                      <TD className="text-xs text-dim">{d.last_seen_at ? formatDateTime(d.last_seen_at) : "Never seen"}</TD>
                     </TR>
                   ))}
                 </TBody>
               </Table>
             </div>
             <div className="divide-y divide-border md:hidden">
-              {items.map((d) => <Link key={d.id} to={`/app/cases/${caseId}/iot/${d.id}`} className="block p-4 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-surface-2"><Smartphone className="size-4 text-dim" /></span><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-foreground">{d.name}</p><p className="mt-0.5 text-xs capitalize text-dim">{d.device_type.replace(/_/g, " ")}</p></div><DeviceStatusBadge status={d.status as IoTDeviceStatus} /></div><div className="mt-3 grid grid-cols-2 gap-3 text-xs"><span><span className="block text-dim">Identifier</span><span className="font-mono text-foreground">{d.imei ?? d.serial_number}</span></span><span><span className="block text-dim">Last seen</span><span className="text-foreground">{d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "Never"}</span></span></div></div></div></Link>)}
+              {items.map((d) => <Link key={d.id} to={`/app/cases/${caseId}/iot/${d.id}`} className="block p-4 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-surface-2"><Smartphone className="size-4 text-dim" /></span><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-foreground">{d.name}</p><p className="mt-0.5 text-xs capitalize text-dim">{d.device_type.replace(/_/g, " ")}</p></div><DeviceStatusBadge status={d.status as IoTDeviceStatus} /></div><div className="mt-3 grid grid-cols-2 gap-3 text-xs"><span><span className="block text-dim">Identifier</span><span className="font-mono text-foreground">{d.imei ?? d.serial_number}</span></span><span><span className="block text-dim">Last seen</span><span className="text-foreground">{d.last_seen_at ? formatDateTime(d.last_seen_at) : "Never"}</span></span></div></div></div></Link>)}
             </div>
           </>
         )}

@@ -11,7 +11,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { toast as toaster } from "@/components/ui/toast";
 import { useDocumentTitle } from "@/hooks/ui";
-import { cn } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 import type { IoTDeviceStatus, IoTEventType } from "@/types/domain";
 
 const EVENT_ICONS: Record<IoTEventType, typeof MapPin> = {
@@ -153,7 +153,7 @@ export default function IoTDeviceDetailPage() {
 
       <div className="mt-6 grid gap-3 sm:grid-cols-3">
         <DetailMetric icon={Activity} label="Current status" value={(d.status ?? "unknown").replace(/_/g, " ")} tone={d.status === "active" ? "green" : d.status === "seized" ? "blue" : "amber"} />
-        <DetailMetric icon={Clock3} label="Last seen" value={d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "Never"} />
+        <DetailMetric icon={Clock3} label="Last seen" value={d.last_seen_at ? formatDateTime(d.last_seen_at) : "Never"} />
         <DetailMetric icon={ShieldCheck} label="Recorded events" value={stats.data?.event_count ?? d.event_count ?? 0} />
       </div>
 
@@ -171,8 +171,8 @@ export default function IoTDeviceDetailPage() {
               <KeyVal label="Operating system" value={d.os ? `${d.os}${d.os_version ? ` ${d.os_version}` : ""}` : d.os_version} />
               <KeyVal label="Owner" value={d.owner_name} />
               <KeyVal label="Owner phone" value={d.owner_phone} />
-              <KeyVal label="First seen" value={d.first_seen_at ? new Date(d.first_seen_at).toLocaleString() : null} />
-              <KeyVal label="Last seen" value={d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : null} />
+              <KeyVal label="First seen" value={d.first_seen_at ? formatDateTime(d.first_seen_at) : null} />
+              <KeyVal label="Last seen" value={d.last_seen_at ? formatDateTime(d.last_seen_at) : null} />
               <KeyVal label="Events" value={stats.data?.event_count ?? d.event_count} />
             </dl>
             {stats.data && stats.data.by_type && Object.keys(stats.data.by_type).length > 0 && (
@@ -239,7 +239,7 @@ export default function IoTDeviceDetailPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-medium capitalize text-foreground">{e.event_type.replace(/_/g, " ")}</p>
-                            <span className="shrink-0 text-[11px] text-dim">{new Date(e.event_time).toLocaleString()}</span>
+                            <span className="shrink-0 text-[11px] text-dim">{formatDateTime(e.event_time)}</span>
                           </div>
                           {e.description && <p className="mt-0.5 text-xs leading-relaxed text-muted">{e.description}</p>}
                           {e.location_label && <p className="mt-0.5 text-xs text-dim">📍 {e.location_label}</p>}

@@ -27,7 +27,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 const TABS = [
   { to: "", label: "Overview", icon: ClipboardList, end: true },
@@ -119,8 +119,8 @@ export default function CaseLayout() {
                   <h1 className="mt-2 max-w-4xl text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{caseQuery.data.title}</h1>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">{caseQuery.data.description ?? "No investigation description has been provided."}</p>
                   <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-dim">
-                    <span>Created {new Date(caseQuery.data.created_at).toLocaleDateString()}</span>
-                    <span>Updated {new Date(caseQuery.data.updated_at).toLocaleDateString()}</span>
+                    <span>Created {formatDate(caseQuery.data.created_at)}</span>
+                    <span>Updated {formatDate(caseQuery.data.updated_at)}</span>
                     <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" /> Protected workspace</span>
                   </div>
                 </div>

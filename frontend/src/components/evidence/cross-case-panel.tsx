@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/loading";
+import { IdList as SharedIdList } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { formatRelative, shortId } from "@/lib/utils";
 import type {
@@ -81,19 +82,21 @@ function SideRow({ side, cases }: { side: CrossCaseSide; cases?: Case[] }) {
         </Link>
         {side.reviewed_alias ? <Badge tone="info">reviewed alias</Badge> : null}
       </div>
-      <p className="mt-1 font-mono text-[11px] text-foreground/85">
+      <p className="mt-1 font-mono text-[11px] break-all text-foreground/85">
         {(side.value_originals ?? []).join(", ") || "—"}
       </p>
       <p className="mt-0.5 text-[10px] text-dim">
         contributing kinds: {(side.contributing_kinds ?? []).join(", ") || "—"}
       </p>
       {records.length || files.length ? (
-        <p className="mt-0.5 font-mono text-[10px] leading-relaxed text-dim">
-          records: {records.slice(0, 4).join(", ") || "—"}
-          {records.length > 4 ? ` (+${records.length - 4} more)` : ""}
-          {files.length ? ` · files: ${files.slice(0, 2).join(", ")}` : ""}
-          {side.supporting_ids_capped ? " (capped)" : ""}
-        </p>
+        <div className="mt-0.5 space-y-0.5">
+          <SharedIdList ids={records.slice(0, 4)} max={4} label="records:" className="font-mono" />
+          {records.length > 4 ? <span className="text-[10px] text-dim">(+{records.length - 4} more)</span> : null}
+          {files.length ? (
+            <SharedIdList ids={files.slice(0, 2)} max={2} label="files:" className="font-mono" />
+          ) : null}
+          {side.supporting_ids_capped ? <span className="text-[10px] text-dim">(capped)</span> : null}
+        </div>
       ) : null}
     </div>
   );
@@ -161,15 +164,14 @@ function CandidateCard({
         <div className="mt-2 rounded border border-low/40 bg-low/5 p-2" data-testid="cross-case-conflict">
           <p className="text-[11px] font-medium text-low">Conflicting attributes across the cases</p>
           {(conflicts.evidence ?? []).map((conflict, index) => (
-            <p key={index} className="mt-0.5 font-mono text-[10px] text-dim">
+            <p key={index} className="mt-0.5 break-words font-mono text-[10px] leading-relaxed text-dim">
               {String(conflict.kind ?? "attribute")}:{" "}
               {Object.entries((conflict.per_case_values as Record<string, string[]>) ?? {})
                 .map(([caseId, values]) => `${shortId(caseId)} → ${values.join(", ")}`)
                 .join(" · ")}
             </p>
           ))}
-        </div>
-      ) : null}
+        </div>      ) : null}
 
       {payload.additional_shared_kinds?.length ? (
         <p className="mt-1.5 text-[11px] text-dim">
