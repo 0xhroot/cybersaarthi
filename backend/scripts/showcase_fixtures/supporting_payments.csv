@@ -1,0 +1,3 @@
+reference,date,amount,currency,account_number,beneficiary_phone,name,note
+PAYOUT-A,2026-03-28,15400.00,INR,ACC-SIH-001,+91 98200 00001,Ravi Kulkarni,same beneficiary account and phone as the primary showcase case
+PAYOUT-B,2026-04-15,9800.00,INR,ACCSIH003,+91 98200 00099,Suresh Pawar,separate inquiry sharing the merchant name only

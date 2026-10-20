@@ -5,8 +5,8 @@ EXEC := $(COMPOSE) exec -T backend
 # keeping the production `backend` image lean.
 DEV := $(COMPOSE) run --rm -T backend-dev
 
-.PHONY: help up down down-v build logs ps seed admin test test-unit lint format format-check typecheck \
-        migrate migration shell
+.PHONY: help up down down-v build logs ps seed admin demo-seed demo-status demo-reset \
+        test test-unit lint format format-check typecheck migrate migration shell
 
 help: ## list available make targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -31,6 +31,17 @@ ps: ## show service status
 
 seed: ## seed the deterministic demo case (idempotent)
 	$(EXEC) python -m scripts.seed_demo
+
+demo-seed: ## seed the SIH showcase demo case via the real API (idempotent)
+	$(COMPOSE) exec -T -e CS_API_BASE=$(CS_API_BASE) -e CS_SEED_JOB_TIMEOUT=$(CS_SEED_JOB_TIMEOUT) \
+		-e CS_SEED_RETRY_FAILED=$(CS_SEED_RETRY_FAILED) backend python -m scripts.showcase_seed seed
+
+demo-status: ## read-only checklist of the SIH showcase demo data
+	$(COMPOSE) exec -T -e CS_API_BASE=$(CS_API_BASE) backend python -m scripts.showcase_seed status
+
+demo-reset: ## delete ONLY the SIH-2026-xxx showcase cases (DEMO_RESET_CONFIRM=sih-showcase)
+	$(COMPOSE) exec -T -e DEMO_RESET_CONFIRM=$(DEMO_RESET_CONFIRM) backend \
+		python -m scripts.showcase_seed reset
 
 admin: ## bootstrap the first ADMIN user (idempotent)
 	$(EXEC) python -m scripts.create_admin

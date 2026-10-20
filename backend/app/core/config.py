@@ -105,7 +105,12 @@ class Settings(BaseSettings):
     REPORT_AUDIT_MAX_DRAFT_CHARS: int = 20000
     REPORT_AUDIT_MAX_CLAIMS: int = 30  # claims extracted and validated per run
     REPORT_AUDIT_CONTEXT_MAX_CHARS: int = 4000
-    REPORT_AUDIT_MAX_OUTPUT_TOKENS: int = 1280
+    # 1280 tokens truncated real claim-extraction replies mid-JSON: cited UUIDs
+    # tokenize expensively and the model's claim count varies run to run
+    # (~1100 tokens typical, occasional 2000+ tails), so replies got cut and the
+    # audit failed as unparseable model output. 4096 covers the observed tail
+    # with the ~1500-token prompt still far inside the 8192 context budget.
+    REPORT_AUDIT_MAX_OUTPUT_TOKENS: int = 4096
     REPORT_AUDIT_TIMEOUT_SECONDS: int = 300
 
     # Chain-of-custody auditor (feature 9): bounded, deterministic audit runs.

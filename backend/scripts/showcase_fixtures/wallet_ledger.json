@@ -1,0 +1,20 @@
+[
+  {
+    "transaction_id": "TXN-SIH-1001",
+    "date": "2026-04-05",
+    "amount": "45000.00",
+    "status": "completed",
+    "currency": "INR",
+    "account": "ACCSIH001",
+    "beneficiary_name": "Ravi Kulkarni"
+  },
+  {
+    "transaction_id": "TXN-SIH-2001",
+    "date": "2026-04-12",
+    "amount": "5600.00",
+    "status": "completed",
+    "currency": "INR",
+    "account": "ACCSIH003",
+    "beneficiary_name": "Sunrise Mercantile Traders Pvt Ltd"
+  }
+]

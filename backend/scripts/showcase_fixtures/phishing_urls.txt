@@ -1,0 +1,26 @@
+SIH SYNTHETIC DEMO EVIDENCE - FICTIONAL DATA ONLY. Triage notes list the
+credential-harvesting lures referenced by the complaint. URLs are inert
+examples; nothing here was ever reachable or fetched.
+
+http://secure-upi@sunrise-verify.test/login
+https://192.168.10.5:8443/session/update
+https://xn--snaesh-4va.test/offer
+https://pay.sunrise-merchant.test:8080/collect
+
+Captured lure email headers (as observed by the fictional complainant):
+
+From: merchant-alerts@sunrise-merchant.test
+To: victims@prism-bank.test
+Subject: Urgent: verify your merchant payout account
+Date: Fri, 10 Apr 2026 09:14:00 +0530
+Return-Path: bounces@sunrise-verify.test
+Authentication-Results: mx.prism-bank.test; spf=pass smtp.mailfrom=sunrise-merchant.test; dkim=none; dmarc=pass
+
+Merchant portal authentication log extract (synthetic, 2026-04-10):
+
+2026-04-10T09:20:01Z [auth] ERROR failed login for user ops@sunrise-merchant.test
+2026-04-10T09:21:14Z [auth] ERROR failed login for user ops@sunrise-merchant.test
+2026-04-10T09:22:40Z [auth] ERROR failed login for user admin@sunrise-merchant.test
+2026-04-10T09:23:05Z [auth] ERROR failed login for user ops@sunrise-merchant.test
+2026-04-10T09:24:33Z [auth] ERROR failed login for user ops@sunrise-merchant.test
+2026-04-10T09:25:12Z [auth] ERROR failed login for user admin@sunrise-merchant.test

@@ -1,0 +1,10 @@
+SIH SYNTHETIC DEMO EVIDENCE - FICTIONAL DATA ONLY. Complaint reference
+CMP-SIH-2026-0417, received on 2026-04-02 from Ms. Ananya Deshpande
+(fictional complainant, Prism Cooperative Bank account holder).
+
+श्रीमान अधिकारी, मेरा नाम अनन्या देशपांडे है। मैंने 2026-04-02 को अपने बैंक खाते से बिना अनुमति हुए हस्तांतरण की शिकायत दर्ज कराई है। 2026-04-05 को मेरे खाते से ४७,५०० रुपये की राशि ACC-SIH-001 खाते में भेजी गई, जिसे मैंने स्वीकृत नहीं किया था। लाभार्थी का नाम रवि कुलकर्णी और फ़ोन नंबर +91 98200 00001 बताया गया।
+
+The bank statement records transaction TXN-SIH-1001 of 47,500.00 rupees, but
+the merchant wallet ledger settles the same reference at only 45,000.00 -
+दोनों रिकॉर्ड में राशि भिन्न है। अनुरोध है कि इस हस्तांतरण की जाँच की जाए
+और शेष राशि वापस दिलाई जाए।

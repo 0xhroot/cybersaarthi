@@ -1,0 +1,8 @@
+transaction_id,date,amount,currency,status,account_number,beneficiary_name,bank_name
+TXN-SIH-1001,2026-04-05,47500.00,INR,completed,ACCSIH001,Ravi Kulkarni,Prism Cooperative Bank
+TXN-SIH-1002,2026-04-06,12300.00,INR,completed,ACCSIH001,Ravi Kulkarni,Prism Cooperative Bank
+TXN-SIH-1003,2026-04-07,8750.00,INR,completed,ACCSIH002,Suresh Pawar,Prism Cooperative Bank
+TXN-SIH-1004,2026-04-08,47500.00,INR,completed,ACCSIH001,Ravi Kulkarni,Prism Cooperative Bank
+TXN-SIH-1005,2026-04-09,6200.00,INR,completed,ACCSIH002,Suresh Pawar,Prism Cooperative Bank
+TXN-SIH-1006,2026-04-10,3450.00,,completed,ACCSIH001,Ravi Kulkarni,Prism Cooperative Bank
+TXN-SIH-1007,,999.00,INR,completed,ACCSIH002,Suresh Pawar,Prism Cooperative Bank
