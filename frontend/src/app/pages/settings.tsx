@@ -43,7 +43,7 @@ export default function SettingsPage() {
         description="Your identity, role and permissions in this workspace."
       />
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <div className="space-y-5">
           <Card>
             <CardHeader><CardTitle>Profile</CardTitle></CardHeader>

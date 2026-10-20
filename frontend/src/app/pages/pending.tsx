@@ -15,7 +15,7 @@ export default function PendingPage() {
       <div className="mx-auto flex max-w-3xl px-6 py-12 sm:py-16 lg:px-8">
         <section className="w-full rounded-xl border border-border bg-surface p-6 shadow-[0_12px_35px_rgba(25,45,65,0.06)] sm:p-9">
           <div className="flex flex-col gap-7 sm:flex-row sm:items-start">
-            <div className="grid size-14 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-700 ring-8 ring-amber-50/60"><Clock3 className="size-6" /></div>
+            <div className="grid size-14 shrink-0 place-items-center rounded-full bg-high/12 text-high ring-8 ring-high/10"><Clock3 className="size-6" /></div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.15em] text-accent">Access request submitted</p>
               <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Your request is awaiting approval</h1>

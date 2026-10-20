@@ -65,7 +65,7 @@ export default function FieldDevicesPage() {
         }
       />
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <FieldMetric icon={Smartphone} label="Enrolled" value={devices.data?.total ?? "…"} detail="Field agents registered" />
         <FieldMetric icon={Activity} label="Approved" value={devices.isLoading ? "…" : devices.data?.items.filter((d) => d.status === "approved").length ?? 0} detail="Trusted devices" tone="green" />
         <FieldMetric icon={WifiOff} label="Pending" value={devices.isLoading ? "…" : devices.data?.items.filter((d) => d.status === "pending").length ?? 0} detail="Awaiting approval" tone="amber" />
@@ -116,7 +116,7 @@ export default function FieldDevicesPage() {
                       <TD className="text-xs text-dim">
                         {d.last_seen_at ? (
                           <span className="inline-flex items-center gap-1">
-                            <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden />
+                            <span className="size-1.5 rounded-full bg-success" aria-hidden />
                             {formatRelative(d.last_seen_at)}
                           </span>
                         ) : (
@@ -153,7 +153,7 @@ export default function FieldDevicesPage() {
 }
 
 function FieldMetric({ icon: Icon, label, value, detail, tone = "slate" }: { icon: typeof Smartphone; label: string; value: string | number; detail: string; tone?: "slate" | "green" | "amber" }) {
-  const toneClass = { slate: "bg-slate-50 text-slate-700", green: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700" }[tone];
+  const toneClass = { slate: "bg-surface-3 text-muted", green: "bg-success/12 text-success", amber: "bg-high/12 text-high" }[tone];
   return <div className="rounded-xl border border-border bg-surface p-4"><div className="flex items-center gap-3"><span className={cn("grid size-9 place-items-center rounded-lg", toneClass)}><Icon className="size-4" /></span><div><p className="text-xs font-semibold text-foreground">{label}</p><p className="text-[11px] text-dim">{detail}</p></div></div><p className="mt-3 text-2xl font-semibold tracking-tight text-foreground">{value}</p></div>;
 }
 
@@ -180,16 +180,30 @@ function PairDeviceDialog({ onClose }: { onClose: () => void }) {
     const fingerprint = computeServerFingerprint(health.data.service, health.data.version);
     const expiresAtEpochMillis = Date.now() + 10 * 60 * 1000;
     const uri = buildPairingUri({ baseUrl: base, fingerprint, nonce: randomHex(16), expiresAtEpochMillis });
-    const svg = await QRCode.toString(uri, { type: "svg", margin: 1, width: 320, errorCorrectionLevel: "M" });
+    const svg = await QRCode.toString(uri, {
+      type: "svg",
+      margin: 1,
+      width: 320,
+      errorCorrectionLevel: "M",
+      // The qrcode lib renders modules black on a transparent background —
+      // unscannable on the app's dark surface. The white plate is part of
+      // the image, not the container, so contrast holds in both themes.
+      color: { dark: "#000000ff", light: "#ffffffff" },
+    });
     setApiBase(base);
     setPairingUri(uri);
     setQrImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
   }
 
   useEffect(() => {
-    void generate();
+    // Generate once the health query has actually resolved. Running this on
+    // mount alone always lost the race against the fetch: health.data was
+    // still undefined, so the first open toasted "Backend health
+    // unavailable" and the QR only appeared on a second open (by which time
+    // the cache was warm).
+    if (health.data) void generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [health.data]);
 
   async function copyUri() {
     try {
@@ -239,7 +253,7 @@ function PairDeviceDialog({ onClose }: { onClose: () => void }) {
 
         <div className="mt-5 flex items-center justify-center gap-6">
           {qrImage ? (
-            <div className="rounded-xl border border-border bg-white p-3">
+            <div className="rounded-xl border border-border bg-surface p-3">
               <img src={qrImage} alt="Pairing QR code" width={320} height={320} />
             </div>
           ) : (

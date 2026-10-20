@@ -4,15 +4,18 @@ import { cn } from "@/lib/utils";
 
 type Status = FieldDeviceStatus | IoTDeviceStatus;
 
+/** Token-toned with the same recipe as ui/badge (bg-tone/12 · text-tone ·
+ *  border-tone/25) — the old amber-50/emerald-800 pairs were light-theme
+ *  leftovers that rendered as near-white chips in dark mode. */
 const styles: Record<string, string> = {
-  pending: "border-amber-200 bg-amber-50 text-amber-800",
-  approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  revoked: "border-rose-200 bg-rose-50 text-rose-800",
-  registered: "border-slate-200 bg-slate-50 text-slate-700",
-  active: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  inactive: "border-amber-200 bg-amber-50 text-amber-800",
-  seized: "border-blue-200 bg-blue-50 text-blue-800",
-  removed: "border-slate-200 bg-slate-50 text-slate-500",
+  pending: "border-high/25 bg-high/12 text-high",
+  approved: "border-success/25 bg-success/12 text-success",
+  revoked: "border-critical/25 bg-critical/12 text-critical",
+  registered: "border-border bg-surface-3 text-muted",
+  active: "border-success/25 bg-success/12 text-success",
+  inactive: "border-high/25 bg-high/12 text-high",
+  seized: "border-info/25 bg-info/12 text-info",
+  removed: "border-border bg-surface-3 text-dim",
 };
 
 const icons: Record<string, typeof Activity> = {

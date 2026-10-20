@@ -45,13 +45,13 @@ export function PreferencesMenu() {
   return (
     <div className="flex items-center gap-1.5">
       <div className="hidden items-center gap-1 border border-border bg-surface-2 p-1 sm:flex" aria-label={t("theme", language)}>
-        <button type="button" aria-label={t("light", language)} onClick={() => setTheme("light")} className={`grid size-7 place-items-center ${theme === "light" ? "bg-white text-accent shadow-sm" : "text-muted hover:text-foreground"}`}>
+        <button type="button" aria-label={t("light", language)} onClick={() => setTheme("light")} className={`grid size-7 place-items-center ${theme === "light" ? "bg-surface text-accent shadow-sm" : "text-muted hover:text-foreground"}`}>
           <Sun className="size-3.5" />
         </button>
-        <button type="button" aria-label={t("dark", language)} onClick={() => setTheme("dark")} className={`grid size-7 place-items-center ${theme === "dark" ? "bg-white text-accent shadow-sm" : "text-muted hover:text-foreground"}`}>
+        <button type="button" aria-label={t("dark", language)} onClick={() => setTheme("dark")} className={`grid size-7 place-items-center ${theme === "dark" ? "bg-surface text-accent shadow-sm" : "text-muted hover:text-foreground"}`}>
           <Moon className="size-3.5" />
         </button>
-        <button type="button" aria-label={t("system", language)} onClick={() => setTheme("system")} className={`grid size-7 place-items-center ${theme === "system" ? "bg-white text-accent shadow-sm" : "text-muted hover:text-foreground"}`}>
+        <button type="button" aria-label={t("system", language)} onClick={() => setTheme("system")} className={`grid size-7 place-items-center ${theme === "system" ? "bg-surface text-accent shadow-sm" : "text-muted hover:text-foreground"}`}>
           <Monitor className="size-3.5" />
         </button>
       </div>

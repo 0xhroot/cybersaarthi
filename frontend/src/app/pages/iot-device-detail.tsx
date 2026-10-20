@@ -39,7 +39,7 @@ const EVENT_TONES: Record<IoTEventType, string> = {
 };
 
 function DetailMetric({ icon: Icon, label, value, tone = "slate" }: { icon: typeof Activity; label: string; value: string | number; tone?: "slate" | "green" | "amber" | "blue" }) {
-  const toneClass = { slate: "bg-slate-50 text-slate-700", green: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", blue: "bg-blue-50 text-blue-700" }[tone];
+  const toneClass = { slate: "bg-surface-3 text-muted", green: "bg-success/12 text-success", amber: "bg-high/12 text-high", blue: "bg-info/12 text-info" }[tone];
   return <div className="rounded-xl border border-border bg-surface p-4"><div className="flex items-center gap-2.5"><span className={cn("grid size-8 place-items-center rounded-lg", toneClass)}><Icon className="size-4" /></span><span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-dim">{label}</span></div><p className="mt-3 break-words text-sm font-semibold capitalize text-foreground">{value}</p></div>;
 }
 
@@ -159,7 +159,7 @@ export default function IoTDeviceDetailPage() {
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
         <Card className="overflow-hidden">
-          <CardContent className="border-b border-border bg-surface-2/60 p-4"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-lg bg-blue-50 text-blue-700"><Smartphone className="size-4" /></span><div><h2 className="text-sm font-semibold text-foreground">Device identity</h2><p className="text-xs text-dim">Registered identifiers and ownership details.</p></div></div></CardContent>
+          <CardContent className="border-b border-border bg-surface-2/60 p-4"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-lg bg-info/12 text-info"><Smartphone className="size-4" /></span><div><h2 className="text-sm font-semibold text-foreground">Device identity</h2><p className="text-xs text-dim">Registered identifiers and ownership details.</p></div></div></CardContent>
           <CardContent className="p-5">
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
               <KeyVal label="Type" value={d.device_type.replace(/_/g, " ")} />

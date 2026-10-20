@@ -114,7 +114,7 @@ export default function DashboardPage() {
         }
       />
 
-      <section className="mt-6 overflow-hidden rounded-xl border border-border bg-surface shadow-[0_10px_35px_rgba(24,33,43,0.06)]">
+      <section className="mt-4 overflow-hidden rounded-xl border border-border bg-surface shadow-[0_10px_35px_rgba(24,33,43,0.06)]">
         <div className="relative grid lg:grid-cols-[1.45fr_0.55fr]">
           <div className="relative p-5 sm:p-7">
             <div className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-accent via-[#f28c28] to-[#16824b]" />

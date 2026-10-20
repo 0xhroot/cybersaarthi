@@ -234,10 +234,10 @@ html.dark {
   --color-low: #9aa8b5;
 }
 
-html.dark .bg-white { background-color: var(--color-surface); }
-html.dark .text-white { color: var(--color-foreground); }
-html.dark .hover\:bg-white:hover { background-color: var(--color-surface-2); }
-html.dark .border-white { border-color: var(--color-border); }
+/* The former `html.dark .bg-white`/`.text-white`/`.border-white`/`.hover:bg-white`
+   overrides are gone: no component references those classes anymore — light
+   surfaces come from the --color-surface* tokens above, which both themes
+   redefine. */
 
 /* ------------------------------------------------------------------ */
 /* Utilities                                                            */
