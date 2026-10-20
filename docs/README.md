@@ -6,7 +6,7 @@ overview; use this index to jump straight to the deep material.
 
 ## Architecture diagrams (Mermaid, render on GitHub)
 
-- [Diagram index](architecture/README.md) — start here; lists all eight diagrams
+- [Diagram index](architecture/README.md) — start here; lists all nine diagrams
   and the invariants they encode
 - [System architecture](architecture/system-architecture.md)
 - [AI request lifecycle](architecture/ai-request-lifecycle.md)
@@ -17,6 +17,8 @@ overview; use this index to jump straight to the deep material.
 - [Report audit](architecture/report-audit.md)
 - [Deployment & local model setup](architecture/deployment-setup.md)
 - [Android ↔ Backend connectivity](architecture/android-connectivity.md) — LAN discovery, QR pairing trust, liveness heartbeat, offline field capture
+- [SIH showcase data flow](architecture/sih-showcase-data-flow.md) — how `make demo-seed` builds the demo case through the real API
+- [SIH showcase presenter guide](demo/SIH_SHOWCASE.md) — scenario, per-capability walkthrough, expected outcomes, known limitations
 
 ## AI features (the ten capabilities)
 
@@ -65,7 +67,9 @@ or reset databases):
 - [`scripts/ai/setup_runtime.sh`](../scripts/ai/setup_runtime.sh) · [`scripts/ai/verify_model.sh`](../scripts/ai/verify_model.sh) — llama.cpp binaries & end-to-end runtime proof
 - [`scripts/rehearse_sih_demo.mjs`](scripts/rehearse_sih_demo.mjs) — automated SIH demo rehearsal checks
 - [`scripts/capture_ai_screenshots.mjs`](scripts/capture_ai_screenshots.mjs) — regenerate the README AI screenshot gallery from the real UI
+- [`scripts/capture_sih_showcase.mjs`](scripts/capture_sih_showcase.mjs) — capture the SIH showcase gallery from the real UI (1440×900)
 - [`scripts/run_sih_seed.py`](scripts/run_sih_seed.py) — deterministic SIH demo seed script
+- `make demo-seed` / `make demo-status` / `make demo-reset` — the idempotent showcase seed workflow (`backend/scripts/showcase_seed.py`, [presenter guide](demo/SIH_SHOWCASE.md))
 
 ## Contributing & security
 

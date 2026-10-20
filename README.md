@@ -53,6 +53,7 @@ Built for investigators, verified end-to-end on a real device.
   - [How every AI feature is bounded](#how-every-ai-feature-is-bounded)
   - [Screenshot gallery](#ai-screenshot-gallery)
 - [See it in action](#see-it-in-action)
+- [SIH showcase demo](#sih-showcase-demo)
 - [Architecture](#architecture)
 - [Technology stack](#technology-stack)
 - [Quick start](#quick-start)
@@ -336,9 +337,38 @@ captured from the running application against the live backend.
 
 ---
 
+## SIH showcase demo
+
+A single coherent, fully synthetic case — **SIH-2026-001** ("SIH Showcase"
+badge) with a clearly labeled support fixture **SIH-2026-002** ("Demo
+fixture" badge) — drives all ten AI capabilities through the real
+application workflows. Everything is seeded over the public API by an
+idempotent script; nothing touches the database directly.
+
+```bash
+make demo-seed                                        # create/verify (safe to re-run)
+make demo-status                                      # per-capability checklist
+make demo-reset DEMO_RESET_CONFIRM=sih-showcase       # guarded destructive reset
+```
+
+- Re-running never duplicates: evidence dedupes by filename + sha-256, custody
+  and timeline events by UTC instants, jobs by status, report audits by draft
+  hash. A second run reports `43 existing, 1 skipped` and exits 0.
+- With the model server down, AI-backed jobs (multilingual, triage text,
+  report audit) are reported `failed` — then retried with
+  `CS_SEED_RETRY_FAILED=1`; deterministic capabilities always run.
+- The reset refuses without the confirmation phrase, refuses on
+  `APP_ENV=production`, and deletes only the two SIH-2026-xxx cases.
+
+Full scenario, per-capability walkthrough, expected numbers and known
+limitations: **[docs/demo/SIH_SHOWCASE.md](docs/demo/SIH_SHOWCASE.md)** ·
+data flow: [docs/architecture/sih-showcase-data-flow.md](docs/architecture/sih-showcase-data-flow.md)
+
+---
+
 ## Architecture
 
-Eight Mermaid diagrams — drawn from the implementation, each naming real modules and routes — live
+Nine Mermaid diagrams — drawn from the implementation, each naming real modules and routes — live
 in [`docs/architecture/`](docs/architecture/README.md):
 
 ```mermaid

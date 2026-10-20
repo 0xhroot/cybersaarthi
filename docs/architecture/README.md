@@ -4,7 +4,6 @@ Every diagram in this folder was drawn from the implementation as it exists
 today — each one names real modules, real routes and real services, and links
 back to them. Mermaid renders natively on GitHub and in most Markdown
 previewers; no extra tooling is needed.
-
 | Diagram | Shows | Read it when |
 |---------|-------|--------------|
 | [System architecture](system-architecture.md) | Clients, compose stack, local AI runtime and who may talk to whom | You want the big picture first |
@@ -15,6 +14,7 @@ previewers; no extra tooling is needed.
 | [Multilingual & forensics triage](multilingual-forensics.md) | Script cross-checking, immutable originals, structural-only triage with no verdicts and no URL fetching | You work on complaints or triage |
 | [Report audit](report-audit.md) | Claim extraction (model) vs verification (deterministic), and the human approve/reject step | You work on the report auditor |
 | [Deployment & setup](deployment-setup.md) | Compose stack, local llama-server, startup order, health checks, model acquisition and clean shutdown | You are setting up or deploying |
+| [SIH showcase data flow](sih-showcase-data-flow.md) | How `make demo-seed` turns committed synthetic fixtures into a review-ready case through the real API | You are presenting or maintaining the SIH showcase |
 
 ## Rules the whole system follows
 
