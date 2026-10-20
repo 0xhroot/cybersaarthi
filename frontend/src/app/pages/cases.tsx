@@ -22,7 +22,7 @@ import { useDebounce } from "@/hooks/ui";
 import { api } from "@/api";
 import { PageContainer, PageHeader } from "@/components/layout/page";
 import { Card, CardContent } from "@/components/ui/card";
-import { CaseStatusBadge } from "@/components/status";
+import { CaseShowcaseBadge, CaseStatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import {
@@ -200,7 +200,10 @@ export default function CasesPage() {
                       <TR key={c.id} className="group cursor-pointer" onClick={() => navigate(`/app/cases/${c.id}`)}>
                         <TD>
                           <div className="min-w-0">
-                            <p className="font-mono text-[10px] font-semibold tracking-wide text-accent">{c.case_number}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-mono text-[10px] font-semibold tracking-wide text-accent">{c.case_number}</p>
+                              <CaseShowcaseBadge caseNumber={c.case_number} />
+                            </div>
                             <p className="mt-1 max-w-[360px] truncate font-semibold text-foreground">{c.title}</p>
                           </div>
                         </TD>
@@ -219,7 +222,7 @@ export default function CasesPage() {
                   <button key={c.id} type="button" onClick={() => navigate(`/app/cases/${c.id}`)} className="group w-full p-4 text-left transition-colors hover:bg-surface-2/60">
                     <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] font-semibold text-accent">{c.case_number}</span><CaseStatusBadge value={c.status} /></div>
+                        <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] font-semibold text-accent">{c.case_number}</span><CaseShowcaseBadge caseNumber={c.case_number} /><CaseStatusBadge value={c.status} /></div>
                         <p className="mt-2 font-semibold text-foreground">{c.title}</p>
                         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-dim">{c.description ?? "No description provided."}</p>
                         <div className="mt-3 flex items-center gap-1.5 text-[11px] text-dim"><CalendarDays className="size-3.5" /> Updated {formatDate(c.updated_at)}</div>

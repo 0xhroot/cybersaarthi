@@ -49,6 +49,18 @@ export function CaseStatusBadge({ value }: { value: CaseStatus }) {
   return <Badge tone={meta.tone}>{meta.label}</Badge>;
 }
 
+/**
+ * Showcase marker derived from the case-number prefix (SIH-2026-xxx) — the
+ * smallest schema-compatible demo distinction. The primary presentation case
+ * carries "SIH Showcase"; the supporting fixture case carries "Demo fixture";
+ * every other case gets no badge at all.
+ */
+export function CaseShowcaseBadge({ caseNumber }: { caseNumber: string }) {
+  if (caseNumber === "SIH-2026-001") return <Badge tone="accent">SIH Showcase</Badge>;
+  if (caseNumber.startsWith("SIH-2026-")) return <Badge tone="neutral">Demo fixture</Badge>;
+  return null;
+}
+
 export const ENTITY_TYPE_META: Record<EntityType, { label: string; tone: BadgeProps["tone"] }> = {
   person: { label: "Person", tone: "accent" },
   phone: { label: "Phone", tone: "info" },

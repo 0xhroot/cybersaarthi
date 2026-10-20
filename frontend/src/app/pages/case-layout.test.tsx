@@ -123,3 +123,38 @@ describe("case workspace navigation", () => {
     expect(screen.getByRole("heading", { name: "Ponzi investment racket" })).toBeInTheDocument();
   });
 });
+
+describe("SIH showcase badge (case-number prefix)", () => {
+  const query = (caseNumber: string) => ({
+    data: { ...CASE, case_number: caseNumber },
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  });
+
+  beforeEach(() => {
+    archiveHook.mockReturnValue(mutation());
+    updateHook.mockReturnValue(mutation());
+  });
+
+  it("marks the primary presentation case with the SIH Showcase badge", () => {
+    useCaseHook.mockReturnValue(query("SIH-2026-001"));
+    renderCase();
+    expect(screen.getByText("SIH Showcase")).toBeInTheDocument();
+  });
+
+  it("marks the supporting fixture case with the Demo fixture badge", () => {
+    useCaseHook.mockReturnValue(query("SIH-2026-002"));
+    renderCase();
+    expect(screen.getByText("Demo fixture")).toBeInTheDocument();
+    expect(screen.queryByText("SIH Showcase")).toBeNull();
+  });
+
+  it("adds no showcase badge to ordinary cases", () => {
+    useCaseHook.mockReturnValue(query("SHOW-2026-005"));
+    renderCase();
+    expect(screen.queryByText("SIH Showcase")).toBeNull();
+    expect(screen.queryByText("Demo fixture")).toBeNull();
+  });
+});

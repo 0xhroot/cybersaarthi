@@ -20,7 +20,7 @@ import { useCase, useArchiveCase, useUpdateCase } from "@/hooks/queries";
 import { useCan } from "@/lib/permissions";
 import { useCaseNavStore } from "@/stores/case-nav";
 import { PageContainer } from "@/components/layout/page";
-import { CaseStatusBadge } from "@/components/status";
+import { CaseShowcaseBadge, CaseStatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/loading";
 import { ErrorState } from "@/components/ui/error-state";
@@ -112,6 +112,7 @@ export default function CaseLayout() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent">{caseQuery.data.case_number}</span>
+                    <CaseShowcaseBadge caseNumber={caseQuery.data.case_number} />
                     <span className="text-border-strong">•</span>
                     <CaseStatusBadge value={caseQuery.data.status} />
                   </div>
