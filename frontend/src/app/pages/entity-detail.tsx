@@ -10,6 +10,7 @@ import { RELATIONSHIP_TYPE_META } from "@/components/status";
 import { formatPercent, shortId } from "@/lib/utils";
 import { useDocumentTitle } from "@/hooks/ui";
 import { Badge } from "@/components/ui/badge";
+import { KeyValueList } from "@/components/ui/key-value";
 import type { RelationshipType } from "@/types/domain";
 
 export default function EntityDetailPage() {
@@ -77,9 +78,17 @@ export default function EntityDetailPage() {
               </div>
 
               {record?.context ? (
-                <p className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs leading-relaxed text-muted">
-                  {typeof record.context === "string" ? record.context : JSON.stringify(record.context)}
-                </p>
+                typeof record.context === "string" ? (
+                  <p className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs leading-relaxed text-muted">
+                    {record.context}
+                  </p>
+                ) : (
+                  <KeyValueList
+                    data={record.context}
+                    size="sm"
+                    className="rounded-md border border-border bg-surface-2 px-3 py-2"
+                  />
+                )
               ) : null}
             </CardContent>
           </Card>

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { ChevronDown } from "lucide-react";
 import { useTimeline } from "@/hooks/queries";
 import { ReconstructionPanel } from "@/components/evidence/reconstruction-panel";
 import { PageContainer } from "@/components/layout/page";
@@ -8,6 +7,7 @@ import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PayloadDetail } from "@/components/ui/key-value";
 import { Skeleton } from "@/components/ui/loading";
 import { ErrorState } from "@/components/ui/error-state";
 import { formatDate, formatRelative, formatTime, pluralize } from "@/lib/utils";
@@ -44,48 +44,6 @@ function kindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind.replace(/_/g, " ");
 }
 
-/** `source_locator` → `source locator`, `tz_assumed` → `tz assumed`. */
-function humanizeKey(key: string): string {
-  return key.replace(/_/g, " ");
-}
-
-function formatPayloadValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") return value ? "yes" : "no";
-  if (Array.isArray(value)) return value.map((item) => formatPayloadValue(item)).join(", ");
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
-
-/**
- * Event provenance as labeled key/value rows instead of a JSON blob.
- *
- * The raw `JSON.stringify` dump this replaces put internal hashes and locators
- * on screen as one unparseable line per event — implementation detail rather
- * than a communicated fact. Rows wrap, so a 66-character sha256 cannot widen
- * the card.
- */
-function PayloadDetails({ payload }: { payload: Record<string, unknown> }) {
-  const entries = Object.entries(payload);
-  if (entries.length === 0) return null;
-  return (
-    <details className="group mt-1.5">
-      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wider text-dim transition-colors hover:bg-surface-3 hover:text-muted focus-visible:outline-2 focus-visible:outline-accent">
-        <ChevronDown className="size-3 transition-transform group-open:rotate-180" aria-hidden />
-        Event details
-      </summary>
-      <dl className="mt-1 grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2">
-        {entries.map(([key, value]) => (
-          <div key={key} className="flex min-w-0 items-baseline justify-between gap-2 text-[10px]">
-            <dt className="shrink-0 text-dim">{humanizeKey(key)}</dt>
-            <dd className="min-w-0 wrap-anywhere text-right font-mono text-muted">{formatPayloadValue(value)}</dd>
-          </div>
-        ))}
-      </dl>
-    </details>
-  );
-}
-
 function TimelineEventRow({ event }: { event: TimelineEvent }) {
   return (
     <li className="relative flex gap-3 pl-6">
@@ -107,7 +65,7 @@ function TimelineEventRow({ event }: { event: TimelineEvent }) {
         {event.description ? (
           <p className="mt-1 text-[11px] leading-relaxed text-dim">{event.description}</p>
         ) : null}
-        {event.payload ? <PayloadDetails payload={event.payload} /> : null}
+        <PayloadDetail data={event.payload} label="Event details" className="mt-1.5" />
       </div>
     </li>
   );

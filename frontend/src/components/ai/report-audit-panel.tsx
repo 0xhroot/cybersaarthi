@@ -13,6 +13,7 @@ import { useCan } from "@/lib/permissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { KeyValueList } from "@/components/ui/key-value";
 import { Skeleton } from "@/components/ui/loading";
 import { toast } from "@/components/ui/toast";
 import { formatRelative, shortId } from "@/lib/utils";
@@ -419,11 +420,7 @@ function AuditCard({
                         {finding.severity ?? "info"}
                       </Badge>
                       <span className="font-mono text-foreground/90">{finding.code}</span>
-                      {finding.detail ? (
-                        <span className="break-all font-mono text-[10px] text-dim">
-                          {JSON.stringify(finding.detail)}
-                        </span>
-                      ) : null}
+                      {finding.detail ? <KeyValueList data={finding.detail} className="w-full" /> : null}
                     </div>
                   ))}
                 </div>

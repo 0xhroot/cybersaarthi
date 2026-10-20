@@ -12,6 +12,7 @@ import { useCan } from "@/lib/permissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { KeyValueList } from "@/components/ui/key-value";
 import { Skeleton } from "@/components/ui/loading";
 import { toast } from "@/components/ui/toast";
 import { formatRelative, shortId } from "@/lib/utils";
@@ -376,11 +377,7 @@ function TriageCard({
                 {obs.rule ?? "unknown_rule"}
               </span>
               <span className="text-[11px] text-dim">record #{obs.locator?.record_no ?? "—"}</span>
-              {obs.detail ? (
-                <span className="w-full break-all font-mono text-[10px] leading-relaxed text-dim">
-                  {JSON.stringify(obs.detail)}
-                </span>
-              ) : null}
+              {obs.detail ? <KeyValueList data={obs.detail} className="w-full" /> : null}
             </div>
           ))
         )}

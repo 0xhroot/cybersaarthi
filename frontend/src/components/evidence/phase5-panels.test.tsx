@@ -620,7 +620,10 @@ describe("TriagePanel", () => {
     expect(screen.getByText("match")).toBeInTheDocument();
     expect(screen.getByText("mismatch")).toBeInTheDocument();
     expect(screen.getByText("missing")).toBeInTheDocument();
-    expect(screen.getByText("victim.txt")).toBeInTheDocument();
+    // "victim.txt" appears in the manifest row and as the observation's
+    // labeled filename field (the detail was previously a JSON blob that
+    // never matched exactly).
+    expect(screen.getAllByText("victim.txt").length).toBeGreaterThan(0);
     expect(screen.getByText("triage.manifest.hash_mismatch")).toBeInTheDocument();
   });
 

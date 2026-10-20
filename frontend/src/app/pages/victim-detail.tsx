@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { KeyValueList } from "@/components/ui/key-value";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { VictimClassification, VictimStatus, VictimUpdateRequest } from "@/types/domain";
@@ -196,7 +197,9 @@ export default function VictimDetailPage() {
               {v.digital_accounts && v.digital_accounts.length > 0 ? (
                 <ul className="space-y-1">
                   {v.digital_accounts.map((acc, i) => (
-                    <li key={i} className="text-sm">{JSON.stringify(acc)}</li>
+                    <li key={i} className="rounded-md border border-border bg-surface-2 px-3 py-2">
+                      <KeyValueList data={acc} size="sm" />
+                    </li>
                   ))}
                 </ul>
               ) : (

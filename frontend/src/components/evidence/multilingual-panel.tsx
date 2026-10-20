@@ -13,6 +13,7 @@ import { useCan } from "@/lib/permissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { KeyValueList } from "@/components/ui/key-value";
 import { Skeleton } from "@/components/ui/loading";
 import { toast } from "@/components/ui/toast";
 import { formatRelative, shortId } from "@/lib/utils";
@@ -86,9 +87,15 @@ function RecordBlock({ record }: { record: SourceRecordOut }) {
           Original record #{record.record_no} — verbatim source, never modified
         </p>
       </div>
-      <p className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90">
-        {text ?? JSON.stringify(record.raw_data)}
-      </p>
+      {text !== null ? (
+        <p className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90">
+          {text}
+        </p>
+      ) : (
+        // No verbatim text field — show the record's own fields as labeled
+        // rows rather than a JSON blob.
+        <KeyValueList data={record.raw_data} size="sm" className="mt-2" />
+      )}
     </div>
   );
 }
