@@ -77,15 +77,18 @@ key is never in argv, and UFW is unchanged.
   `httpx.AsyncHTTPTransport(uds=...)` when `AI_SERVER_SOCKET` is set, falling
   back to TCP otherwise.
 - The model file is mounted read-only at `/models/Qwen3-8B-Q4_K_M.gguf` and
-  `AI_MODEL_PATH` points the container at it (so `model_valid` checks work
-  inside the container).
+  docker-compose.yml pins the container's `AI_MODEL_PATH` to that exact mount
+  target (so `validate_gguf` passes and `model_valid` works inside the
+  container). The `.env` value stays repo-root-relative for host-side tooling
+  and must never be interpolated into the container — that was a fresh-clone
+  bug: `validate_gguf` failed at startup and `ready` could never turn true.
 
 ## 4. Configuration reference (all `AI_*`, defaults in `.env.example`)
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `AI_ENABLED` | `true` | Master switch; `false` → 503 `AI_DISABLED` on every AI route |
-| `AI_MODEL_PATH` | `Qwen3-8B-Q4_K_M.gguf` | Absolute, or relative to repo root (container: `/models/…`) |
+| `AI_MODEL_PATH` | `Qwen3-8B-Q4_K_M.gguf` | Host-side: absolute, or relative to repo root. The container's copy is pinned by docker-compose.yml to `/models/Qwen3-8B-Q4_K_M.gguf`. |
 | `AI_SERVER_BINARY` | `ai_runtime/llama.cpp/llama-server` | Server binary |
 | `AI_SERVER_HOST` / `AI_SERVER_PORT` | `127.0.0.1` / `8081` | Host-process bind (loopback; compose passes `host.docker.internal` for its own TCP fallback — the UDS bridge is the sanctioned path) |
 | `AI_SERVER_API_KEY` | *(empty; must be set for non-loopback)* | Shared secret, `Authorization: Bearer` on every request |

@@ -148,8 +148,9 @@ rm -f ai_runtime/llama.sock && setsid -f bash -c 'exec ./scripts/ai/socket_bridg
 ### `model_valid: false` from the container but the file exists on the host
 
 The model is mounted read-only at `/models/Qwen3-8B-Q4_K_M.gguf` and
-`AI_MODEL_PATH` must point there inside the container (compose default). The
-host path (`./Qwen3-8B-Q4_K_M.gguf`) is invisible to the container.
+docker-compose.yml pins the container's `AI_MODEL_PATH` to that path. The
+host path (`./Qwen3-8B-Q4_K_M.gguf`) is invisible to the container; `.env`'s
+repo-root-relative value applies to host-side runs only.
 
 ### Frontend assistant shows the offline banner though the API works
 

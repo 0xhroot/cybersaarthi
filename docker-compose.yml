@@ -33,7 +33,12 @@ x-backend-env: &backend-env
   # Unix socket bridge (scripts/ai/socket_bridge.sh): used when host firewalls
   # block Docker-bridge → host TCP. Empty string falls back to TCP.
   AI_SERVER_SOCKET: ${AI_SERVER_SOCKET:-/run/ai-runtime/llama.sock}
-  AI_MODEL_PATH: ${AI_MODEL_PATH:-/models/Qwen3-8B-Q4_K_M.gguf}
+  # Pinned, NOT interpolated from .env: the backend mounts the model read-only
+  # at exactly this target below, while .env carries a repo-root-relative path
+  # for host-side tooling. Interpolating it made a fresh `cp .env.example .env`
+  # resolve /app/Qwen3-8B-Q4_K_M.gguf inside the container, fail validate_gguf
+  # at startup, and leave /ai/status ready=false forever.
+  AI_MODEL_PATH: /models/Qwen3-8B-Q4_K_M.gguf
   # Approved docs root for the AI knowledge tool (mounted read-only below).
   CYBERSAARTHI_REPO_ROOT: /repo
 
