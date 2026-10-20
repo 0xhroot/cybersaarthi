@@ -68,16 +68,17 @@ make demo-reset DEMO_RESET_CONFIRM=sih-showcase   # guarded destructive reset
 
 ## 4. The scenario (brief it before you demo)
 
-A complainant's account at **Prism Cooperative Bank** was drained on
-2026-04-05 by an unauthorised debit of **INR 47,500.00** (TXN-SIH-1001) to a
-beneficiary account impersonating merchant **Sunrise Mercantile Pvt Ltd**.
-Six further debits followed (2026-04-05…2026-04-10), one payment attempt
-failed, and one wallet-ledger payment of INR 999.00 is undated. The wallet
-ledger records the *same* TXN-SIH-1001 at **45,000.00** — the planted
-contradiction. Aliases (`R. Kulkarni` ↔ `Ravi Kulkarni`, `S. Pawar` ↔
-`Suresh Pawar`) and a second merchant name variant set up the resolution
-review. A phishing-lure text file and a hash manifest round out the exhibits.
-The complaint itself is written in mixed Hindi/English.
+A complainant (Ms. Ananya Deshpande, fictional) reported on 2026-04-02 that
+an unauthorised debit of **INR 47,500.00** (TXN-SIH-1001, 2026-04-05) left
+her **Prism Cooperative Bank** account for beneficiary account ACC-SIH-001
+(Ravi Kulkarni). The statement holds six more debits (2026-04-06…2026-04-10),
+one row with **no date at all** (TXN-SIH-1007, INR 999.00), and one row with
+**no currency** (TXN-SIH-1006, 3,450.00). The merchant wallet ledger settles
+the *same* TXN-SIH-1001 at **45,000.00** — the planted contradiction. Alias
+rows (`R. Kulkarni` ↔ `Ravi Kulkarni`, `S. Pawar` ↔ `Suresh Pawar`) and a
+second merchant name variant (`Sunrise Mercantile Traders Pvt Ltd`) set up
+the resolution review. A phishing-lure text file and a hash manifest round
+out the exhibits. The complaint itself is written in mixed Hindi/English.
 
 ## 5. Evidence inventory (7 exhibits, 6 + 1 support)
 
@@ -114,9 +115,12 @@ out that org canonicalization already merged the legal-suffix variants.
 
 ## 8. Timeline reconstruction & chain of custody
 
-Timeline tab: **26 events** — 13 engine proposals (one per dated source
-record, each keeping its source id), 3 curated narrative events, and the
-derived ingest/report events. Evidence tab → statement → custody: a real
+Timeline tab: **26 events** — 13 reconstruction proposals (8 dated transaction
+rows + 5 incident-date rows, one per source record, each keeping its source
+id), 3 curated narrative events (complaint received, exhibits sealed into
+custody, custody verification), and 10 derived system events (case creation,
+6 evidence ingests, analytics run, finding, report). Evidence tab →
+statement → custody: a real
 4-event chain (collected → transferred → received → verified, 2026-04-13/14),
 each carrying the recomputed sha-256 of the exhibit. Recompute integrity live
 via the evidence-integrity verify action — the hash matches, the chain is
@@ -132,28 +136,44 @@ two facts. It stays `pending_review`; approve or reject it live.
 
 ## 10. Financial flow analysis
 
-Analytics tab (financial flow): 12 extracted facts from the statement and
-ledger, with these patterns **firing**:
+Analytics tab (financial flow): the deterministic pass scans **26 source
+records**, extracts **14 facts** (9 with a transaction reference, 8 with a
+currency, 8 with a timestamp), and buckets them into **2 currency groups** —
+INR and one `unknown` (TXN-SIH-1006 has no currency). Five patterns
+**fire**, each left `pending_review`:
 
-- `duplicate_amount` — 47,500.00 appears on TXN-SIH-1001 and TXN-SIH-1004
-- `amount_threshold` — threshold 5,000, 7 transactions matched
-- `missing_currency` — TXN-SIH-1006 (statement row without currency)
-- `missing_timestamp` — TXN-SIH-1007 (wallet payment without date)
-- `victim_loss_unmatched` — the 999.00 wallet payment has no statement twin
+- `duplicate_amount` — 47,500.00 appears on both TXN-SIH-1001 and TXN-SIH-1004
+- `amount_threshold` — threshold 5,000; **7 records** matched across six distinct amounts
+- `missing_currency` — TXN-SIH-1006 (the single record in the `unknown` bucket, 3,450.00)
+- `missing_timestamp` — TXN-SIH-1007 (the 999.00 statement row with an empty date)
+- `victim_loss_unmatched` — the reported loss (47,500.00 INR, victim `ACCVICTIM01`)
+  has no transaction-level foreign key; it is matched by exact amount equality
+  only, which the engine labels a limitation rather than a fact
 
-Independently checkable total: the statement's seven debits sum to
-**125,700.00** (dated, completed); with the 999.00 wallet payment the engine
-reports **126,699.00** — add the rows yourself. The seeded trace call returns
-`status=ok` with 9 association paths between ACCVICTIM01 and ACCSIH001.
+Independently checkable totals (add the rows yourself):
+
+- the **Prism Cooperative Bank** bucket holds the 7 statement rows summing to **126,699.00**
+- every `completed` record totals **177,299.00** (the 7 statement rows + the wallet's 45,000.00 and 5,600.00)
+- the INR bucket's distinct-group total is **81,349.00** — the conflicting
+  TXN-SIH-1001 group (45,000.00 vs 47,500.00) is **excluded** from the
+  distinct total and surfaced separately, rather than silently picking a side
+- in/out/net flow: **not computed** — the engine reports
+  `not_computable_no_direction` because no record states a payer→payee
+  direction. Absent, never guessed to zero.
+
+The seeded graph-trace call (target `ACCSIH001`, association edges, depth 3)
+returns `status=ok` with **9 association paths and 0 matched transaction
+facts** — an honest association walk, explicitly not a money trail.
 
 ## 11. Cross-case pattern candidates
 
-Cross-case view (anchor SIH-2026-001): **6 candidates**, all honestly scored
-and classified:
+Cross-case view (anchor SIH-2026-001): **6 candidates**, all honestly scored,
+classified by signal kind, and left `pending_review`:
 
-- 80 / 72 — exact shared identifiers (ACCSIH001 account, one phone number)
-- 70 / 65 — normalized identifier matches
-- 15 / 15 / 18 — name-only similarity (explicitly weak; left for the reviewer)
+- **80 / 72** — shared account references (`ACC-SIH-001` ↔ `ACCSIH001` normalization)
+- **70 / 70** — shared person/merchant names
+- **65** — shared phone number (`+91 98200 00001` vs the dashed `+91-98200-00001` variant)
+- **15** — a weak name-only similarity, explicitly left for the reviewer
 
 Nothing is merged automatically; the engine ranks, the investigator decides.
 
@@ -170,15 +190,21 @@ explanation.
 
 Analysis panel → report audit: the seeded draft (1,787 chars) cites the real
 evidence and timeline ids and contains **planted defects for the auditor to
-catch**. Expected result: `status=succeeded`, **9 claims** extracted, and
-flags including:
+catch**. Expected result: `status=succeeded`. The model's claim segmentation
+is stochastic — the same seeded draft has split into **9 or 17 claims**
+across real runs — but every designed flag fires in either split:
 
-- `numeric_mismatch` — a claim states 15,300.00 where the source says 12,300.00
-- `invalid_citation` — one claim cites a UUID that exists nowhere in the case
-- `contradicted` — narrative claims contradicted by the sources (including the
+- `numeric_mismatch` (×1) — a claim states 15,300.00 where the source says 12,300.00
+- `invalid_citation` (×1–2) — a claim cites a UUID that exists nowhere in the case
+- `contradicted` (×3) — narrative claims contradicted by the sources (including the
   125,000.00 arithmetic total vs the real 126,699.00)
-- `not_established` / unsupported claims — the "director personally approved
-  on 2026-04-04" and GST-document claims cite nothing
+- `not_established` — the "director personally approved on 2026-04-04" and
+  GST-document claims cite nothing (6–8 medium findings with the counter-evidence
+  candidates at info)
+
+As documented below, every claim also carries
+`claim_extraction_invalid (char_span)` from the model's offset counting — that
+flag describes extraction quality, not the case's evidence.
 
 Review queue: the claim-review artifact is `pending_review` — decisions are
 the presenter's to make live.
@@ -194,7 +220,9 @@ the presenter's to make live.
   matches; 26 timeline events; 1 contradiction; 1 financial finding artifact
   with 5 firing patterns; 6 cross-case candidates; 3 translations;
   1 triage artifact (8 observations); 34 findings; 1 PDF report;
-  1 succeeded audit (9 claims); 1 presenter member (investigator account)
+  1 succeeded audit (9 or 17 claims depending on the model's claim split;
+  the designed defect flags fire either way); 1 presenter member per case
+  (investigator account)
 - `make demo-seed` re-run: `43 existing, 1 skipped, 0 created`, exit 0
 - `make demo-reset` (guarded): both cases gone (rows, audit logs, objects,
   graph nodes), every other case untouched
