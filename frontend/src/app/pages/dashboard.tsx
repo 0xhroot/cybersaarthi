@@ -5,7 +5,6 @@ import {
   ArrowRight,
   BarChart3,
   BellRing,
-  BriefcaseBusiness,
   CheckCircle2,
   ChevronRight,
   Clock3,
@@ -138,7 +137,6 @@ export default function DashboardPage() {
               <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3 text-xs text-dim">
                 <span className="font-mono text-muted">{focusCase.case_number}</span>
                 <span>Updated {formatDate(focusCase.updated_at)}</span>
-                <span>{focusCase.status === "in_progress" ? "Investigation underway" : "Awaiting action"}</span>
               </div>
             ) : null}
 
@@ -165,29 +163,24 @@ export default function DashboardPage() {
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-3">
               <div className="h-full bg-accent transition-all" style={{ width: `${Math.min(100, Math.max(8, completion))}%` }} />
             </div>
+            {/* The per-status counts live once, in the KPI row below — the
+                pulse states the register-level completion fact as a single
+                line rather than repeating open/total as mini-cards. */}
             <div className="mt-2 flex justify-between text-[11px] text-dim">
-              <span>{closedCount} closed</span>
-              <span>{completion}% closed</span>
-            </div>
-            <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-4">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-dim">Total cases</p>
-                <p className="mt-1 text-lg font-semibold tabular">{totalCases}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-dim">Open</p>
-                <p className="mt-1 text-lg font-semibold tabular">{openCount}</p>
-              </div>
+              <span>Completion</span>
+              <span className="tabular">{completion}% · {closedCount} of {totalCases} closed</span>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* The one place per-status counts appear. "Active workload" used to be
+          a fourth card here that only restated open + in-progress — the pulse
+          headline already carries that number. */}
+      <section className="mt-5 grid gap-3 sm:grid-cols-3">
         <MetricCard label="Open cases" value={openCount} detail="Awaiting investigation activity" icon={<FolderKanban className="size-4" />} tone="high" loading={openQuery.isLoading} />
         <MetricCard label="In progress" value={inProgressCount} detail="Currently being worked" icon={<Activity className="size-4" />} tone="info" loading={inProgressQuery.isLoading} />
         <MetricCard label="Closed" value={closedCount} detail="Completed or resolved" icon={<CheckCircle2 className="size-4" />} tone="success" loading={closedQuery.isLoading} />
-        <MetricCard label="Active workload" value={attentionCount} detail="Open + in-progress" icon={<BriefcaseBusiness className="size-4" />} tone="accent" loading={openQuery.isLoading || inProgressQuery.isLoading} />
       </section>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.55fr)]">
@@ -238,18 +231,6 @@ export default function DashboardPage() {
         </Card>
 
         <div className="space-y-5">
-          <Card>
-            <CardHeader>
-              <CardTitle>Case status</CardTitle>
-              <p className="text-xs text-dim">Current distribution across the case register.</p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <StatusRow label="In progress" value={inProgressCount} total={totalCases} tone="bg-info" />
-              <StatusRow label="Open" value={openCount} total={totalCases} tone="bg-high" />
-              <StatusRow label="Closed" value={closedCount} total={totalCases} tone="bg-success" />
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>Quick launch</CardTitle>
@@ -344,21 +325,6 @@ function MetricCard({
       </div>
       <p className="mt-4 text-xs font-semibold text-foreground">{label}</p>
       <p className="mt-0.5 text-[11px] text-dim">{detail}</p>
-    </div>
-  );
-}
-
-function StatusRow({ label, value, total, tone }: { label: string; value: number; total: number; tone: string }) {
-  const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-3 text-xs">
-        <span className="font-medium text-muted">{label}</span>
-        <span className="tabular text-dim">{value} <span className="text-[10px]">({percentage}%)</span></span>
-      </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3">
-        <div className={`h-full rounded-full ${tone}`} style={{ width: `${percentage}%` }} />
-      </div>
     </div>
   );
 }

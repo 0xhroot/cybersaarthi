@@ -22,6 +22,7 @@ import { CrossCasePanel } from "@/components/evidence/cross-case-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PriorityBadge, ProfileTierBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
+import { TabBar } from "@/components/ui/tab-bar";
 import { Skeleton } from "@/components/ui/loading";
 import { ErrorState } from "@/components/ui/error-state";
 import { Progress } from "@/components/ui/loading";
@@ -197,48 +198,15 @@ export default function AnalyticsPage() {
           active section stays mounted — the four analysis panels each fetch
           their own data, so a single 22k-px scroll that mounted all of them
           also fired four request bursts nobody was looking at. */}
-      <div className="mt-5 border-b border-border">
-        <nav
-          aria-label="Analytics sections"
-          className="subtle-scrollbar -mb-px flex gap-1 overflow-x-auto"
-          onKeyDown={(event) => {
-            const index = ANALYTICS_SECTIONS.findIndex((section) => section.id === activeSection);
-            if (index < 0) return;
-            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
-              event.preventDefault();
-              const delta = event.key === "ArrowRight" ? 1 : -1;
-              const next = ANALYTICS_SECTIONS[(index + delta + ANALYTICS_SECTIONS.length) % ANALYTICS_SECTIONS.length];
-              setSection(next.id);
-              document.getElementById(`analytics-tab-${next.id}`)?.focus();
-            }
-          }}
-        >
-          {ANALYTICS_SECTIONS.filter((section) => section.id !== "crosscase" || canCrossCase).map((section) => {
-            const Icon = section.icon;
-            const selected = section.id === activeSection;
-            return (
-              <button
-                key={section.id}
-                id={`analytics-tab-${section.id}`}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                aria-controls={`analytics-panel-${section.id}`}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => setSection(section.id)}
-                className={[
-                  "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-[12px] font-medium transition-colors",
-                  selected ? "text-accent-strong" : "text-muted hover:text-foreground",
-                ].join(" ")}
-              >
-                <Icon className="size-3.5" aria-hidden />
-                {section.label}
-                {selected ? <span aria-hidden className="absolute inset-x-2 -bottom-px h-0.5 bg-accent" /> : null}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      <TabBar
+        items={ANALYTICS_SECTIONS.filter((section) => section.id !== "crosscase" || canCrossCase)}
+        active={activeSection}
+        onChange={(id) => setSection(id as SectionId)}
+        ariaLabel="Analytics sections"
+        idPrefix="analytics"
+        panelId={`analytics-panel-${activeSection}`}
+        className="mt-5"
+      />
 
       {/* Analysis panels are mutually exclusive; only the selected section
           stays mounted (see ANALYTICS_SECTIONS). */}

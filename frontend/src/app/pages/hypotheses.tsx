@@ -13,7 +13,7 @@ import { PageContainer } from "@/components/layout/page";
 import { InvestigationHeader } from "@/components/layout/investigation-header";
 import { HypothesisSuggest } from "@/components/ai/hypothesis-suggest";
 import type { AiHypothesisDraft } from "@/api/contract";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { SeverityBadge } from "@/components/status";
 import { RELATIONSHIP_TYPE_META } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
@@ -44,8 +44,21 @@ const STATUS_ORDER: InvestigationHypothesisStatus[] = [
   "concluded",
 ];
 
+/** `shared_neighbors` → "Shared neighbors" for the chip; the raw code stays
+ *  in the chip's title so nothing an analyst greps for is lost. */
 function signalName(signal: Record<string, unknown>): string {
-  return String(signal.name ?? signal.label ?? signal.description ?? "signal");
+  const raw = String(signal.name ?? signal.label ?? signal.description ?? "signal");
+  const words = raw
+    .replace(/_/g, " ")
+    .replace(/\brels\b/g, "relationships")
+    .replace(/\bnbrs\b/g, "neighbors");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function signalTitle(signal: Record<string, unknown>): string {
+  const code = String(signal.name ?? signal.label ?? "");
+  const msg = signalMessage(signal);
+  return [code, msg].filter(Boolean).join(" — ");
 }
 
 function signalMessage(signal: Record<string, unknown>): string | null {
@@ -217,7 +230,10 @@ export default function HypothesesPage() {
       <div className="mt-6">
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-foreground">Analytics hypotheses</h2>
-          <p className="text-[11px] text-dim">Candidate explanations assembled automatically from weaker signals in the graph.</p>
+          <p className="text-[11px] text-dim">
+            Candidate explanations assembled automatically from weaker signals in the graph — none of them are
+            recorded in the graph; confirm before any of them informs an action.
+          </p>
         </div>
         {hypotheses.isLoading ? (
           <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28" />)}</div>
@@ -237,20 +253,31 @@ export default function HypothesesPage() {
                 | undefined;
               return (
                 <Card key={h.title}>
-                  <CardHeader>
-                    <CardTitle className="flex flex-wrap items-center gap-2">
-                      <Lightbulb className="size-4 text-accent" />
-                      <span className="text-sm font-medium text-foreground">{h.title}</span>
+                  <CardContent className="space-y-2">
+                    {/* One compact header row: identity, severity and the two
+                        0–100 numbers. The old CardHeader + per-card
+                        "Not recorded in the graph" footer cost ~60px per card
+                        and repeated the section's trust statement 13 times. */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Lightbulb className="size-4 shrink-0 text-accent" />
+                      <span className="min-w-0 flex-1 text-sm font-medium text-foreground">{h.title}</span>
                       <SeverityBadge value={h.severity} />
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
+                      <span className="whitespace-nowrap text-[10px] tabular text-dim">
+                        score {Math.round(h.score * 100)} · conf{" "}
+                        {h.confidence != null ? Math.round(h.confidence * 100) : "—"}
+                      </span>
+                    </div>
+
                     <p className="text-xs leading-relaxed text-muted">{h.summary}</p>
 
                     {(h.signals ?? []).length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
                         {(h.signals ?? []).slice(0, 6).map((sig, i) => (
-                          <span key={i} className="rounded-md border border-border bg-surface-2 px-2 py-1 text-[11px] text-muted" title={signalMessage(sig) ?? undefined}>
+                          <span
+                            key={i}
+                            className="rounded-md border border-border bg-surface-2 px-2 py-1 text-[11px] text-muted"
+                            title={signalTitle(sig) || undefined}
+                          >
                             {signalName(sig)}
                           </span>
                         ))}
@@ -269,22 +296,11 @@ export default function HypothesesPage() {
                       </div>
                     ) : null}
 
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border pt-2.5 text-[10px] text-dim">
-                      <span>score <span className="tabular text-foreground/70">{Math.round(h.score * 100)}</span></span>
-                      <span>confidence{" "}
-                        <span className="tabular text-foreground/70">
-                          {h.confidence != null ? Math.round(h.confidence * 100) : "—"}
-                        </span>
-                      </span>
-                      <span className="min-w-0 max-w-full truncate">
-                        {entities && entities.length > 0 ? `entities: ${entities.map((e) => e.display_value).join(", ")}` : ""}
-                      </span>
-                    </div>
-
-                    <p className="flex items-center gap-1.5 text-[11px] text-dim">
-                      <AlertTriangle className="size-3 shrink-0 text-high" />
-                      Not recorded in the graph — confirm before it informs an action.
-                    </p>
+                    {entities && entities.length > 0 ? (
+                      <p className="truncate text-[10px] text-dim">
+                        entities: {entities.map((e) => e.display_value).join(", ")}
+                      </p>
+                    ) : null}
                   </CardContent>
                 </Card>
               );

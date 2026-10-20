@@ -183,7 +183,7 @@ export default function AuditPage() {
           </SelectContent>
         </Select>
 
-        {total > 0 ? (
+        {total > 0 && items.length > 0 ? (
           <p className="text-[11px] text-dim" aria-live="polite">
             {audit.isFetching ? "Loading… " : ""}
             Showing {from}–{to} of {total.toLocaleString("en-GB")} events
@@ -203,6 +203,16 @@ export default function AuditPage() {
         ) : audit.isError ? (
           <Card>
             <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
+          </Card>
+        ) : items.length === 0 && offset > 0 ? (
+          // The log shrank after this page was requested — say so and offer
+          // the way back rather than claiming nothing matches.
+          <Card>
+            <EmptyState
+              title="No events on this page"
+              description="This page sits past the end of the log — it has changed since the page was opened."
+              action={{ label: "Back to newest", onClick: () => setOffset(0) }}
+            />
           </Card>
         ) : items.length === 0 ? (
           <Card>
