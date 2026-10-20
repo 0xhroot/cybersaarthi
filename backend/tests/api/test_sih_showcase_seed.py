@@ -290,9 +290,7 @@ async def test_seed_requires_an_authorized_client(seed_env, database: Database):
 
     app.state.database = database
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver/api/v1"
-    ) as anon:
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver/api/v1") as anon:
         with pytest.raises(httpx.HTTPStatusError) as excinfo:
             await showcase_seed.run_seed(anon, member_user_id=None, job_timeout=30)
         assert "401" in str(excinfo.value)

@@ -281,10 +281,17 @@ async def ensure_case(client: httpx.AsyncClient, spec: dict, report: SeedReport)
     return created
 
 
-async def ensure_member(client: httpx.AsyncClient, case_id: str, user_id: str, report: SeedReport):
+async def ensure_member(
+    client: httpx.AsyncClient,
+    case_id: str,
+    user_id: str,
+    report: SeedReport,
+    *,
+    label: str = "presenter account",
+) -> None:
     members = await _get(client, f"/cases/{case_id}/members")
     if any(m["user_id"] == user_id for m in members.get("items", [])):
-        report.add("case member (presenter account)", "existing", user_id)
+        report.add(f"case member ({label})", "existing", user_id)
         return
     await _post(
         client,
@@ -292,7 +299,7 @@ async def ensure_member(client: httpx.AsyncClient, case_id: str, user_id: str, r
         expected=(200, 201),
         json={"user_id": user_id, "role": "collaborator"},
     )
-    report.add("case member (presenter account)", "created", user_id)
+    report.add(f"case member ({label})", "created", user_id)
 
 
 async def _case_evidence(client: httpx.AsyncClient, case_id: str) -> list[dict]:
@@ -939,10 +946,11 @@ async def run_seed(
     )
 
     if member_user_id:
-        try:
-            await ensure_member(client, primary_id, member_user_id, report)
-        except (RuntimeError, httpx.HTTPError) as exc:
-            report.add("case member (presenter account)", "failed", str(exc)[:200])
+        for label, case_id in (("primary", primary_id), ("support case", support_id)):
+            try:
+                await ensure_member(client, case_id, member_user_id, report, label=label)
+            except (RuntimeError, httpx.HTTPError) as exc:
+                report.add(f"case member (presenter, {label})", "failed", str(exc)[:200])
     else:
         report.add("case member (presenter account)", "skipped", "no member_user_id supplied")
     return report
