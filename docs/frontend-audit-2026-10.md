@@ -70,3 +70,53 @@ No pre-existing failures were inherited by the redesign.
 - Graph page: filter chips, inspection pane, honest "layout is cosmetic" note.
 - Reports, devices, settings, login/register: clean and consistent.
 - RBAC is honest: investigator gets a real "No access" page for /app/users.
+
+## Resolution (2026-10-20, after the overhaul)
+
+All twelve defects resolved in four commits on top of baseline `12d3e2b`
+(`4684eff`, `bce707f`, `0bf62ed`, `a459320`, `c8752ce`). Every claim below was
+verified in the browser (Playwright, real API) plus tsc/eslint/vitest/build.
+
+| # | Resolution |
+| --- | --- |
+| D1 | Root cause fixed at the source: `EvidenceList`'s implicit `auto` grid track took its minimum from a `nowrap` dd (964px). Now `grid-cols-1` (minmax(0,1fr)) + `wrap-anywhere` values; new shared `MonoId`/`IdList` primitives. All five analytics sections probe clean at 390px. |
+| D2 | Analytics split into URL-driven section tabs (AI analysis / Contradictions / Financial flow / Cross-case / Network structure) with roving tabindex; only the active section mounts (removes four request bursts). Shared `TabBar` component extracted for reuse. |
+| D3 | Timeline: labeled `key-value` disclosure per event (native `<details>`), day-grouped, server-side paging with honest counts ("Showing the newest 30 of 130 events"). Page 6,460 → verified no JSON dumps, 11 day groups. |
+| D4 | Audit log: 50/page pagination with live "Showing 1–50 of 3,245", offset resets on filter, actor ids resolve to usernames via per-id lookups gated on `users.manage` (investigators never fire them — verified 0 `/admin/users` requests). Resource-type filter options replaced dead guesses with the backend's actual 21 values. |
+| D5 | `Badge`/`TH` gained `whitespace-nowrap`. |
+| D6 | Findings is now a ranked review queue: status tabs with live counts, 50/page URL-synced pagination, honest out-of-range state ("Back to newest"), and the score cell shows the score with a labelled `conf NN%` line — the header explains both 0–100 scales. |
+| D7 | Verified fixed by D5's `TH` primitive: all five headers single-line at 1440/1024/768/390 (range-rect probe). |
+| D8 | Shared `formatDate`/`formatDateTime` replace every `toLocale*` call. |
+| D9 | New shared `ui/key-value.tsx` (`KeyValueList` + `PayloadDetail`); all six `JSON.stringify` dump sites (timeline, triage, report-audit, multilingual, entity context, victim accounts) render labeled rows. Nested objects stringify only as a last-resort value format. |
+| D10 | Dashboard status facts appear once: pulse headline + one completion line ("X% · N of M closed") + three KPI cards. "Active workload" card, "Case status" bar card and the hero status gloss removed. |
+| D11 | Hypotheses page 3,801 → 2,780px. Per-card trust warnings (×13) folded into the section subtitle; CardHeader merged into a compact row; raw rule codes humanized ("Shared neighbors") with the code kept in the chip title. |
+| D12 | `html.dark .bg-white/.text-white/.border-white/.hover:bg-white` overrides removed (three were dead). Solid `-50/-700` palette chips across device pages → the `ui/badge` token recipe; QR plate baked into the SVG so it stays scannable in dark mode. Four pages' `mt-6` first blocks normalized to `mt-4`. |
+
+### Latent bugs found and fixed along the way
+
+- `queryKeys.audit()` returned `["audit", undefined]`; TanStack partial matching
+  is strict per element, so it never matched the parameterized query — all ~46
+  audit invalidations were silent no-ops. No-arg builders now return the bare
+  prefix (`users` had the same shape).
+- The pairing-QR dialog ran `generate()` on mount, always lost the race against
+  the health query, toasted "Backend health unavailable" and never retried — the
+  QR only appeared on a second open with a warm cache. The effect now waits for
+  `health.data` (verified: first open renders the QR).
+
+### Deliberately not changed
+
+- Alpha-tint status maps (`bg-blue-500/15 …` in victims / IoT event kinds):
+  legible in both themes and encode distinctions (purple vs blue) the token
+  palette cannot express. Scrims (`bg-slate-900/35`) are theme-independent.
+- `>500 kB` chunk-size build advisory (pre-existing; splitting the bundle is out
+  of scope for a UI overhaul).
+
+### Final verification
+
+| Check | Result |
+| --- | --- |
+| tsc -b / eslint / build | 0 errors / 0 problems / pass |
+| vitest | 227/227 (26 files); no test file removed — 2 assertions legitimately relaxed where a value now renders twice (labeled field added beside the existing render) |
+| Browser console errors / failed requests | 0 / 0 across all 20 routes |
+| Horizontal overflow 390px | none on any route (all 20 probe at exactly 390/390) |
+| After screenshots | `/tmp/opencode/audit/after/` (36 PNGs, 1440 + 390) |
