@@ -8,6 +8,11 @@ workflows (`make demo-seed`) and verified against the running application; the
 > All names, accounts, transactions, phone numbers and hashes in the showcase
 > are fictional. No real victims, credentials, evidence or PII are used anywhere.
 
+A 14-shot gallery captured from this exact UI (1440×900) lives in
+[`docs/screenshots/sih-showcase/`](../screenshots/sih-showcase/) — re-generate
+it any time with `node docs/scripts/capture_sih_showcase.mjs` while the stack,
+frontend and model server are up.
+
 ---
 
 ## 1. What this showcase demonstrates

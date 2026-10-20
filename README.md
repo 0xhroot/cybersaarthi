@@ -364,6 +364,21 @@ Full scenario, per-capability walkthrough, expected numbers and known
 limitations: **[docs/demo/SIH_SHOWCASE.md](docs/demo/SIH_SHOWCASE.md)** ·
 data flow: [docs/architecture/sih-showcase-data-flow.md](docs/architecture/sih-showcase-data-flow.md)
 
+Captured from the running app at 1440×900 (`node
+docs/scripts/capture_sih_showcase.mjs` re-generates them; 14 total in
+[`docs/screenshots/sih-showcase/`](docs/screenshots/sih-showcase/)):
+
+<table>
+<tr>
+<td width="50%" align="center"><b>Both showcase badges</b><br/><img src="docs/screenshots/sih-showcase/sih-cases-list.png" alt="Cases register showing the SIH Showcase and Demo fixture badges"/></td>
+<td width="50%" align="center"><b>Chain of custody</b><br/><img src="docs/screenshots/sih-showcase/sih-custody.png" alt="Four-event custody chain with recomputed digests"/></td>
+</tr>
+<tr>
+<td width="50%" align="center"><b>Planted contradiction</b><br/><img src="docs/screenshots/sih-showcase/sih-contradiction.png" alt="47500.00 vs 45000.00 contradiction card awaiting review"/></td>
+<td width="50%" align="center"><b>AI report auditor</b><br/><img src="docs/screenshots/sih-showcase/sih-report-audit.png" alt="Report audit card with claim checks and deterministic flags"/></td>
+</tr>
+</table>
+
 ---
 
 ## Architecture
