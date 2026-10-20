@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api";
 import type {
   AdminUserListParams,
@@ -74,9 +74,16 @@ export const queryKeys = {
   findings: (caseId: string, params?: FindingListParams) => ["findings", caseId, params] as const,
   finding: (caseId: string, id: string) => ["findings", caseId, id] as const,
   findingStats: (caseId: string) => ["findings", caseId, "stats"] as const,
-  audit: (params?: AuditParams) => ["audit", params] as const,
+  // With no params the key must be the bare ["audit"] prefix: partial matching
+  // is strict per element, so ["audit", undefined] would never match a
+  // parameterized ["audit", {limit,offset}] query and every invalidation below
+  // would silently no-op.
+  audit: (params?: AuditParams) =>
+    params ? (["audit", params] as const) : (["audit"] as const),
   timeline: (caseId: string) => ["timeline", caseId] as const,
-  users: (params?: AdminUserListParams) => ["users", params] as const,
+  users: (params?: AdminUserListParams) =>
+    params ? (["users", params] as const) : (["users"] as const),
+  adminUser: (userId: string) => ["users", "id", userId] as const,
   pendingUsers: () => ["users", "pending"] as const,
   victims: (caseId: string, params?: VictimListParams) => ["victims", caseId, params] as const,
   victim: (caseId: string, id: string) => ["victims", caseId, id] as const,
@@ -332,16 +339,24 @@ export function useAudit(params?: AuditParams) {
     queryFn: () => api.audit.list(params),
     staleTime: 30 * 1000,
     enabled,
+    // Page flips change the key; keep the rows already on screen rather than
+    // flashing skeletons between offsets.
+    placeholderData: keepPreviousData,
     retry: (failureCount, error) =>
       (error as { status?: number }).status === 403 ? false : failureCount < 2,
   });
 }
 
-export function useTimeline(caseId: string) {
+export function useTimeline(caseId: string, params?: { limit?: number; kind?: string }) {
   return useQuery({
-    queryKey: queryKeys.timeline(caseId),
-    queryFn: () => api.timeline.events(caseId),
+    // Params join the key so growing the limit refetches; the prefix
+    // ["timeline", caseId] still matches every existing invalidation call.
+    queryKey: params ? [...queryKeys.timeline(caseId), params] : queryKeys.timeline(caseId),
+    queryFn: () => api.timeline.events(caseId, params),
     staleTime: MINUTE,
+    // Older events arrive in a second response — keep the rows already on
+    // screen instead of flashing back to skeletons.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -535,6 +550,41 @@ export function useAdminUsers(params?: AdminUserListParams) {
     queryFn: () => api.users.list(params),
     placeholderData: keepPreviousData,
   });
+}
+
+/**
+ * Resolve a small set of user ids to their usernames — one cached `get` per
+ * distinct id, capped by what the caller passes (an audit page has at most
+ * ~50 distinct actors, usually a handful).
+ *
+ * The bulk `useAdminUsers` list cannot serve this: the endpoint caps at 200
+ * rows sorted by username, and dev/production directories are larger than
+ * that, so most actor ids would silently miss. Per-id lookup is exact.
+ *
+ * `enabled` exists because the endpoint demands users.manage while other
+ * pages hold weaker permissions; callers must pass their permission check.
+ * Returns an id → username map with only the ids that resolved.
+ */
+export function useAdminUserLookup(ids: readonly string[], enabled: boolean) {
+  const results = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: queryKeys.adminUser(id),
+      queryFn: () => api.users.get(id),
+      enabled,
+      // An actor that no longer resolves should not be retried per page flip,
+      // and usernames do not change mid-session.
+      retry: false,
+      staleTime: 5 * 60_000,
+    })),
+  });
+  const names = new Map<string, string>();
+  if (enabled) {
+    results.forEach((result, i) => {
+      const username = result.data?.username;
+      if (username && ids[i]) names.set(ids[i], username);
+    });
+  }
+  return names;
 }
 
 export function useAdminPendingUsers() {
