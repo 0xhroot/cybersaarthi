@@ -133,7 +133,7 @@ services:
   # the host network namespace — it cannot run inside an isolated bridge.
   # Start with:  docker compose --profile discovery up -d
   discovery:
-    image: python:3.13-alpine
+    image: python:3.15-alpine
     profiles: ["discovery"]
     network_mode: host
     volumes:
