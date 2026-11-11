@@ -1,0 +1,196 @@
+{
+  "schema": "cybersaarthi.dataset/v1",
+  "updated": "2026-11-10",
+  "description": "Machine-readable manifest for the synthetic SIH showcase dataset. Every fixture shipped in backend/scripts/showcase_fixtures/ and backend/scripts/sih_demo_seed/, its purpose, the capabilities it feeds, and the static expectations validate_showcase_dataset.py asserts. All data is fictional; runtime counts are checked separately by `make demo-status` (see docs/demo/SIH_SHOWCASE.md section 14).",
+  "validator": "python -m scripts.validate_showcase_dataset (static, stdlib-only)",
+  "cases": [
+    {
+      "key": "primary",
+      "case_number": "SIH-2026-001",
+      "title": "SIH Showcase - Sunrise Mercantile payment-diversion fraud",
+      "role": "showcase",
+      "synthetic": true
+    },
+    {
+      "key": "support",
+      "case_number": "SIH-2026-002",
+      "title": "DEMO FIXTURE - related merchant payment inquiries",
+      "role": "demo fixture",
+      "synthetic": true
+    }
+  ],
+  "fixtures": [
+    {
+      "path": "showcase_fixtures/complaint_mixed.txt",
+      "format": "txt",
+      "case": "primary",
+      "purpose": "Bilingual (English + Devanagari) complaint establishing the incident, the disputed transaction and the victim.",
+      "coverage": ["multilingual", "extraction", "entity_resolution"],
+      "checks": ["synthetic_marker", "complaint_reference", "devanagari_present", "iso_dates"],
+      "expected": { "complaint_ref": "CMP-SIH-2026-0417", "languages": ["en", "hi"] }
+    },
+    {
+      "path": "showcase_fixtures/merchant_statement.csv",
+      "format": "csv",
+      "case": "primary",
+      "purpose": "Bank statement of seven debits; source of truth for financial arithmetic and the contradiction pair.",
+      "coverage": ["financial_flow", "contradiction_detection", "report_audit"],
+      "required_columns": ["transaction_id", "date", "amount", "currency", "status", "account_number", "beneficiary_name", "bank_name"],
+      "checks": ["required_fields", "date_consistency", "transaction_arithmetic"],
+      "expected": {
+        "rows": 7,
+        "dated_completed_rows": 6,
+        "dated_completed_total": "125700.00",
+        "all_rows_total": "126699.00",
+        "designed_gaps": [
+          "TXN-SIH-1006 has empty currency",
+          "TXN-SIH-1007 has empty date"
+        ]
+      }
+    },
+    {
+      "path": "showcase_fixtures/wallet_ledger.json",
+      "format": "json",
+      "case": "primary",
+      "purpose": "Merchant wallet settlement ledger; disagrees with the statement on TXN-SIH-1001 by design.",
+      "coverage": ["financial_flow", "contradiction_detection", "report_audit"],
+      "item_keys": ["transaction_id", "date", "amount", "status", "currency", "account", "beneficiary_name"],
+      "checks": ["required_fields", "expected_contradiction"],
+      "expected": {
+        "rows": 2,
+        "designed_contradiction": {
+          "transaction_id": "TXN-SIH-1001",
+          "statement_amount": "47500.00",
+          "ledger_amount": "45000.00",
+          "delta": "2500.00"
+        }
+      }
+    },
+    {
+      "path": "showcase_fixtures/entity_review.csv",
+      "format": "csv",
+      "case": "primary",
+      "purpose": "Five entity rows containing two deliberate alias pairs for the human resolution queue.",
+      "coverage": ["entity_resolution"],
+      "required_columns": ["name", "organization", "phone", "account_number", "incident_date"],
+      "checks": ["required_fields", "date_consistency", "entity_relationships"],
+      "expected": {
+        "rows": 5,
+        "pending_resolution_pairs": 2,
+        "alias_pairs": [
+          ["Ravi Kulkarni", "R. Kulkarni"],
+          ["Suresh Pawar", "S. Pawar"]
+        ]
+      }
+    },
+    {
+      "path": "showcase_fixtures/phishing_urls.txt",
+      "format": "txt",
+      "case": "primary",
+      "purpose": "Inert lure URLs for forensics triage; the triage engine must classify them and never fetch them.",
+      "coverage": ["forensic_triage"],
+      "checks": ["synthetic_marker", "inert_urls"],
+      "expected": { "urls": 4 }
+    },
+    {
+      "path": "showcase_fixtures/hash_manifest.csv",
+      "format": "csv",
+      "case": "primary",
+      "purpose": "Recorded sha256 values for the original export files, consumed by evidence-integrity verification.",
+      "coverage": ["custody_integrity"],
+      "required_columns": ["filename", "sha256"],
+      "checks": ["required_fields", "source_references"],
+      "expected": { "rows": 3, "filenames": ["statement_export.csv", "wallet_export.csv", "lure_capture.txt"] }
+    },
+    {
+      "path": "showcase_fixtures/report_draft.tpl.md",
+      "format": "md",
+      "case": "primary",
+      "purpose": "Deliberately imperfect report draft template with designed defects for the AI report auditor.",
+      "coverage": ["report_audit"],
+      "checks": ["report_audit_findings", "source_references"],
+      "expected": {
+        "designed_defects": [
+          "claim 6: TXN-SIH-1002 stated as 15300.00, statement says 12300.00",
+          "total exposure stated as 125000.00, seven debits sum to 126699.00",
+          "claim 7 cites {{EV_MISSING}} — dangling evidence reference",
+          "claim 8 has no citation at all",
+          "claim 5 asserts approvals on 2026-04-04, a date with no statement activity"
+        ],
+        "placeholders": ["{{CASE_NUMBER}}", "{{EV_STATEMENT}}", "{{EV_LEDGER}}", "{{EV_URLS}}", "{{EV_TIMELINE}}", "{{EV_MISSING}}"]
+      }
+    },
+    {
+      "path": "showcase_fixtures/supporting_payments.csv",
+      "format": "csv",
+      "case": "support",
+      "purpose": "Two payments for the supporting case; PAYOUT-A shares beneficiary account and phone with the primary case (cross-case candidate), PAYOUT-B shares only the merchant name.",
+      "coverage": ["cross_case"],
+      "required_columns": ["reference", "date", "amount", "currency", "account_number", "beneficiary_phone", "name", "note"],
+      "checks": ["required_fields", "date_consistency", "entity_relationships"],
+      "expected": {
+        "rows": 2,
+        "shared_with_primary": { "reference": "PAYOUT-A", "phone": "+91 98200 00001", "account_hint": "ACC-SIH-001" }
+      }
+    },
+    {
+      "path": "sih_demo_seed/persons.csv",
+      "format": "csv",
+      "case": "graph",
+      "purpose": "140 synthetic persons with phone, vehicle, organization and account for the graph demonstration.",
+      "coverage": ["entity_resolution", "graph", "relationship_discovery"],
+      "required_columns": ["name", "phone", "vehicle_no", "organization", "account_no", "city"],
+      "checks": ["required_fields", "entity_relationships", "fixture_isolation"],
+      "expected": { "rows": 140, "phone_pattern": "^\\+91-9000\\d{6}$", "name_words": 2, "organizations": 12 }
+    },
+    {
+      "path": "sih_demo_seed/transfers.json",
+      "format": "json",
+      "case": "graph",
+      "purpose": "Network of dated money transfers driving graph flow analytics.",
+      "coverage": ["financial_flow", "graph"],
+      "item_keys": ["from_account", "to_account", "amount", "date"],
+      "checks": ["required_fields", "date_consistency", "transaction_arithmetic"],
+      "expected": { "rows": 144, "min_amount": 1 }
+    },
+    {
+      "path": "sih_demo_seed/associations.txt",
+      "format": "txt",
+      "case": "graph",
+      "purpose": "140 lines: 40 person-association sentences (names must resolve to persons.csv) and 100 call-detail-record lines (device numbers must resolve to persons.csv phones).",
+      "coverage": ["relationship_discovery", "entity_resolution"],
+      "checks": ["referential_integrity"],
+      "expected": { "lines": 140, "person_lines": 40, "cdr_lines": 100 }
+    }
+  ],
+  "expected_runtime": {
+    "verified_via": "make demo-status (live API) and docs/demo/SIH_SHOWCASE.md section 14",
+    "primary_case": {
+      "parsed_exhibits": 6,
+      "custody_events": 4,
+      "entities": 25,
+      "pending_resolution_matches": 2,
+      "timeline_events": 26,
+      "contradictions": 1,
+      "financial_findings": 1,
+      "firing_patterns": 5,
+      "cross_case_candidates": 6,
+      "translations": 3,
+      "triage_artifacts": 1,
+      "triage_observations": 8,
+      "findings": 34,
+      "reports": 1,
+      "report_audits_succeeded": 1
+    },
+    "support_case": { "parsed_exhibits": 1 },
+    "seed_rerun": "43 existing, 1 skipped, 0 created, exit 0"
+  },
+  "isolation": {
+    "real_data_forbidden": true,
+    "allowed_case_numbers": ["SIH-2026-001", "SIH-2026-002"],
+    "allowed_references": ["SIH-2026-0417"],
+    "phone_patterns": ["^\\+91 98200 000\\d{2}$", "^\\+91-98200-000\\d{2}$", "^\\+91-90000000\\d{2}$"],
+    "url_tlds": [".test"],
+    "marker": "FICTIONAL|SYNTHETIC"
+  }
+}
