@@ -14,7 +14,17 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MODEL="${REPO_ROOT}/Qwen3-8B-Q4_K_M.gguf"
+# AI_MODEL_PATH (see .env.example) selects which GGUF is served: the shipped
+# Q4_K_M baseline by default, or a fine-tuned candidate when a comparison run
+# points it elsewhere. Absolute, or relative to the repo root. make
+# model-rollback restores the baseline value; the model server must be
+# restarted for either change to take effect.
+MODEL_SETTING="${AI_MODEL_PATH:-Qwen3-8B-Q4_K_M.gguf}"
+if [[ "${MODEL_SETTING}" = /* ]]; then
+  MODEL="${MODEL_SETTING}"
+else
+  MODEL="${REPO_ROOT}/${MODEL_SETTING}"
+fi
 BIN="${REPO_ROOT}/ai_runtime/llama.cpp/llama-server"
 HOST="${AI_SERVER_HOST:-127.0.0.1}"
 PORT="${AI_SERVER_PORT:-8081}"
