@@ -25,6 +25,7 @@ node_modules/
 # Local AI artifacts (model weights + inference runtime)
 *.gguf
 ai_runtime/
+.soup-crashes/
 
 # Docker local data
 *.log

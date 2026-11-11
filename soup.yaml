@@ -1,0 +1,62 @@
+# CyberSaarthi local fine-tuning config — Soup + QLoRA on Qwen3-8B.
+#
+# Deliberately mirrors the `qwen3-8b-sft` recipe (soup_cli/recipes/catalog.py)
+# with three measured deviations:
+#
+#   * data.train points at the split emitted by
+#     `python3 scripts/ai/validate_dataset.py --emit-splits`, so the held-out
+#     test set can never reach training. Soup's DataConfig has no file-based
+#     validation input (only `val_split`), so it re-splits this train file
+#     90/10 internally for training-time monitoring; our emitted val.jsonl and
+#     test.jsonl stay held out and are never named here.
+#   * data.format is pinned to `chatml` (the validator cross-checks against
+#     the same value) instead of `auto`;
+#   * data.max_length is 4096, not the recipe's 2048. Measured on the generated
+#     dataset with the Qwen3-8B tokenizer: n=140, min=591, median=2088,
+#     p95=2856, max=3267 — 74% of rows exceed 2048 and would be truncated
+#     through the final answer. 4096 fits every row with headroom and stays
+#     well inside production's AI_CONTEXT_LENGTH (8192).
+#
+# No secrets here: the model is loaded from the local Hugging Face cache
+# (Qwen/Qwen3-8B, Apache-2.0) and every artifact lands under ai_runtime/,
+# which is git-ignored.
+
+base: Qwen/Qwen3-8B
+task: sft
+
+data:
+  train: ai_runtime/data/splits/train.jsonl
+  format: chatml
+  max_length: 4096
+
+training:
+  epochs: 3
+  lr: 2e-4
+  # Measured on the RTX 3080 (12 GB): `batch_size: auto` OOMs at
+  # batch_size=1 with max_length 4096 (peak 11231 MiB), because Soup's
+  # auto-batch probe runs one forward+backward *before* gradient
+  # checkpointing is wired into TrainingArguments, so the probe sees the
+  # un-checkpointed activation footprint. Pinning the size skips that probe;
+  # checkpointing below then governs the real training step.
+  batch_size: 1
+  # 99 train rows / (1 x 8) => ~12 optimizer steps per epoch.
+  gradient_accumulation_steps: 8
+  # 'full' checkpoints every block, trading compute for activation memory and
+  # keeping the 4096 context intact instead of truncating 74% of rows.
+  gradient_checkpointing: full
+  # Measured: with plain cross-entropy the first training step OOM'd allocating
+  # the logits tensor (4096 x 151936 vocab ~= 1.16 GiB) with only 497 MiB free,
+  # peaking at 11930 of ~11952 MiB. Checkpointing cannot reduce it — logits are
+  # not activations. Liger's fused linear cross-entropy computes the loss in
+  # chunks and never materialises that tensor ("the logits will not be
+  # materialized", liger/transformers/monkey_patch.py), which is the fix for a
+  # 151k-vocab model on a 12 GB card. Requires `liger-kernel` in the soup venv.
+  use_liger: true
+  lora:
+    r: 16
+    alpha: 32
+    target_modules: auto
+  quantization: 4bit
+
+output: ai_runtime/train/output
+experiment_name: cybersaarthi-qwen3-8b-qlora
