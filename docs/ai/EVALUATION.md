@@ -218,6 +218,16 @@ like the others).
 
 ## 6. "Soup" — status, blocker, and safe prep only
 
+> **2026-11-11 update:** the blocker recorded below has since been **cleared
+> and executed** — Python 3.12 provisioned via `uv`, `soup-cli[train,liger]`
+> installed in an isolated venv, `Qwen/Qwen3-8B` downloaded and verified, a
+> real QLoRA run completed (570 s, exit 0), and a candidate GGUF exported.
+> The instruction dataset was built synthetically (never fabricated from real
+> cases). See [FINE_TUNING_REPORT.md](FINE_TUNING_REPORT.md) for measured
+> numbers and [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) for the updated
+> status. The remainder of this section is kept as the dated audit record of
+> what was true on 2026-10-15.
+
 **What Soup is** (verified from the upstream repository today,
 `github.com/MakazhanAlpamys/Soup`, Apache-2.0): a CLI ("fine-tune LLMs from one
 YAML") offering QLoRA/SFT fine-tuning with a `tool-calling` template, LoRA

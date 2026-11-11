@@ -1,11 +1,15 @@
 # CyberSaarthi AI — Soup Fine-Tuning Pipeline
 
-**Status: safe preparation complete; no training run performed.**
-**Verified:** 2026-10-15 · **Soup:** `soup-cli 0.76.1` (light core) · **Model family:** Qwen3-8B
+**Status: TRAINING EXECUTED (2026-11-11) — adapter trained, candidate GGUF
+exported; baseline-vs-tuned evaluation pending (Docker daemon down).**
+**Verified:** 2026-10-15 (compatibility) · 2026-11-11 (execution) ·
+**Soup:** `soup-cli 0.76.1` · **Model family:** Qwen3-8B
 
 This documents the *verified* path from the current working model to a
 fine-tuned candidate, the tooling built to make it safe, and the exact blocker
-that stops a run today. Nothing here is claimed without an executed check.
+that stops the evaluation today. Nothing here is claimed without an executed
+check. Measured numbers from the run live in
+[FINE_TUNING_REPORT.md](FINE_TUNING_REPORT.md).
 
 ---
 
@@ -17,32 +21,33 @@ that stops a run today. Nothing here is claimed without an executed check.
 | Can we get a supported interpreter? | **Yes.** `uv` (0.12.13) is installed and provisions an isolated CPython **3.12.14** — no system changes. | `uv venv --python 3.12 ai_runtime/soup/.venv` |
 | Does Soup install and run? | **Yes.** Light core `soup-cli 0.76.1` installs; `soup doctor` reports all required deps OK. | `ai_runtime/soup/.venv/bin/soup doctor` |
 | Is Qwen3-8B supported? | **Yes.** Shipped recipe `qwen3-8b-sft` → `Qwen/Qwen3-8B` (SFT); also `qwen3-8b-tools`, `qwen3-8b-grpo`. | `soup recipes list` |
-| Does the training stack resolve on our GPU? | **Yes (dry-run).** 57 packages resolve against CUDA 13.3 / driver 610.57.04: torch 2.14.1, transformers 5.19.0, peft 0.21.2, trl 0.29.1, bitsandbytes 0.50.2. **Not installed** — this is the multi-GB download held back pending go-ahead. | `uv pip install --dry-run "soup-cli[train]"` |
+| Does the training stack resolve on our GPU? | **Yes — installed and executed.** `soup-cli[train,liger]==0.76.1` built into `ai_runtime/soup/.venv` (Python 3.12.14): torch 2.15.0+cu132, transformers 5.22.2, peft 0.21.2, trl 0.29.1, bitsandbytes 0.50.2, liger-kernel 0.8.5. Reproducible via `scripts/ai/setup_training.sh`. | `ai_runtime/soup/.venv/bin/soup doctor` |
 | Can our existing GGUF be the training base? | **No.** Soup's `base:` takes a HuggingFace checkpoint (`Qwen/Qwen3-8B`). A quantized GGUF (`Qwen3-8B-Q4_K_M.gguf`) is not a valid LoRA/QLoRA source. | Soup config schema + recipes |
 
 **The prior "blocked: host Python 3.14 only" conclusion is now resolved** — `uv`
 provides the isolated 3.12 environment Soup requires, verified by an actual
 install + `soup doctor`.
 
-## 2. The exact remaining blocker (before any training run)
+## 2. Blocker status (was: two downloads before any run)
 
-Two multi-gigabyte downloads are **deliberately not performed** yet, per the
-rule "do not install a multi-gigabyte training stack without verifying the
-dependency plan first." Both plans are now verified; execution needs an explicit
-go-ahead and a disk/RAM budget check:
+Both downloads that were deliberately held in the 2026-10-15 audit have
+since been **performed and verified**:
 
-1. **Training stack** (`soup-cli[train]`): torch + CUDA 13 wheels + peft/trl/
-   bitsandbytes ≈ several GB. Dry-run resolves cleanly; not installed.
-2. **Base checkpoint** (`Qwen/Qwen3-8B`, HF safetensors, ~16 GB): the model
-   actually used as the LoRA base. Our working model is a *quantized GGUF* and
-   cannot be used directly (see §1).
+1. **Training stack** (`soup-cli[train,liger]`): installed into the isolated
+   `ai_runtime/soup/.venv` — `make train-setup` rebuilds it from scratch.
+2. **Base checkpoint** (`Qwen/Qwen3-8B`, HF safetensors, ~16 GB): downloaded
+   from the official Qwen org (Apache-2.0), verified, and cached at
+   `~/.cache/huggingface/hub/models--Qwen--Qwen3-8B`. Training runs offline
+   against this cache.
 
-VRAM/RAM budget: QLoRA 4-bit on an 8B model needs ~5–6 GB VRAM (Soup's table
-says 8 GB → ~7B; we have 12 GB). RAM is 15 GB total — tight but sufficient for
-the base in 4-bit with layer streaming disabled. `soup doctor` will confirm
-once torch is present (GPU currently reports "unknown (torch not installed)").
+VRAM/RAM budget, now measured rather than projected: the QLoRA run peaked at
+**8183 MiB** (1 Hz nvidia-smi) / **9.1 GiB** (torch allocator) of the 12 GB
+RTX 3080 — after the peft fp32-upcast guard removed a 2.32 GiB waste
+(root cause and fix: [FINE_TUNING_REPORT.md](FINE_TUNING_REPORT.md) §4).
 
-**No real training run has occurred. Fine-tuning is NOT claimed.**
+**Training has been executed (exit 0, 39/39 steps, 570 s).** What remains
+un-executed is the baseline-vs-tuned evaluation, blocked solely by the
+Docker daemon being down (the eval harness needs the live backend).
 
 ## 3. Verified path (supported base → deployed candidate)
 
@@ -98,10 +103,15 @@ Run `python3 scripts/ai/validate_dataset.py --self-test` to see it validate a
 synthetic set covering all ten categories (Soup's validator confirms `10/10
 rows valid for chatml format`).
 
-## 5. Explicitly out of scope until go-ahead
+## 5. Scope status
 
-- Installing `soup-cli[train]` (multi-GB) — plan verified, install held.
-- Downloading `Qwen/Qwen3-8B` (~16 GB) — required base, not fetched.
-- Any `soup train` run — blocked on the two downloads above.
-- Treating fine-tuning as a substitute for retrieval/deterministic analytics —
-  never; the `rank_entities` tool (Stage A) is the accuracy fix for rankings.
+- **Installed:** `soup-cli[train,liger]` in the isolated venv (multi-GB) — done.
+- **Downloaded:** `Qwen/Qwen3-8B` (~16 GB) base checkpoint — done, verified.
+- **Executed:** a real `soup train` run (2026-11-11): adapter trained,
+  candidate GGUF exported — see [FINE_TUNING_REPORT.md](FINE_TUNING_REPORT.md).
+- **Pending:** baseline-vs-tuned evaluation and the adopt/reject decision —
+  blocked on the Docker daemon (`sudo systemctl start docker`).
+- **Never:** treating fine-tuning as a substitute for retrieval/deterministic
+  analytics — the `rank_entities` tool (Stage A) is the accuracy fix for
+  rankings, and the adapter is adopted only on measured golden-set
+  improvement (pre-registered decision rule, FINE_TUNING_REPORT §7).

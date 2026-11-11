@@ -7,6 +7,8 @@ previewers; no extra tooling is needed.
 | Diagram | Shows | Read it when |
 |---------|-------|--------------|
 | [System architecture](system-architecture.md) | Clients, compose stack, local AI runtime and who may talk to whom | You want the big picture first |
+| [Investigation workflow](investigation-workflow.md) | The 22-step path from complaint to versioned, audited report — routes → services → persistence → invariants, plus job semantics and security invariants | You want the end-to-end product flow |
+| [Local AI training](local-ai-training.md) | Fine-tuning (QLoRA via Soup), dataset contract, baseline-vs-candidate evaluation and one-command rollback | You are touching training, evaluation or the model config |
 | [AI request lifecycle](ai-request-lifecycle.md) | What happens after an investigator presses **Run**: authz → job → deterministic engine → bounded LLM → verification → reviewable artifact | You are reviewing or extending any AI feature |
 | [Evidence ingestion & custody](evidence-ingestion-custody.md) | Fingerprinting, parsing, AI extraction copilot, hash verification, append-only custody events and the deterministic custody rule set | You touch uploads, integrity or chain of custody |
 | [Entity resolution & timeline](entity-resolution-timeline.md) | Similarity *bands* (never auto-merge) and source-anchored timeline proposals (never invented times) | You work on entities or the timeline |
